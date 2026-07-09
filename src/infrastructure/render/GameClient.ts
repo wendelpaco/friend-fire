@@ -63,6 +63,69 @@ function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
 }
 
+function asWeaponId(id: string | undefined | null): WeaponId | null {
+  if (!id) return null;
+  return id in WEAPONS ? (id as WeaponId) : null;
+}
+
+/** Map server primary/secondary/activeSlot/mag into client PlayerState loadout. */
+function loadoutFromNetwork(
+  np: {
+    money?: number;
+    primaryId?: string;
+    secondaryId?: string;
+    activeSlot?: number;
+    mag?: number;
+    reserve?: number;
+    team?: string;
+  },
+  existing: PlayerState | undefined,
+  team: Team,
+): Pick<PlayerState, "money" | "weaponSlot" | "weapons" | "ammo"> {
+  const primary = asWeaponId(np.primaryId);
+  const secondary =
+    asWeaponId(np.secondaryId) ??
+    (team === "CT" ? ("usp" as WeaponId) : ("glock" as WeaponId));
+
+  const weapons: PlayerState["weapons"] = { 4: "knife" };
+  if (primary) weapons[1] = primary;
+  weapons[2] = secondary;
+
+  let weaponSlot = np.activeSlot ?? existing?.weaponSlot ?? 2;
+  if (weaponSlot !== 1 && weaponSlot !== 2 && weaponSlot !== 4) {
+    weaponSlot = 2;
+  }
+  // Don't keep slot 1 active if primary was dropped/missing
+  if (weaponSlot === 1 && !primary) weaponSlot = 2;
+
+  const ammo: PlayerState["ammo"] = { ...(existing?.ammo ?? {}) };
+  if (primary && !ammo[primary]) {
+    const w = WEAPONS[primary];
+    ammo[primary] = { mag: w.magazine, reserve: w.reserve };
+  }
+  if (!ammo[secondary]) {
+    const w = WEAPONS[secondary];
+    ammo[secondary] = { mag: w.magazine, reserve: w.reserve };
+  }
+
+  // Server only streams mag/reserve for the active firearm
+  const activeId =
+    weaponSlot === 1 ? primary : weaponSlot === 2 ? secondary : null;
+  if (activeId && typeof np.mag === "number") {
+    ammo[activeId] = {
+      mag: np.mag,
+      reserve: typeof np.reserve === "number" ? np.reserve : 0,
+    };
+  }
+
+  const money =
+    typeof np.money === "number" && Number.isFinite(np.money)
+      ? np.money
+      : (existing?.money ?? START_MONEY);
+
+  return { money, weaponSlot, weapons, ammo };
+}
+
 /**
  * Owns match simulation + input; drives ThreeRenderer each frame.
  * Public API matches the former GameEngine surface used by HUD / GameCanvas.
@@ -99,6 +162,8 @@ export class GameClient {
   /** When true, combat/bots come from Colyseus; local only predicts movement. */
   private networked = false;
   private networkSessionId: string | null = null;
+  /** When set (room mode), purchases go to the server instead of local tryBuy. */
+  private buySender: ((itemId: string) => void) | null = null;
   private matchConfig = {
     warmupTime: WARMUP_TIME,
     roundTime: ROUND_TIME,
@@ -155,11 +220,18 @@ export class GameClient {
     this.networkSessionId = sessionId;
     if (enabled) {
       this.state.bullets = [];
+    } else {
+      this.buySender = null;
     }
   }
 
   isNetworked() {
     return this.networked;
+  }
+
+  /** Inject room.send("buy") from GameCanvas when Colyseus is connected. */
+  setBuySender(sender: ((itemId: string) => void) | null) {
+    this.buySender = sender;
   }
 
   applyNetworkState(net: {
@@ -177,6 +249,12 @@ export class GameClient {
       armor?: number;
       kills?: number;
       deaths?: number;
+      money?: number;
+      primaryId?: string;
+      secondaryId?: string;
+      activeSlot?: number;
+      mag?: number;
+      reserve?: number;
     }>;
     phase: string | null;
     round: number;
@@ -217,6 +295,8 @@ export class GameClient {
         rot = np.rot;
       }
 
+      const loadout = loadoutFromNetwork(np, existing, team);
+
       nextPlayers.push({
         id: np.id,
         name: np.name,
@@ -227,12 +307,10 @@ export class GameClient {
         rot,
         hp: np.hp,
         armor: np.armor ?? existing?.armor ?? 0,
-        money: existing?.money ?? START_MONEY,
-        weaponSlot: existing?.weaponSlot ?? 2,
-        weapons: existing?.weapons ?? { 2: "glock", 4: "knife" },
-        ammo: existing?.ammo ?? {
-          glock: { mag: 20, reserve: 120 },
-        },
+        money: loadout.money,
+        weaponSlot: loadout.weaponSlot,
+        weapons: loadout.weapons,
+        ammo: loadout.ammo,
         alive: np.alive,
         kills: np.kills ?? existing?.kills ?? 0,
         deaths: np.deaths ?? existing?.deaths ?? 0,
@@ -571,6 +649,15 @@ export class GameClient {
       Sfx.play("deny");
       return;
     }
+
+    // Room mode: server owns money/loadout — send buy, wait for state sync
+    if (this.networked && this.buySender) {
+      this.buySender(itemId);
+      this.flashBuyMessage("Compra enviada…");
+      Sfx.play("buy");
+      return;
+    }
+
     const result = tryBuy(
       {
         money: p.money,

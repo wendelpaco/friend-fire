@@ -118,6 +118,7 @@ export function GameCanvas({
       if (!engine) return;
       if (snap.connected && !snap.hybridLocalCombat) {
         engine.setNetworked(true, snap.sessionId);
+        engine.setBuySender((itemId) => client.sendBuy(itemId));
         engine.applyNetworkState({
           sessionId: snap.sessionId,
           players: snap.players,
@@ -129,6 +130,10 @@ export function GameCanvas({
         });
       } else if (!snap.connected) {
         engine.setNetworked(false, null);
+        engine.setBuySender(null);
+      } else {
+        // Hybrid / non-authoritative: keep local shop
+        engine.setBuySender(null);
       }
     });
 
@@ -139,6 +144,7 @@ export function GameCanvas({
         if (!cancelled) {
           setNet(client.snapshot());
           engineRef.current?.setNetworked(false, null);
+          engineRef.current?.setBuySender(null);
           console.warn("[room] Colyseus connect failed:", e);
         }
       }
@@ -166,6 +172,7 @@ export function GameCanvas({
       unsub();
       window.clearInterval(inputTimer);
       engineRef.current?.setNetworked(false, null);
+      engineRef.current?.setBuySender(null);
       void client.leave();
       if (roomRef.current === client) roomRef.current = null;
     };
@@ -183,7 +190,7 @@ export function GameCanvas({
           : net?.connected
             ? net.hybridLocalCombat
               ? `Online · ${net.players.filter((p) => !p.isBot).length} humano(s) · híbrido local`
-              : `Online · combate no servidor · ${net.players.filter((p) => !p.isBot).length} humano(s)`
+              : `Online · combate no servidor · loja no servidor · ${net.players.filter((p) => !p.isBot).length} humano(s)`
             : roomCode
               ? "Conectando ao servidor…"
               : null

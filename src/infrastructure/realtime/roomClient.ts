@@ -53,6 +53,14 @@ export type NetworkPlayer = {
   armor: number;
   kills: number;
   deaths: number;
+  /** Economy / loadout (server-authoritative shop) */
+  money: number;
+  primaryId: string;
+  secondaryId: string;
+  /** Active slot: 1 primary | 2 secondary | 4 knife */
+  activeSlot: number;
+  mag: number;
+  reserve: number;
 };
 
 export type InputPayload = {
@@ -142,6 +150,12 @@ function playersFromState(state: unknown): NetworkPlayer[] {
       armor: Number(o.armor) || 0,
       kills: Number(o.kills) || 0,
       deaths: Number(o.deaths) || 0,
+      money: Number(o.money) || 0,
+      primaryId: typeof o.primaryId === "string" ? o.primaryId : "",
+      secondaryId: typeof o.secondaryId === "string" ? o.secondaryId : "",
+      activeSlot: Number(o.activeSlot) || 2,
+      mag: Number(o.mag) || 0,
+      reserve: Number(o.reserve) || 0,
     });
   };
 
@@ -426,6 +440,16 @@ export class ColyseusRoomClient implements RoomClient {
     if (!this.room) return;
     try {
       this.room.send("input", input as InputPayload);
+    } catch {
+      /* drop if socket mid-close */
+    }
+  }
+
+  /** Authoritative shop purchase (server validates phase/money/catalog). */
+  sendBuy(itemId: string): void {
+    if (!this.room || !itemId) return;
+    try {
+      this.room.send("buy", { itemId });
     } catch {
       /* drop if socket mid-close */
     }
