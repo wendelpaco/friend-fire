@@ -8,7 +8,7 @@ import { GameHud } from "./GameHud";
 export function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<import("@/game/engine/GameEngine").GameEngine | null>(
+  const engineRef = useRef<import("@/infrastructure/render/GameClient").GameClient | null>(
     null,
   );
   const router = useRouter();
@@ -31,10 +31,12 @@ export function GameCanvas() {
 
     const boot = async () => {
       try {
-        const { GameEngine } = await import("@/game/engine/GameEngine");
+        const { GameClient } = await import(
+          "@/infrastructure/render/GameClient"
+        );
         if (disposed) return;
 
-        const engine = new GameEngine(canvas);
+        const engine = new GameClient(canvas);
         engineRef.current = engine;
         engine.setHudListener((snapshot) => setHud(snapshot));
 
