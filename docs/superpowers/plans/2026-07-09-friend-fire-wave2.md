@@ -3,7 +3,7 @@
 **Date:** 2026-07-09  
 **Branch base:** `feature/friend-fire-v1`
 
-## Done in visual mini-wave (this session)
+## Done in visual mini-wave
 
 - Stronger sun + fill light, Exp2 fog  
 - Sand texture, wall stucco, asphalt strips  
@@ -12,6 +12,14 @@
 - Screen vignette (camera-attached) + local spotlight  
 - Richer player voxels (arms, pouches, shadow blob)  
 - Play page soft tropical chrome  
+
+## Done in Track A (feel)
+
+- **Buy menu** (`B`) in warmup / between rounds — shop domain + UI  
+- Extra weapons: MP5, Galil, AWP + colete  
+- **SFX** procedural (shoot, reload, buy, hit, foot, UI) via Web Audio  
+- **Camera** (`C`) locked vs free pan  
+- Humans start with pistol only (bots full kit) to force buy loop  
 
 ## Gap still vs RUSH B videos (backlog visual)
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { CONTROLS_HELP } from "@/game/constants";
 import type { HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/presentation/ads/AdBanner";
+import { BuyMenu } from "@/presentation/game/BuyMenu";
 import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
 
 function formatTime(seconds: number) {
@@ -27,6 +28,8 @@ interface GameHudProps {
   onDismissHelp: () => void;
   onOpenHelp: () => void;
   onMatchContinue?: () => void;
+  onBuy?: (itemId: string) => void;
+  onCloseBuy?: () => void;
 }
 
 export function GameHud({
@@ -36,6 +39,8 @@ export function GameHud({
   onDismissHelp,
   onOpenHelp,
   onMatchContinue,
+  onBuy,
+  onCloseBuy,
 }: GameHudProps) {
   return (
     <div className="pointer-events-none absolute inset-0 z-10 select-none font-sans text-white">
@@ -291,9 +296,16 @@ export function GameHud({
       </div>
 
       {/* Subtle control strip */}
-      {!hud.paused && !hud.showHelp && (
+      {!hud.paused && !hud.showHelp && !hud.showBuyMenu && (
         <div className="absolute bottom-[5.5rem] left-1/2 -translate-x-1/2 text-[10px] tracking-wide text-white/30">
-          R recarregar · Tab placar · Esc pausar · H ajuda
+          B loja · C câmera ({hud.cameraMode === "free" ? "livre" : "travada"}) ·
+          R recarregar · Tab placar · Esc pausar
+        </div>
+      )}
+
+      {hud.buyMessage && !hud.showBuyMenu && (
+        <div className="absolute left-1/2 top-28 z-20 -translate-x-1/2 rounded-lg border border-amber-400/40 bg-black/75 px-4 py-1.5 text-sm text-amber-100 shadow-lg">
+          {hud.buyMessage}
         </div>
       )}
 
@@ -413,8 +425,19 @@ export function GameHud({
         </div>
       )}
 
+      {/* Buy menu */}
+      {hud.showBuyMenu && onBuy && onCloseBuy && !hud.paused && !hud.matchOver && (
+        <BuyMenu
+          money={hud.money}
+          armor={hud.armor}
+          message={hud.buyMessage}
+          onBuy={onBuy}
+          onClose={onCloseBuy}
+        />
+      )}
+
       {/* Pause menu */}
-      {hud.paused && !hud.showHelp && !hud.matchOver && (
+      {hud.paused && !hud.showHelp && !hud.matchOver && !hud.showBuyMenu && (
         <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-black/75 backdrop-blur-md">
           <div className="w-full max-w-sm rounded-2xl border border-white/12 bg-[#0e1118] p-6 shadow-2xl">
             <div className="mb-1 text-center text-[10px] font-semibold tracking-[0.3em] text-white/40">

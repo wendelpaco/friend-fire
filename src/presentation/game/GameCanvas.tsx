@@ -194,6 +194,8 @@ export function GameCanvas({
           onDismissHelp={() => engineRef.current?.dismissHelp()}
           onOpenHelp={() => engineRef.current?.openHelp()}
           onMatchContinue={onMatchContinue}
+          onBuy={(id) => engineRef.current?.purchase(id)}
+          onCloseBuy={() => engineRef.current?.closeBuyMenu()}
         />
       )}
       {mode === "room" && displayCode && !hud && !loading && (

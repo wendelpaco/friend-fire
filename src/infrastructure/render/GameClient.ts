@@ -3,10 +3,13 @@ import { recordImpression } from "@/domains/ads";
 import {
   applyDamage as applyDamageToVitals,
   beginReload,
+  canOpenBuyMenu,
   completeReload,
   isDead,
+  tryBuy,
   WEAPONS,
 } from "@/domains/combat";
+import { Sfx } from "@/infrastructure/audio/Sfx";
 import { getOrCreateSessionId } from "@/domains/identity";
 import {
   createMatchPhase,
@@ -86,6 +89,11 @@ export class GameClient {
   private helpSeenKey = "ff_help_seen";
   private sessionId = "server";
   private mapImpressionsRecorded = false;
+  private freeCamX = 0;
+  private freeCamZ = 0;
+  private footCooldown = 0;
+  private buyMessage: string | null = null;
+  private buyMessageUntil = 0;
   private matchConfig = {
     warmupTime: WARMUP_TIME,
     roundTime: ROUND_TIME,
@@ -206,6 +214,8 @@ export class GameClient {
       paused: false,
       showScoreboard: false,
       showHelp,
+      showBuyMenu: false,
+      cameraMode: "locked",
       hitMarkerUntil: 0,
       damageFlashUntil: 0,
       lastDamageAmount: 0,
@@ -251,14 +261,18 @@ export class GameClient {
   ): PlayerState {
     const spawns = this.map.spawns.filter((s) => s.team === team);
     const spawn = spawns[spawnIndex % spawns.length]!;
-    const primary: WeaponId = team === "TR" ? "ak47" : "usp";
-    const secondary: WeaponId = team === "TR" ? "glock" : "deagle";
-
-    const weapons: PlayerState["weapons"] = {
-      1: primary,
-      2: secondary,
-      4: "knife",
-    };
+    // Humans start with pistol only (buy menu upgrades); bots get full kit
+    const secondary: WeaponId = team === "TR" ? "glock" : "usp";
+    const weapons: PlayerState["weapons"] = isBot
+      ? {
+          1: team === "TR" ? "ak47" : "mp5",
+          2: secondary,
+          4: "knife",
+        }
+      : {
+          2: secondary,
+          4: "knife",
+        };
 
     const ammo: PlayerState["ammo"] = {};
     for (const wid of Object.values(weapons)) {
@@ -295,13 +309,44 @@ export class GameClient {
 
   private update(dt: number) {
     if (this.input.wasPressed("Escape")) {
-      this.togglePause();
+      if (this.state.showBuyMenu) {
+        this.closeBuyMenu();
+      } else {
+        this.togglePause();
+      }
     }
     if (this.input.wasPressed("KeyH")) {
       if (this.state.showHelp) this.dismissHelp();
       else this.state.showHelp = true;
     }
     this.state.showScoreboard = this.input.isDown("Tab");
+
+    if (this.input.wasPressed("KeyC") && !this.state.showBuyMenu) {
+      this.state.cameraMode =
+        this.state.cameraMode === "locked" ? "free" : "locked";
+      Sfx.play("ui");
+      const local = this.state.players.find(
+        (x) => x.id === this.state.localPlayerId,
+      );
+      if (local) {
+        this.freeCamX = local.x;
+        this.freeCamZ = local.z;
+      }
+    }
+
+    if (this.input.wasPressed("KeyB")) {
+      if (canOpenBuyMenu(this.state.phase) && !this.state.paused) {
+        this.state.showBuyMenu = !this.state.showBuyMenu;
+        Sfx.play("ui");
+      } else if (!canOpenBuyMenu(this.state.phase)) {
+        this.flashBuyMessage("Loja só no aquecimento ou entre rounds");
+        Sfx.play("deny");
+      }
+    }
+
+    if (this.buyMessage && performance.now() > this.buyMessageUntil) {
+      this.buyMessage = null;
+    }
 
     if (this.state.paused || this.state.showHelp) {
       this.pushHud();
@@ -320,6 +365,20 @@ export class GameClient {
       return;
     }
 
+    // Buy menu open: still run timer/bots lightly, but freeze local combat
+    if (this.state.showBuyMenu) {
+      if (!canOpenBuyMenu(this.state.phase)) {
+        this.state.showBuyMenu = false;
+      }
+      this.updateBots(dt);
+      this.updateBullets(dt);
+      this.three.animateDust(dt);
+      this.syncRender();
+      this.pushHud();
+      this.input.endFrame();
+      return;
+    }
+
     this.updateLocalPlayer(dt);
     this.updateBots(dt);
     this.updateBullets(dt);
@@ -329,11 +388,57 @@ export class GameClient {
     this.input.endFrame();
   }
 
+  /** Called from BuyMenu UI */
+  purchase(itemId: string) {
+    const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
+    if (!p || !this.state.showBuyMenu) return;
+    if (!canOpenBuyMenu(this.state.phase)) {
+      this.flashBuyMessage("Loja fechada");
+      Sfx.play("deny");
+      return;
+    }
+    const result = tryBuy(
+      {
+        money: p.money,
+        armor: p.armor,
+        weapons: p.weapons,
+        ammo: p.ammo,
+        weaponSlot: p.weaponSlot,
+      },
+      itemId,
+    );
+    if (!result.ok || !result.player) {
+      this.flashBuyMessage(result.ok ? "Erro" : result.reason);
+      Sfx.play("deny");
+      return;
+    }
+    p.money = result.player.money;
+    p.armor = result.player.armor;
+    p.weapons = result.player.weapons;
+    p.ammo = result.player.ammo;
+    p.weaponSlot = result.player.weaponSlot;
+    this.flashBuyMessage(result.message);
+    Sfx.play("buy");
+  }
+
+  closeBuyMenu() {
+    this.state.showBuyMenu = false;
+    Sfx.play("ui");
+  }
+
+  private flashBuyMessage(msg: string) {
+    this.buyMessage = msg;
+    this.buyMessageUntil = performance.now() + 2200;
+  }
+
   private syncRender() {
     this.three.sync({
       players: this.state.players,
       bullets: this.state.bullets,
       localPlayerId: this.state.localPlayerId,
+      cameraMode: this.state.cameraMode,
+      freeCamX: this.freeCamX,
+      freeCamZ: this.freeCamZ,
     });
   }
 
@@ -442,7 +547,12 @@ export class GameClient {
     }
 
     const move = this.input.moveVector();
-    if (move.x !== 0 || move.z !== 0) {
+    if (this.state.cameraMode === "free") {
+      // Free cam: WASD pans view; player stays (still aims/shoots)
+      const pan = PLAYER_SPEED * 1.8 * dt;
+      this.freeCamX += move.x * pan;
+      this.freeCamZ += move.z * pan;
+    } else if (move.x !== 0 || move.z !== 0) {
       const nx = p.x + move.x * PLAYER_SPEED * dt;
       const nz = p.z + move.z * PLAYER_SPEED * dt;
       const resolved = resolveCircleWalls(
@@ -453,6 +563,11 @@ export class GameClient {
       );
       p.x = resolved.x;
       p.z = resolved.z;
+      this.footCooldown -= dt;
+      if (this.footCooldown <= 0) {
+        Sfx.play("foot");
+        this.footCooldown = 0.32;
+      }
     }
 
     const dx = this.input.aimWorldX - p.x;
@@ -463,6 +578,7 @@ export class GameClient {
     if (slot && p.weapons[slot]) {
       p.weaponSlot = slot;
       p.reloadingUntil = 0;
+      Sfx.play("ui");
     }
 
     if (this.input.wasPressed("KeyR")) {
@@ -481,7 +597,10 @@ export class GameClient {
     const ammo = p.ammo[wid];
     if (!ammo) return;
     const until = beginReload(ammo, wid, performance.now());
-    if (until !== null) p.reloadingUntil = until;
+    if (until !== null) {
+      p.reloadingUntil = until;
+      if (!p.isBot) Sfx.play("reload");
+    }
   }
 
   private finishReload(p: PlayerState) {
@@ -598,6 +717,7 @@ export class GameClient {
 
     ammo.mag -= 1;
     p.lastShotAt = now;
+    if (!p.isBot) Sfx.play("shoot");
 
     const spread = (Math.random() - 0.5) * def.spread;
     const angle = p.rot + spread;
@@ -704,9 +824,11 @@ export class GameClient {
     if (victim.id === this.state.localPlayerId) {
       this.state.damageFlashUntil = performance.now() + 220;
       this.state.lastDamageAmount = damage;
+      Sfx.play("hit");
     }
     if (killer.id === this.state.localPlayerId) {
       this.state.hitMarkerUntil = performance.now() + 120;
+      Sfx.play("hit");
     }
 
     if (isDead(victim.hp)) {
@@ -813,6 +935,9 @@ export class GameClient {
       paused: this.state.paused,
       showScoreboard: this.state.showScoreboard,
       showHelp: this.state.showHelp,
+      showBuyMenu: this.state.showBuyMenu,
+      canBuy: canOpenBuyMenu(this.state.phase),
+      cameraMode: this.state.cameraMode,
       reloading,
       reloadProgress: Math.max(0, Math.min(1, reloadProgress)),
       lowAmmo:
@@ -822,6 +947,7 @@ export class GameClient {
       hitMarker: now < this.state.hitMarkerUntil,
       damageFlash: Math.max(0, (this.state.damageFlashUntil - now) / 220),
       mapName: this.map.displayName,
+      buyMessage: this.buyMessage,
       minimap: this.state.players.map((pl) => ({
         id: pl.id,
         x: pl.x,

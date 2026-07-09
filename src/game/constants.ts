@@ -79,6 +79,8 @@ export const CONTROLS_HELP = [
   { keys: "Mouse", action: "Mirar" },
   { keys: "Clique", action: "Atirar" },
   { keys: "R", action: "Recarregar" },
+  { keys: "B", action: "Loja (aquecimento / entre rounds)" },
+  { keys: "C", action: "Câmera travada / livre" },
   { keys: "1–4", action: "Trocar arma" },
   { keys: "Tab", action: "Placar" },
   { keys: "Esc", action: "Pausar / menu" },

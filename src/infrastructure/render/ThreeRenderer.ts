@@ -14,6 +14,10 @@ export interface RenderSnapshot {
   >;
   bullets: ReadonlyArray<Pick<BulletState, "id" | "x" | "z">>;
   localPlayerId: string;
+  cameraMode?: "locked" | "free";
+  /** When free cam: pan target on ground */
+  freeCamX?: number;
+  freeCamZ?: number;
 }
 
 /**
@@ -935,12 +939,17 @@ export class ThreeRenderer {
     const p = snapshot.players.find((x) => x.id === snapshot.localPlayerId);
     if (!p) return;
 
-    this.camera.position.x += (p.x - this.camera.position.x) * 0.11;
-    this.camera.position.z +=
-      (p.z + CAMERA_OFFSET - this.camera.position.z) * 0.11;
-    this.camera.position.y = CAMERA_HEIGHT;
-    this.camera.lookAt(p.x, 0.4, p.z);
+    const free = snapshot.cameraMode === "free";
+    const lookX = free ? (snapshot.freeCamX ?? p.x) : p.x;
+    const lookZ = free ? (snapshot.freeCamZ ?? p.z) : p.z;
 
+    this.camera.position.x += (lookX - this.camera.position.x) * 0.11;
+    this.camera.position.z +=
+      (lookZ + CAMERA_OFFSET - this.camera.position.z) * 0.11;
+    this.camera.position.y = free ? CAMERA_HEIGHT + 4 : CAMERA_HEIGHT;
+    this.camera.lookAt(lookX, 0.4, lookZ);
+
+    // Spotlight always on local player (not free cam center)
     this.playerSpot.position.set(p.x, 14, p.z);
     this.playerSpot.target.position.set(p.x, 0, p.z);
     this.playerSpot.target.updateMatrixWorld();

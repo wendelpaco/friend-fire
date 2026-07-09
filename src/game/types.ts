@@ -73,6 +73,9 @@ export interface MatchState {
   paused: boolean;
   showScoreboard: boolean;
   showHelp: boolean;
+  showBuyMenu: boolean;
+  /** locked = follow player; free = WASD pans, mouse still aims for shoot */
+  cameraMode: "locked" | "free";
   hitMarkerUntil: number;
   damageFlashUntil: number;
   lastDamageAmount: number;
@@ -113,12 +116,16 @@ export interface HudSnapshot {
   paused: boolean;
   showScoreboard: boolean;
   showHelp: boolean;
+  showBuyMenu: boolean;
+  canBuy: boolean;
+  cameraMode: "locked" | "free";
   reloading: boolean;
   reloadProgress: number;
   lowAmmo: boolean;
   hitMarker: boolean;
   damageFlash: number;
   mapName: string;
+  buyMessage: string | null;
   minimap: Array<{
     id: string;
     x: number;

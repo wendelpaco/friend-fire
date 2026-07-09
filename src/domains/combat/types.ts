@@ -1,4 +1,12 @@
-export type WeaponId = "knife" | "glock" | "deagle" | "ak47" | "usp";
+export type WeaponId =
+  | "knife"
+  | "glock"
+  | "deagle"
+  | "usp"
+  | "ak47"
+  | "galil"
+  | "mp5"
+  | "awp";
 
 export interface WeaponDef {
   id: WeaponId;
@@ -13,6 +21,8 @@ export interface WeaponDef {
   range: number;
   reloadTime: number;
   isMelee?: boolean;
+  /** Shop price; undefined = not sold (starter knife) */
+  price?: number;
 }
 
 export type Ammo = { mag: number; reserve: number };
