@@ -4,6 +4,9 @@ export {
   type ImpactSurface,
 } from "./ImpactParticleSystem";
 export { WallDamageSystem } from "./WallDamageSystem";
+export { BombMarkerSystem } from "./BombMarkerSystem";
+export { HESystem } from "./HESystem";
+export { DamageNumberSystem } from "./DamageNumberSystem";
 
 /** Local FX event shapes (wire agent maps sim → these). Matches design §4.2. */
 export type FxEvent =
@@ -18,4 +21,6 @@ export type FxEvent =
       nz: number;
       surface: "wall" | "ground" | "prop";
     }
-  | { type: "footstep"; x: number; z: number };
+  | { type: "footstep"; x: number; z: number }
+  | { type: "he"; x: number; y: number; z: number; explode?: boolean }
+  | { type: "damageNumber"; x: number; y: number; z: number; text: string };

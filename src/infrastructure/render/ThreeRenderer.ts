@@ -13,6 +13,9 @@ import {
   type WeaponCategory,
 } from "./character";
 import {
+  BombMarkerSystem,
+  DamageNumberSystem,
+  HESystem,
   ImpactParticleSystem,
   type ImpactSurface,
   MuzzleFlashSystem,
@@ -83,6 +86,9 @@ export class ThreeRenderer {
   private muzzleFx: MuzzleFlashSystem;
   private impactFx: ImpactParticleSystem;
   private wallDamageFx: WallDamageSystem;
+  private bombMarkerFx: BombMarkerSystem;
+  private heFx: HESystem;
+  private damageNumberFx: DamageNumberSystem;
   private playerSpot!: THREE.SpotLight;
   private dustParticles!: THREE.Points;
   private vignette!: THREE.Mesh;
@@ -136,6 +142,9 @@ export class ThreeRenderer {
     this.muzzleFx = new MuzzleFlashSystem(this.scene);
     this.impactFx = new ImpactParticleSystem(this.scene);
     this.wallDamageFx = new WallDamageSystem(this.scene);
+    this.bombMarkerFx = new BombMarkerSystem(this.scene);
+    this.heFx = new HESystem(this.scene);
+    this.damageNumberFx = new DamageNumberSystem(this.scene);
 
     if (typeof window !== "undefined") {
       window.addEventListener("ff-prefs", this.onPrefsEvent);
@@ -186,11 +195,32 @@ export class ThreeRenderer {
     }
   }
 
+  /** Planted bomb world marker; pass null to hide. Spec §2.1. */
+  setBombVisual(pos: { x: number; z: number } | null) {
+    this.bombMarkerFx.setVisual(pos);
+  }
+
+  /**
+   * HE grenade: projectile at (x,y,z), or explosion when `explode` is true.
+   * Optional `id` for multi-grenade projectile slots. Spec §2.4.
+   */
+  spawnHE(x: number, y: number, z: number, explode = false, id = 0) {
+    this.heFx.spawn(x, y, z, explode, id);
+  }
+
+  /** Floating damage number (“-XX”) at hit pos. Spec §2.8. */
+  spawnDamageNumber(x: number, y: number, z: number, text: string) {
+    this.damageNumberFx.spawn(x, y, z, text);
+  }
+
   /** Advance pooled FX systems (call every frame). */
   updateFx(dt: number) {
     this.muzzleFx.update(dt);
     this.impactFx.update(dt);
     this.wallDamageFx.update(dt);
+    this.bombMarkerFx.update(dt);
+    this.heFx.update(dt);
+    this.damageNumberFx.update(dt);
   }
 
   /** Brief shoot recoil overlay on character next sync. */
@@ -300,6 +330,9 @@ export class ThreeRenderer {
     this.muzzleFx.dispose();
     this.impactFx.dispose();
     this.wallDamageFx.dispose();
+    this.bombMarkerFx.dispose();
+    this.heFx.dispose();
+    this.damageNumberFx.dispose();
     for (const id of [...this.characters.keys()]) this.removeCharacter(id);
     this.renderer.dispose();
     this.sandTex.dispose();
