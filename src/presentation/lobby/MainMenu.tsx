@@ -12,7 +12,12 @@ import {
   type DailyMission,
 } from "@/domains/identity";
 import { getLastMapId, setLastMapId } from "@/domains/world";
-import { getRoomClient } from "@/infrastructure/realtime/roomClient";
+import {
+  clearLastRoom,
+  getLastRoom,
+  getRoomClient,
+  type LastRoom,
+} from "@/infrastructure/realtime/roomClient";
 import { LeaderboardPanel } from "@/presentation/lobby/LeaderboardPanel";
 import {
   RoomPanel,
@@ -57,11 +62,15 @@ export function MainMenu() {
   const [quickMatchError, setQuickMatchError] = useState<string | null>(null);
   /** Bumped on cancel / new search so stale results leave and do not navigate. */
   const quickMatchGen = useRef(0);
+  const [lastRoom, setLastRoomState] = useState<LastRoom | null>(null);
+  const [rejoinBusy, setRejoinBusy] = useState(false);
+  const [rejoinError, setRejoinError] = useState<string | null>(null);
 
   useEffect(() => {
     setMissions(getMissionsWithProgress());
     setXpTotal(getXp());
     setLastMap(getLastMapId("dust"));
+    setLastRoomState(getLastRoom());
   }, []);
 
   const quickPlayHref = `/play?mode=local&map=${encodeURIComponent(lastMap || "dust")}`;
@@ -69,6 +78,40 @@ export function MainMenu() {
   const cancelQuickMatch = () => {
     quickMatchGen.current += 1;
     setQuickMatchBusy(false);
+  };
+
+  /** Spec §2.6 — rejoin last multiplayer room by stored code. */
+  const handleRejoinLastRoom = async () => {
+    const stored = getLastRoom();
+    if (!stored?.code) {
+      setLastRoomState(null);
+      return;
+    }
+    setRejoinError(null);
+    setRejoinBusy(true);
+    try {
+      const client = getRoomClient();
+      await client.join(stored.code);
+      const snap = client.snapshot();
+      const map =
+        snap.mapId || stored.mapId || getLastMapId("dust") || "dust";
+      setLastMapId(map);
+      setLastMap(map);
+      const qs = new URLSearchParams({
+        mode: "room",
+        code: stored.code,
+        map,
+      });
+      router.push(`/play?${qs.toString()}`);
+    } catch (e) {
+      clearLastRoom();
+      setLastRoomState(null);
+      const msg =
+        e instanceof Error ? e.message : "Falha ao reentrar na última sala";
+      setRejoinError(msg);
+    } finally {
+      setRejoinBusy(false);
+    }
   };
 
   const handleQuickMatchOnline = async () => {
@@ -248,6 +291,32 @@ export function MainMenu() {
                 className="rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
               >
                 {quickMatchError}
+              </p>
+            )}
+            {lastRoom?.code ? (
+              <button
+                type="button"
+                disabled={rejoinBusy || quickMatchBusy}
+                onClick={() => void handleRejoinLastRoom()}
+                className="rounded-xl border border-emerald-400/35 bg-gradient-to-r from-emerald-900/80 to-emerald-800/70 px-5 py-3.5 text-center text-sm font-semibold tracking-wide text-emerald-100 shadow-lg shadow-emerald-950/30 transition hover:from-emerald-800 hover:to-emerald-700 disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {rejoinBusy
+                  ? "Reentrando…"
+                  : "Reentrar na última sala"}
+                {!rejoinBusy && lastRoom.code ? (
+                  <span className="mt-0.5 block font-mono text-[10px] font-normal tracking-[0.2em] text-emerald-200/55">
+                    {lastRoom.code}
+                    {lastRoom.mapId ? ` · ${lastRoom.mapId}` : ""}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+            {rejoinError && (
+              <p
+                role="alert"
+                className="rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
+              >
+                {rejoinError}
               </p>
             )}
             <MenuButton onClick={() => setRoomPanel("create")}>

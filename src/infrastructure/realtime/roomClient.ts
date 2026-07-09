@@ -758,6 +758,8 @@ export class ColyseusRoomClient implements RoomClient {
       this.emit();
     });
     room.onLeave(() => {
+      // Unexpected disconnect — keep code for rejoin.
+      this.persistLastRoom();
       this.room = null;
       this.sessionId = null;
       if (this.mode === "in_room") {
@@ -770,6 +772,15 @@ export class ColyseusRoomClient implements RoomClient {
       // colyseus.js signals are not always removable; null room is enough
       this.room = null;
     };
+  }
+
+  /** Store last room code + map for lobby "Reentrar na última sala". */
+  private persistLastRoom(fallbackMapId?: string | null): void {
+    const code = this.code;
+    if (!code) return;
+    const mapId =
+      this.snapshot().mapId || fallbackMapId || "";
+    saveLastRoom({ code, mapId });
   }
 
   private emit(): void {
