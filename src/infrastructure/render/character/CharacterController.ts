@@ -172,7 +172,7 @@ export class CharacterController {
       bodyYaw: this.bodyYaw,
       visualYaw: this.bodyYaw + this.modelYawOffset,
       torsoTwist: this.torsoTwist,
-      weights: this.weights,
+      weights: { ...this.weights },
       speed,
     };
   }
