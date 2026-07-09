@@ -46,9 +46,10 @@
 3. hybridLocalCombat=false when authoritative  
 **Still open:** per-weapon stats on server, lag comp, buy loadout sync to server  
 
-### Track C — Retention + monetization
-1. Daily missions wired to identity domain  
-2. Rewarded_xp impression on complete  
-3. Optional second map  
+### Track C — Retention + monetization ✅ (missions shipped)
+1. Daily missions persisted (`ff_missions_v1`) + XP once on complete  
+2. MainMenu live progress; match_over records play/win/kills  
+3. Still open: rewarded_xp impression on complete; second map  
+
 
 **Recommended order:** A (buy + SFX) for “parece o vídeo” → B for product truth → C for growth.
