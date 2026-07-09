@@ -13,18 +13,34 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "friend-fire-server" });
 });
 
-/** Server browser: live game rooms with map/code metadata */
-app.get("/rooms", async (_req, res) => {
+/**
+ * Server browser: live game rooms with map/code metadata.
+ * Query: mapId, hasSlots=1, visibility (default public)
+ */
+app.get("/rooms", async (req, res) => {
   try {
+    const visibilityRaw =
+      typeof req.query.visibility === "string" ? req.query.visibility : "public";
+    const visibility = visibilityRaw === "private" ? "private" : "public";
+    const mapId =
+      typeof req.query.mapId === "string" && req.query.mapId
+        ? req.query.mapId
+        : undefined;
+    const hasSlots =
+      req.query.hasSlots === "1" || req.query.hasSlots === "true";
+
     const rooms = await matchMaker.query({ name: "game" });
-    const list = rooms.map((room) => {
+    let list = rooms.map((room) => {
       const meta = (room.metadata ?? {}) as {
         code?: string;
         mapId?: string;
         mapName?: string;
         roomName?: string;
         phase?: string;
+        visibility?: string;
       };
+      const roomVisibility =
+        meta.visibility === "private" ? "private" : "public";
       return {
         roomId: room.roomId,
         code: meta.code ?? "",
@@ -34,8 +50,18 @@ app.get("/rooms", async (_req, res) => {
         clients: room.clients,
         maxClients: room.maxClients,
         phase: meta.phase,
+        visibility: roomVisibility,
       };
     });
+
+    list = list.filter((r) => r.visibility === visibility);
+    if (mapId) {
+      list = list.filter((r) => r.mapId === mapId);
+    }
+    if (hasSlots) {
+      list = list.filter((r) => r.clients < r.maxClients);
+    }
+
     res.json(list);
   } catch (err) {
     console.error("[/rooms]", err);

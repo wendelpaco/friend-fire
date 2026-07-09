@@ -39,6 +39,8 @@ export class MatchState extends Schema {
   @type("string") mapName: string = "Dust FF";
   /** Optional room nickname (empty if unset) */
   @type("string") roomName: string = "";
+  /** Browser visibility: public | private */
+  @type("string") visibility: string = "public";
   /** Server combat authority active */
   @type("boolean") authoritative: boolean = true;
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();

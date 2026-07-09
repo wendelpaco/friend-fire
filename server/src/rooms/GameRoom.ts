@@ -59,11 +59,15 @@ const MAPS: Record<string, string> = {
 
 const DEFAULT_MAP_ID = "dust";
 
+export type RoomVisibility = "public" | "private";
+
 export type GameRoomOptions = {
   code?: string;
   name?: string;
   mapId?: string;
   roomName?: string;
+  /** Browser listing: public (default) or private */
+  visibility?: RoomVisibility | string;
 };
 
 export type GameRoomMetadata = {
@@ -71,6 +75,7 @@ export type GameRoomMetadata = {
   mapId: string;
   mapName: string;
   roomName: string;
+  visibility: RoomVisibility;
   phase?: string;
 };
 
@@ -78,6 +83,10 @@ function resolveMap(mapId?: string): { mapId: string; mapName: string } {
   const id =
     typeof mapId === "string" && mapId in MAPS ? mapId : DEFAULT_MAP_ID;
   return { mapId: id, mapName: MAPS[id]! };
+}
+
+function resolveVisibility(raw?: string): RoomVisibility {
+  return raw === "private" ? "private" : "public";
 }
 
 type RuntimeExtra = {
@@ -108,11 +117,15 @@ export class GameRoom extends Room<MatchState> {
       typeof options.roomName === "string"
         ? options.roomName.trim().slice(0, 32)
         : "";
+    const visibility = resolveVisibility(
+      typeof options.visibility === "string" ? options.visibility : undefined,
+    );
 
     this.state.code = code;
     this.state.mapId = mapId;
     this.state.mapName = mapName;
     this.state.roomName = roomName;
+    this.state.visibility = visibility;
 
     (this.listing as { code?: string }).code = code;
     await this.setMetadata({
@@ -120,6 +133,7 @@ export class GameRoom extends Room<MatchState> {
       mapId,
       mapName,
       roomName,
+      visibility,
       phase: this.state.phase,
     } satisfies GameRoomMetadata);
 
@@ -152,7 +166,7 @@ export class GameRoom extends Room<MatchState> {
     });
 
     console.log(
-      `[GameRoom] created code=${code} map=${mapId} roomId=${this.roomId} auth=1`,
+      `[GameRoom] created code=${code} map=${mapId} visibility=${visibility} roomId=${this.roomId} auth=1`,
     );
   }
 
