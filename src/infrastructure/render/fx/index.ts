@@ -1,0 +1,21 @@
+export { MuzzleFlashSystem } from "./MuzzleFlashSystem";
+export {
+  ImpactParticleSystem,
+  type ImpactSurface,
+} from "./ImpactParticleSystem";
+export { WallDamageSystem } from "./WallDamageSystem";
+
+/** Local FX event shapes (wire agent maps sim → these). Matches design §4.2. */
+export type FxEvent =
+  | { type: "muzzle"; x: number; z: number; rot: number; weaponId: string }
+  | {
+      type: "impact";
+      x: number;
+      y: number;
+      z: number;
+      nx: number;
+      ny: number;
+      nz: number;
+      surface: "wall" | "ground" | "prop";
+    }
+  | { type: "footstep"; x: number; z: number };
