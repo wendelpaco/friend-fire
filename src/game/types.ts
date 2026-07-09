@@ -1,26 +1,9 @@
-export type Team = "TR" | "CT";
+export type { Team } from "@/shared/types/team";
+export type { WeaponId, WeaponDef } from "@/domains/combat";
+export type { Vec2 } from "@/domains/world";
 
-export type WeaponId = "knife" | "glock" | "deagle" | "ak47" | "usp";
-
-export interface WeaponDef {
-  id: WeaponId;
-  name: string;
-  slot: number;
-  damage: number;
-  fireRate: number;
-  magazine: number;
-  reserve: number;
-  spread: number;
-  speed: number;
-  range: number;
-  reloadTime: number;
-  isMelee?: boolean;
-}
-
-export interface Vec2 {
-  x: number;
-  z: number;
-}
+import type { Team } from "@/shared/types/team";
+import type { WeaponId } from "@/domains/combat";
 
 export interface PlayerState {
   id: string;

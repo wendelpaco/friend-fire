@@ -1,5 +1,12 @@
 import * as THREE from "three";
 import {
+  applyDamage as applyDamageToVitals,
+  beginReload,
+  completeReload,
+  isDead,
+  WEAPONS,
+} from "@/domains/combat";
+import {
   BOT_LINES,
   BOT_NAMES,
   BOT_SPEED,
@@ -15,7 +22,6 @@ import {
   START_MONEY,
   TEAM_COLORS,
   WARMUP_TIME,
-  WEAPONS,
 } from "../constants";
 import type {
   BulletState,
@@ -799,13 +805,7 @@ export class GameEngine {
     p.rot = p.team === "TR" ? Math.PI / 4 : (-3 * Math.PI) / 4;
     for (const [wid, ammo] of Object.entries(p.ammo)) {
       if (!ammo) continue;
-      const def = WEAPONS[wid as WeaponId];
-      if (ammo.mag < def.magazine) {
-        const need = def.magazine - ammo.mag;
-        const take = Math.min(need, ammo.reserve);
-        ammo.mag += take;
-        ammo.reserve -= take;
-      }
+      p.ammo[wid as WeaponId] = completeReload(ammo, wid as WeaponId);
     }
   }
 
@@ -862,24 +862,19 @@ export class GameEngine {
     if (!p.alive || p.reloadingUntil > 0) return;
     const wid = p.weapons[p.weaponSlot];
     if (!wid) return;
-    const def = WEAPONS[wid];
-    if (def.isMelee) return;
     const ammo = p.ammo[wid];
-    if (!ammo || ammo.reserve <= 0 || ammo.mag >= def.magazine) return;
-    p.reloadingUntil = performance.now() + def.reloadTime;
+    if (!ammo) return;
+    const until = beginReload(ammo, wid, performance.now());
+    if (until !== null) p.reloadingUntil = until;
   }
 
   private finishReload(p: PlayerState) {
     p.reloadingUntil = 0;
     const wid = p.weapons[p.weaponSlot];
     if (!wid) return;
-    const def = WEAPONS[wid];
     const ammo = p.ammo[wid];
     if (!ammo) return;
-    const need = def.magazine - ammo.mag;
-    const take = Math.min(need, ammo.reserve);
-    ammo.mag += take;
-    ammo.reserve -= take;
+    p.ammo[wid] = completeReload(ammo, wid);
   }
 
   private updateBots(dt: number) {
@@ -1102,13 +1097,12 @@ export class GameEngine {
   ) {
     if (!victim.alive) return;
 
-    let dmg = damage;
-    if (victim.armor > 0) {
-      const absorbed = Math.min(victim.armor, dmg * 0.5);
-      victim.armor -= absorbed;
-      dmg -= absorbed * 0.5;
-    }
-    victim.hp -= dmg;
+    const result = applyDamageToVitals(
+      { hp: victim.hp, armor: victim.armor },
+      damage,
+    );
+    victim.hp = result.hp;
+    victim.armor = result.armor;
 
     if (victim.id === this.state.localPlayerId) {
       this.state.damageFlashUntil = performance.now() + 220;
@@ -1118,7 +1112,7 @@ export class GameEngine {
       this.state.hitMarkerUntil = performance.now() + 120;
     }
 
-    if (victim.hp <= 0) {
+    if (isDead(victim.hp)) {
       victim.hp = 0;
       victim.alive = false;
       victim.deaths += 1;
