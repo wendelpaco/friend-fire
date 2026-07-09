@@ -85,7 +85,7 @@ friend-fire/
                                                        │
                        ┌──────────────────┐            │
                        │ server/ (Colyseus)│ ◄──────────┘
-                       │ create/join/roster│  hybrid v1
+                       │ rooms + combat   │  authoritative
                        └──────────────────┘
 ```
 
@@ -127,40 +127,40 @@ npm run dev:server
 2. Second browser / profile → **Entrar por código**  
 3. Both open `/play?mode=room&code=XXXXXX` · HUD shows **SALA XXXXXX** from server state  
 
-**Hybrid v1:** create/join + roster/code sync go through Colyseus; movement/combat/bots still simulate locally until the server owns combat. If the server is down, create fails with a clear message; play still loads local combat with a disconnect banner.
+**Authoritative combat (room mode):** when Colyseus is connected, movement, hitscan fire, bots, and round wipes run on the server. The client predicts local motion and plays SFX; HP/positions reconcile from state. Offline **Jogo rápido** still runs full local sim. If the server is down, room create fails with a clear message.
 
 ## Controles
 
 | Tecla | Ação |
 |--------|------|
-| WASD / setas | Mover |
+| WASD / setas | Mover (ou pan da câmera no modo livre) |
 | Mouse | Mirar |
 | Clique esquerdo | Atirar |
 | R | Recarregar |
+| B | Loja (aquecimento / entre rounds) |
+| C | Câmera travada / livre |
 | 1–4 | Trocar arma |
 | Tab | Placar |
-| Esc | Pausar / menu |
+| Esc | Pausar / fechar loja |
 | H | Ajuda (controles) |
 | F | Respawn manual (só no aquecimento, se morto) |
 
-## O que já tem (v1)
+## O que já tem (v1 + wave 2A/B)
 
-- Câmera isométrica / top-down (Three.js)
-- Mapa **Dust FF** com paredes, props, bomb sites A/B, billboards e posters
+- Câmera isométrica / top-down (Three.js) + polish visual Dust FF
+- Buy menu, SFX procedural, câmera livre
 - Ads in-game + lobby/pausa + end-match break + rewarded XP stub
-- Jogador local + bots TR/CT
-- Rounds: aquecimento → live → fim de round → **match_over** (default 8 rounds to win)
-- HUD: vida, colete, munição, economia, minimapa, killfeed, placar
-- Lobby: nickname, região, missões do dia, salas privadas
-- Domínios com testes unitários (`npm test`)
+- Solo local com bots **e** salas privadas com **combate no server**
+- Rounds: aquecimento → live → fim → **match_over**
+- HUD completo · lobby · domínios com `npm test`
 
-## Roadmap (fora do v1)
+## Roadmap
 
-1. Server-authoritative combat  
+1. Lag compensation / reconciliation mais fina · armas no server  
 2. Public matchmaking + Redis multi-node  
 3. Real ad network SDK  
-4. Buy menu entre rounds · C4 plant/defuse  
-5. Mais mapas · áudio · cosmetics store  
+4. C4 plant/defuse · missões diárias de verdade  
+5. Mais mapas · cosmetics store  
 6. Mobile touch controls  
 
 ## Build

@@ -94,6 +94,9 @@ export class GameClient {
   private footCooldown = 0;
   private buyMessage: string | null = null;
   private buyMessageUntil = 0;
+  /** When true, combat/bots come from Colyseus; local only predicts movement. */
+  private networked = false;
+  private networkSessionId: string | null = null;
   private matchConfig = {
     warmupTime: WARMUP_TIME,
     roundTime: ROUND_TIME,
@@ -139,6 +142,108 @@ export class GameClient {
 
   openHelp() {
     this.state.showHelp = true;
+  }
+
+  /**
+   * Enable server-authoritative combat. Local bots/bullets stop;
+   * `applyNetworkState` drives entities + scores.
+   */
+  setNetworked(enabled: boolean, sessionId: string | null = null) {
+    this.networked = enabled;
+    this.networkSessionId = sessionId;
+    if (enabled) {
+      this.state.bullets = [];
+    }
+  }
+
+  isNetworked() {
+    return this.networked;
+  }
+
+  applyNetworkState(net: {
+    sessionId: string | null;
+    players: Array<{
+      id: string;
+      name: string;
+      team: string;
+      isBot: boolean;
+      alive: boolean;
+      x: number;
+      z: number;
+      rot: number;
+      hp: number;
+      armor?: number;
+      kills?: number;
+      deaths?: number;
+    }>;
+    phase: string | null;
+    round: number;
+    scoreTR: number;
+    scoreCT: number;
+    timeLeft: number;
+  }) {
+    if (!this.networked) return;
+    this.networkSessionId = net.sessionId;
+
+    if (net.phase === "warmup" || net.phase === "live" || net.phase === "ended" || net.phase === "match_over") {
+      this.state.phase = net.phase;
+    }
+    this.state.round = net.round;
+    this.state.scoreTR = net.scoreTR;
+    this.state.scoreCT = net.scoreCT;
+    this.state.timeLeft = net.timeLeft;
+
+    const localId = net.sessionId ?? this.state.localPlayerId;
+    // Keep localPlayerId as session id for HUD
+    if (net.sessionId) this.state.localPlayerId = net.sessionId;
+
+    const nextPlayers: PlayerState[] = [];
+    for (const np of net.players) {
+      const team = (np.team === "CT" ? "CT" : "TR") as Team;
+      const existing = this.state.players.find((p) => p.id === np.id);
+      const isLocal = np.id === localId;
+
+      // Client-side prediction: keep local position if slightly ahead (optional blend)
+      let x = np.x;
+      let z = np.z;
+      let rot = np.rot;
+      if (isLocal && existing && this.state.cameraMode === "locked") {
+        // Soft correct toward server
+        x = existing.x * 0.35 + np.x * 0.65;
+        z = existing.z * 0.35 + np.z * 0.65;
+        rot = np.rot;
+      }
+
+      nextPlayers.push({
+        id: np.id,
+        name: np.name,
+        team,
+        isBot: np.isBot,
+        x,
+        z,
+        rot,
+        hp: np.hp,
+        armor: np.armor ?? existing?.armor ?? 0,
+        money: existing?.money ?? START_MONEY,
+        weaponSlot: existing?.weaponSlot ?? 2,
+        weapons: existing?.weapons ?? { 2: "glock", 4: "knife" },
+        ammo: existing?.ammo ?? {
+          glock: { mag: 20, reserve: 120 },
+        },
+        alive: np.alive,
+        kills: np.kills ?? existing?.kills ?? 0,
+        deaths: np.deaths ?? existing?.deaths ?? 0,
+        assists: existing?.assists ?? 0,
+        lastShotAt: existing?.lastShotAt ?? 0,
+        reloadingUntil: existing?.reloadingUntil ?? 0,
+        color: TEAM_COLORS[team],
+      });
+    }
+
+    if (nextPlayers.length > 0) {
+      this.state.players = nextPlayers;
+    }
+    this.state.bullets = [];
   }
 
   start() {
@@ -356,7 +461,10 @@ export class GameClient {
 
     if (this.state.phase !== "match_over") {
       this.updateAim();
-      this.updateTimer(dt);
+      // Phase timer only local when offline; networked phases come from server
+      if (!this.networked) {
+        this.updateTimer(dt);
+      }
     }
 
     if (this.state.phase === "match_over") {
@@ -365,13 +473,25 @@ export class GameClient {
       return;
     }
 
-    // Buy menu open: still run timer/bots lightly, but freeze local combat
+    // Buy menu open: freeze local combat (network still receives external state)
     if (this.state.showBuyMenu) {
       if (!canOpenBuyMenu(this.state.phase)) {
         this.state.showBuyMenu = false;
       }
-      this.updateBots(dt);
-      this.updateBullets(dt);
+      if (!this.networked) {
+        this.updateBots(dt);
+        this.updateBullets(dt);
+      }
+      this.three.animateDust(dt);
+      this.syncRender();
+      this.pushHud();
+      this.input.endFrame();
+      return;
+    }
+
+    if (this.networked) {
+      // Predict local movement only; combat/HP/bots from server via applyNetworkState
+      this.updateLocalPlayerNetworked(dt);
       this.three.animateDust(dt);
       this.syncRender();
       this.pushHud();
@@ -386,6 +506,50 @@ export class GameClient {
     this.syncRender();
     this.pushHud();
     this.input.endFrame();
+  }
+
+  /** Client prediction while server is authoritative. */
+  private updateLocalPlayerNetworked(dt: number) {
+    const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
+    if (!p || !p.alive) return;
+
+    const move = this.input.moveVector();
+    if (this.state.cameraMode === "free") {
+      const pan = PLAYER_SPEED * 1.8 * dt;
+      this.freeCamX += move.x * pan;
+      this.freeCamZ += move.z * pan;
+    } else if (move.x !== 0 || move.z !== 0) {
+      const nx = p.x + move.x * PLAYER_SPEED * dt;
+      const nz = p.z + move.z * PLAYER_SPEED * dt;
+      const resolved = resolveCircleWalls(
+        nx,
+        nz,
+        PLAYER_RADIUS,
+        this.collisionWalls,
+      );
+      p.x = resolved.x;
+      p.z = resolved.z;
+      this.footCooldown -= dt;
+      if (this.footCooldown <= 0) {
+        Sfx.play("foot");
+        this.footCooldown = 0.32;
+      }
+    }
+
+    const dx = this.input.aimWorldX - p.x;
+    const dz = this.input.aimWorldZ - p.z;
+    if (dx !== 0 || dz !== 0) p.rot = Math.atan2(dx, dz);
+
+    // Local fire SFX only (damage is server-side)
+    if (this.input.isMouseDown(0)) {
+      // throttle sfx via lastShotAt
+      const now = performance.now();
+      if (now - p.lastShotAt > 140) {
+        p.lastShotAt = now;
+        Sfx.play("shoot");
+        this.three.spawnMuzzleFlash(p.x, p.z, p.rot, now + 45);
+      }
+    }
   }
 
   /** Called from BuyMenu UI */

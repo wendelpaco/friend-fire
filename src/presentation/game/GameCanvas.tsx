@@ -111,16 +111,34 @@ export function GameCanvas({
     roomRef.current = client;
 
     const unsub = client.onState((state) => {
-      if (!cancelled) setNet(state as NetworkRoomState);
+      if (cancelled) return;
+      const snap = state as NetworkRoomState;
+      setNet(snap);
+      const engine = engineRef.current;
+      if (!engine) return;
+      if (snap.connected && !snap.hybridLocalCombat) {
+        engine.setNetworked(true, snap.sessionId);
+        engine.applyNetworkState({
+          sessionId: snap.sessionId,
+          players: snap.players,
+          phase: snap.phase,
+          round: snap.round,
+          scoreTR: snap.scoreTR,
+          scoreCT: snap.scoreCT,
+          timeLeft: snap.timeLeft,
+        });
+      } else if (!snap.connected) {
+        engine.setNetworked(false, null);
+      }
     });
 
     const connect = async () => {
       try {
         await client.connect(roomCode, { host: isHost });
       } catch (e) {
-        // Hybrid fallback: keep local GameClient running; surface banner via net state
         if (!cancelled) {
           setNet(client.snapshot());
+          engineRef.current?.setNetworked(false, null);
           console.warn("[room] Colyseus connect failed:", e);
         }
       }
@@ -147,6 +165,7 @@ export function GameCanvas({
       cancelled = true;
       unsub();
       window.clearInterval(inputTimer);
+      engineRef.current?.setNetworked(false, null);
       void client.leave();
       if (roomRef.current === client) roomRef.current = null;
     };
@@ -162,7 +181,9 @@ export function GameCanvas({
         : net?.mode === "error" || (net && !net.connected && net.error)
           ? net.error || "Servidor multiplayer indisponível"
           : net?.connected
-            ? `Online · ${net.players.filter((p) => !p.isBot).length} humano(s) · híbrido local`
+            ? net.hybridLocalCombat
+              ? `Online · ${net.players.filter((p) => !p.isBot).length} humano(s) · híbrido local`
+              : `Online · combate no servidor · ${net.players.filter((p) => !p.isBot).length} humano(s)`
             : roomCode
               ? "Conectando ao servidor…"
               : null

@@ -11,6 +11,8 @@ export class PlayerState extends Schema {
   @type("number") armor: number = 0;
   @type("boolean") alive: boolean = true;
   @type("boolean") isBot: boolean = false;
+  @type("number") kills: number = 0;
+  @type("number") deaths: number = 0;
 }
 
 export class MatchState extends Schema {
@@ -20,10 +22,12 @@ export class MatchState extends Schema {
   @type("number") scoreCT: number = 0;
   @type("number") timeLeft: number = 20;
   @type("string") code: string = "";
+  /** Server combat authority active */
+  @type("boolean") authoritative: boolean = true;
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
 }
 
-/** Client → server input message (processing stubbed in GameRoom). */
+/** Client → server input message */
 export interface InputMessage {
   dx: number;
   dz: number;

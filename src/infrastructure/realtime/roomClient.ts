@@ -28,8 +28,15 @@ export type NetworkRoomState = {
   sessionId: string | null;
   connected: boolean;
   phase: string | null;
+  round: number;
+  scoreTR: number;
+  scoreCT: number;
+  timeLeft: number;
   error: string | null;
-  /** True when local combat is still client-side (server does not sim yet). */
+  /**
+   * True only when server is not authoritative (legacy/offline).
+   * When false, combat runs on the Colyseus GameRoom.
+   */
   hybridLocalCombat: boolean;
 };
 
@@ -43,6 +50,9 @@ export type NetworkPlayer = {
   z: number;
   rot: number;
   hp: number;
+  armor: number;
+  kills: number;
+  deaths: number;
 };
 
 export type InputPayload = {
@@ -129,6 +139,9 @@ function playersFromState(state: unknown): NetworkPlayer[] {
       z: Number(o.z) || 0,
       rot: Number(o.rot) || 0,
       hp: Number(o.hp) || 0,
+      armor: Number(o.armor) || 0,
+      kills: Number(o.kills) || 0,
+      deaths: Number(o.deaths) || 0,
     });
   };
 
@@ -261,10 +274,8 @@ export class LocalRoomClient implements RoomClient {
 }
 
 /**
- * Real Colyseus client for private `game` rooms.
- *
- * Hybrid mode (v1): networking is for presence/code/roster + input relay.
- * Combat/bots still run locally in GameClient until the server simulates them.
+ * Colyseus client for private `game` rooms.
+ * When server `authoritative` is true, combat is server-driven.
  */
 export class ColyseusRoomClient implements RoomClient {
   private room: Room | null = null;
@@ -437,7 +448,11 @@ export class ColyseusRoomClient implements RoomClient {
   }
 
   snapshot(): NetworkRoomState {
-    const state = this.room?.state;
+    const state = this.room?.state as Record<string, unknown> | undefined;
+    const authoritative =
+      state && typeof state === "object"
+        ? state.authoritative !== false
+        : true;
     return {
       code: this.code ?? readCode(state),
       players: playersFromState(state),
@@ -445,8 +460,13 @@ export class ColyseusRoomClient implements RoomClient {
       sessionId: this.sessionId,
       connected: this.isConnected(),
       phase: phaseFromState(state),
+      round: Number(state?.round) || 0,
+      scoreTR: Number(state?.scoreTR) || 0,
+      scoreCT: Number(state?.scoreCT) || 0,
+      timeLeft: Number(state?.timeLeft) || 0,
       error: this.error,
-      hybridLocalCombat: true,
+      // Server combat authority: not hybrid when connected + authoritative
+      hybridLocalCombat: !(this.isConnected() && authoritative),
     };
   }
 

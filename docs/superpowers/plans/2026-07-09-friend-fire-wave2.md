@@ -40,10 +40,11 @@
 2. Minimal SFX (shot, reload, footstep, UI, plant)  
 3. Camera free/locked toggle (`C`)  
 
-### Track B — Real multiplayer combat
-1. Server-side movement + HP authority  
-2. Client prediction reconcile  
-3. Remove hybrid “two local matches”  
+### Track B — Real multiplayer combat ✅ (base shipped)
+1. Server-side movement + hitscan + bots + round wipe  
+2. Client prediction for local move + SFX; applyNetworkState reconcile  
+3. hybridLocalCombat=false when authoritative  
+**Still open:** per-weapon stats on server, lag comp, buy loadout sync to server  
 
 ### Track C — Retention + monetization
 1. Daily missions wired to identity domain  
