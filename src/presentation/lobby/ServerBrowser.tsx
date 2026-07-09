@@ -76,8 +76,11 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
       mode: "room",
       code,
     });
-    // Map fixed at /play boot — pass list mapId when known.
-    if (mapId) qs.set("map", mapId);
+    // Map fixed at /play boot — pass list/server mapId when known.
+    if (mapId) {
+      qs.set("map", mapId);
+      setLastMapId(mapId);
+    }
     router.push(`/play?${qs.toString()}`);
   };
 
@@ -85,8 +88,10 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
     setError(null);
     setJoiningCode(room.code);
     try {
-      await getRoomClient().join(room.code);
-      goToRoom(room.code, room.mapId);
+      const client = getRoomClient();
+      await client.join(room.code);
+      const snap = client.snapshot();
+      goToRoom(room.code, snap.mapId || room.mapId || undefined);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Falha ao entrar na sala";
       setError(msg.includes("Sala não existe") ? "Sala não existe" : msg);
