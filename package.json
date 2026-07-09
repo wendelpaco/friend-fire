@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:server": "npm run dev --prefix server",
+    "dev:server": "cd server && ./node_modules/.bin/tsx watch src/index.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
