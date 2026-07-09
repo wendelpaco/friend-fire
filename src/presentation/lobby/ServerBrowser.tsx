@@ -2,17 +2,28 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { listMaps, setLastMapId } from "@/domains/world";
+import { getMapById, listMaps, setLastMapId } from "@/domains/world";
 import {
   getRoomClient,
   type ListRoomsOptions,
   type RoomListItem,
+  type RoomRegion,
   type RoomVisibility,
 } from "@/infrastructure/realtime/roomClient";
+
+/** "" = All regions (no query param). */
+type RegionFilter = "" | RoomRegion;
+
+const REGION_FILTERS: { id: RegionFilter; label: string }[] = [
+  { id: "", label: "All" },
+  { id: "BR", label: "BR" },
+  { id: "US", label: "US" },
+];
 
 const FILTER_MAPS = listMaps().map((m) => ({
   id: m.id,
   label: m.displayName || m.id,
+  accent: m.accent,
 }));
 
 function roomDisplayName(room: RoomListItem): string {
@@ -29,6 +40,23 @@ function visibilityOf(room: RoomListItem): RoomVisibility {
   return room.visibility === "private" ? "private" : "public";
 }
 
+/** Room is full when clients >= maxClients (max 0 → treat as 10). */
+function isRoomFull(room: RoomListItem): boolean {
+  const max = room.maxClients > 0 ? room.maxClients : 10;
+  return room.clients >= max;
+}
+
+function mapChip(mapId: string, mapName?: string): {
+  label: string;
+  accent: string;
+} {
+  const map = getMapById(mapId || "dust");
+  return {
+    label: mapName?.trim() || map.displayName || map.id || "—",
+    accent: map.accent,
+  };
+}
+
 interface ServerBrowserProps {
   onClose: () => void;
 }
@@ -41,15 +69,17 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
   const [joiningCode, setJoiningCode] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [mapFilter, setMapFilter] = useState<string>("");
+  const [regionFilter, setRegionFilter] = useState<RegionFilter>("");
   const [hasSlotsOnly, setHasSlotsOnly] = useState(false);
   const mounted = useRef(true);
 
   const buildListOpts = useCallback((): ListRoomsOptions => {
     const opts: ListRoomsOptions = { visibility: "public" };
     if (mapFilter) opts.mapId = mapFilter;
+    if (regionFilter) opts.region = regionFilter;
     if (hasSlotsOnly) opts.hasSlots = true;
     return opts;
-  }, [mapFilter, hasSlotsOnly]);
+  }, [mapFilter, regionFilter, hasSlotsOnly]);
 
   const fetchRooms = useCallback(
     async (silent = false) => {
@@ -108,6 +138,7 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
   };
 
   const handleJoin = async (room: RoomListItem) => {
+    if (isRoomFull(room)) return;
     setError(null);
     setJoiningCode(room.code);
     try {
@@ -154,6 +185,26 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div
+            className="flex items-center gap-0.5 rounded-lg border border-white/10 bg-black/40 p-0.5"
+            role="group"
+            aria-label="Filtrar por região"
+          >
+            {REGION_FILTERS.map((r) => (
+              <button
+                key={r.id || "all"}
+                type="button"
+                onClick={() => setRegionFilter(r.id)}
+                className={`rounded-md px-2.5 py-1.5 text-xs font-bold tracking-wide transition ${
+                  regionFilter === r.id
+                    ? "bg-white/15 text-white"
+                    : "text-white/40 hover:text-white/70"
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
           <label className="flex items-center gap-2 text-xs text-white/50">
             <span className="sr-only">Mapa</span>
             <select
@@ -246,6 +297,8 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
                   const key = room.roomId || room.code;
                   const busy = joiningCode === room.code;
                   const vis = visibilityOf(room);
+                  const full = isRoomFull(room);
+                  const chip = mapChip(room.mapId, room.mapName);
                   return (
                     <tr
                       key={key}
@@ -254,8 +307,18 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
                       <td className="max-w-[10rem] truncate px-3 py-2.5 font-medium text-white/90">
                         {roomDisplayName(room)}
                       </td>
-                      <td className="px-3 py-2.5 text-white/65">
-                        {room.mapName || room.mapId || "—"}
+                      <td className="px-3 py-2.5">
+                        <span
+                          className="inline-flex max-w-[10rem] items-center gap-1.5 truncate rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-xs font-semibold text-white/80"
+                          title={chip.label}
+                        >
+                          <span
+                            className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm ring-1 ring-white/20"
+                            style={{ background: chip.accent }}
+                            aria-hidden
+                          />
+                          <span className="truncate">{chip.label}</span>
+                        </span>
                       </td>
                       <td className="px-3 py-2.5">
                         <span
@@ -268,7 +331,11 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
                           {vis === "public" ? "Pública" : "Privada"}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 tabular-nums text-white/65">
+                      <td
+                        className={`px-3 py-2.5 tabular-nums ${
+                          full ? "font-semibold text-red-300/90" : "text-white/65"
+                        }`}
+                      >
                         {playersLabel(room)}
                       </td>
                       <td className="px-3 py-2.5 font-mono text-xs tracking-wider text-amber-200/90">
@@ -277,11 +344,21 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
                       <td className="px-3 py-2.5 text-right">
                         <button
                           type="button"
-                          disabled={busy || joiningCode !== null || !room.code}
+                          disabled={
+                            full ||
+                            busy ||
+                            joiningCode !== null ||
+                            !room.code
+                          }
                           onClick={() => void handleJoin(room)}
-                          className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold tracking-wide text-black transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+                          title={full ? "Sala cheia" : undefined}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-bold tracking-wide transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                            full
+                              ? "border border-white/10 bg-white/5 text-white/45"
+                              : "bg-amber-500 text-black hover:bg-amber-400"
+                          }`}
                         >
-                          {busy ? "…" : "Entrar"}
+                          {full ? "Cheia" : busy ? "…" : "Entrar"}
                         </button>
                       </td>
                     </tr>
