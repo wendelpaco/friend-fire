@@ -60,6 +60,7 @@ const MAPS: Record<string, string> = {
 const DEFAULT_MAP_ID = "dust";
 
 export type RoomVisibility = "public" | "private";
+export type RoomRegion = "BR" | "US";
 
 export type GameRoomOptions = {
   code?: string;
@@ -68,6 +69,8 @@ export type GameRoomOptions = {
   roomName?: string;
   /** Browser listing: public (default) or private */
   visibility?: RoomVisibility | string;
+  /** Creator region tag for browser filter (default BR) */
+  region?: RoomRegion | string;
 };
 
 export type GameRoomMetadata = {
@@ -76,6 +79,7 @@ export type GameRoomMetadata = {
   mapName: string;
   roomName: string;
   visibility: RoomVisibility;
+  region: RoomRegion;
   phase?: string;
 };
 
@@ -89,6 +93,10 @@ function resolveVisibility(raw?: string): RoomVisibility {
   return raw === "private" ? "private" : "public";
 }
 
+function resolveRegion(raw?: string): RoomRegion {
+  return raw === "US" ? "US" : "BR";
+}
+
 type RuntimeExtra = {
   fireCd: number;
   aimX: number;
@@ -99,6 +107,8 @@ type RuntimeExtra = {
 
 /**
  * Authoritative private match: movement, hitscan fire, bots, rounds, shop.
+ * `maxClients` (= MATCH_SIZE) is enforced by Colyseus; we also reject in
+ * onAuth/onJoin with "Sala cheia" for a clear client-facing message.
  */
 export class GameRoom extends Room<MatchState> {
   maxClients = MATCH_SIZE;
@@ -120,12 +130,16 @@ export class GameRoom extends Room<MatchState> {
     const visibility = resolveVisibility(
       typeof options.visibility === "string" ? options.visibility : undefined,
     );
+    const region = resolveRegion(
+      typeof options.region === "string" ? options.region : undefined,
+    );
 
     this.state.code = code;
     this.state.mapId = mapId;
     this.state.mapName = mapName;
     this.state.roomName = roomName;
     this.state.visibility = visibility;
+    this.state.region = region;
 
     (this.listing as { code?: string }).code = code;
     await this.setMetadata({
@@ -134,6 +148,7 @@ export class GameRoom extends Room<MatchState> {
       mapName,
       roomName,
       visibility,
+      region,
       phase: this.state.phase,
     } satisfies GameRoomMetadata);
 
@@ -166,11 +181,15 @@ export class GameRoom extends Room<MatchState> {
     });
 
     console.log(
-      `[GameRoom] created code=${code} map=${mapId} visibility=${visibility} roomId=${this.roomId} auth=1`,
+      `[GameRoom] created code=${code} map=${mapId} region=${region} visibility=${visibility} roomId=${this.roomId} auth=1`,
     );
   }
 
   onAuth(_client: Client, options: GameRoomOptions) {
+    // Prefer clear message over Colyseus default full-room rejection.
+    if (this.clients.length >= this.maxClients) {
+      throw new Error("Sala cheia");
+    }
     if (options?.code) {
       const code = normalizeRoomCode(options.code);
       if (!isValidRoomCode(code) || code !== this.state.code) {
@@ -181,6 +200,11 @@ export class GameRoom extends Room<MatchState> {
   }
 
   onJoin(client: Client, options: GameRoomOptions = {}) {
+    // Client already counted in this.clients; reject if over max (race/safety).
+    if (this.clients.length > this.maxClients) {
+      throw new Error("Sala cheia");
+    }
+
     const name =
       (typeof options.name === "string" && options.name.trim()) ||
       `Player ${this.clients.length}`;

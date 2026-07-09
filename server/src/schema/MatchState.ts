@@ -41,6 +41,8 @@ export class MatchState extends Schema {
   @type("string") roomName: string = "";
   /** Browser visibility: public | private */
   @type("string") visibility: string = "public";
+  /** Room region tag: BR | US (metadata / list filter; not multi-DC) */
+  @type("string") region: string = "BR";
   /** Server combat authority active */
   @type("boolean") authoritative: boolean = true;
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();

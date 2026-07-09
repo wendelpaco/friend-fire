@@ -14,8 +14,8 @@ app.get("/health", (_req, res) => {
 });
 
 /**
- * Server browser: live game rooms with map/code metadata.
- * Query: mapId, hasSlots=1, visibility (default public)
+ * Server browser: live game rooms with map/code/region metadata.
+ * Query: mapId, hasSlots=1, visibility (default public), region=BR|US
  */
 app.get("/rooms", async (req, res) => {
   try {
@@ -28,6 +28,10 @@ app.get("/rooms", async (req, res) => {
         : undefined;
     const hasSlots =
       req.query.hasSlots === "1" || req.query.hasSlots === "true";
+    const regionRaw =
+      typeof req.query.region === "string" ? req.query.region.toUpperCase() : "";
+    const region =
+      regionRaw === "BR" || regionRaw === "US" ? regionRaw : undefined;
 
     const rooms = await matchMaker.query({ name: "game" });
     let list = rooms.map((room) => {
@@ -38,9 +42,11 @@ app.get("/rooms", async (req, res) => {
         roomName?: string;
         phase?: string;
         visibility?: string;
+        region?: string;
       };
       const roomVisibility =
         meta.visibility === "private" ? "private" : "public";
+      const roomRegion = meta.region === "US" ? "US" : "BR";
       return {
         roomId: room.roomId,
         code: meta.code ?? "",
@@ -51,12 +57,16 @@ app.get("/rooms", async (req, res) => {
         maxClients: room.maxClients,
         phase: meta.phase,
         visibility: roomVisibility,
+        region: roomRegion,
       };
     });
 
     list = list.filter((r) => r.visibility === visibility);
     if (mapId) {
       list = list.filter((r) => r.mapId === mapId);
+    }
+    if (region) {
+      list = list.filter((r) => r.region === region);
     }
     if (hasSlots) {
       list = list.filter((r) => r.clients < r.maxClients);
