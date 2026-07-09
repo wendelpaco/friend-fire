@@ -61,6 +61,7 @@ const ZERO_WEIGHTS: LocomotionWeights = {
 export class CharacterAnimator {
   private readonly bones: CharacterBones;
   private phase = 0;
+  private cadence = 2.2;
   private lastSin = 0;
   private recoilT = 0;
   private state: LocomotionState = "idle";
@@ -100,8 +101,11 @@ export class CharacterAnimator {
 
     const moving = 1 - w.idle;
     const airborne = Boolean(input.airborne);
-    const cadence = moving > 0.01 ? 8 + Math.min(speed, 8) * 0.6 : 2.2;
-    this.phase += dt * cadence;
+    // Smoothed cadence — instant cadence jumps make the walk cycle "skip"
+    // when the blend state changes (part of the state-transition pop).
+    const targetCadence = moving > 0.01 ? 8 + Math.min(speed, 8) * 0.6 : 2.2;
+    this.cadence += (targetCadence - this.cadence) * (1 - Math.exp(-6 * dt));
+    this.phase += dt * this.cadence;
 
     const s = Math.sin(this.phase);
     const c = Math.cos(this.phase);
@@ -268,6 +272,7 @@ export class CharacterAnimator {
   /** Force rest pose (e.g. when pooling). */
   reset(): void {
     this.phase = 0;
+    this.cadence = 2.2;
     this.lastSin = 0;
     this.pendingFoot = null;
     this.recoilT = 0;
