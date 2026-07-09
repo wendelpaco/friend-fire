@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_RUN_THRESHOLD,
+  bodyYawTarget,
+  deltaAngle,
   horizontalSpeed,
+  locomotionDirFromLocal,
   locomotionFromDelta,
   locomotionFromSpeed,
+  locomotionWeights,
+  moveInFacingSpace,
+  smoothYaw,
+  yawFromDirection,
 } from "./locomotion";
 
 describe("locomotionFromSpeed", () => {
@@ -40,9 +47,106 @@ describe("horizontalSpeed / locomotionFromDelta", () => {
   });
 
   it("maps delta to idle/run", () => {
-    // speed = 0.2 / 1 = 0.2 < 0.3
     expect(locomotionFromDelta(0.2, 0, 1)).toBe("idle");
-    // speed = 0.4 / 1 = 0.4 >= 0.3
     expect(locomotionFromDelta(0.4, 0, 1)).toBe("run");
+  });
+});
+
+describe("yawFromDirection (orientation fix)", () => {
+  it("faces +Z when dx=0, dz>0", () => {
+    expect(yawFromDirection(0, 1)).toBeCloseTo(0);
+  });
+
+  it("faces +X when dx>0, dz=0", () => {
+    expect(yawFromDirection(1, 0)).toBeCloseTo(Math.PI / 2);
+  });
+
+  it("faces −Z when dx=0, dz<0", () => {
+    expect(yawFromDirection(0, -1)).toBeCloseTo(Math.PI);
+  });
+
+  it("returns 0 for zero vector", () => {
+    expect(yawFromDirection(0, 0)).toBe(0);
+  });
+});
+
+describe("bodyYawTarget — chest follows velocity when moving", () => {
+  it("uses velocity yaw when moving", () => {
+    // move +X, aim −Z
+    const yaw = bodyYawTarget(5, 0, Math.PI);
+    expect(yaw).toBeCloseTo(Math.PI / 2);
+  });
+
+  it("uses aim yaw when nearly stopped", () => {
+    const aim = Math.PI / 4;
+    expect(bodyYawTarget(0.01, 0, aim)).toBeCloseTo(aim);
+    expect(bodyYawTarget(0, 0, aim)).toBeCloseTo(aim);
+  });
+
+  it("pressing “forward” (+Z) never faces opposite of move", () => {
+    const moveYaw = bodyYawTarget(0, 4, Math.PI); // aim is opposite, still face move
+    expect(moveYaw).toBeCloseTo(0);
+    // local +Z after this yaw points +Z = move dir, not −Z (back)
+  });
+});
+
+describe("moveInFacingSpace + locomotionDir", () => {
+  it("forward when move aligns with facing", () => {
+    const { forward, right } = moveInFacingSpace(0, 5, 0);
+    expect(forward).toBeCloseTo(5);
+    expect(right).toBeCloseTo(0);
+    expect(locomotionDirFromLocal(forward, right)).toBe("forward");
+  });
+
+  it("backward when move opposes facing", () => {
+    const { forward, right } = moveInFacingSpace(0, -5, 0);
+    expect(forward).toBeCloseTo(-5);
+    expect(locomotionDirFromLocal(forward, right)).toBe("backward");
+  });
+
+  it("strafe right when move is local +X", () => {
+    // facing +Z, move +X
+    const { forward, right } = moveInFacingSpace(5, 0, 0);
+    expect(right).toBeCloseTo(5);
+    expect(locomotionDirFromLocal(forward, right)).toBe("strafeRight");
+  });
+
+  it("strafe left when move is local −X", () => {
+    const { forward, right } = moveInFacingSpace(-5, 0, 0);
+    expect(right).toBeCloseTo(-5);
+    expect(locomotionDirFromLocal(forward, right)).toBe("strafeLeft");
+  });
+});
+
+describe("locomotionWeights", () => {
+  it("idle when stopped", () => {
+    const w = locomotionWeights(0, 0, 0);
+    expect(w.idle).toBe(1);
+    expect(w.forward).toBe(0);
+  });
+
+  it("pure forward", () => {
+    const w = locomotionWeights(0, 4, 0);
+    expect(w.forward).toBeCloseTo(1);
+    expect(w.backward).toBeCloseTo(0);
+  });
+
+  it("diagonal mixes forward + strafe", () => {
+    const w = locomotionWeights(3, 3, 0);
+    expect(w.forward).toBeGreaterThan(0.3);
+    expect(w.strafeRight).toBeGreaterThan(0.3);
+    expect(w.idle).toBe(0);
+  });
+});
+
+describe("deltaAngle / smoothYaw", () => {
+  it("wraps shortest path across ±π", () => {
+    expect(deltaAngle(Math.PI - 0.1, -Math.PI + 0.1)).toBeCloseTo(0.2, 1);
+  });
+
+  it("smoothYaw moves toward target", () => {
+    const next = smoothYaw(0, Math.PI / 2, 1 / 60, 12);
+    expect(next).toBeGreaterThan(0);
+    expect(next).toBeLessThan(Math.PI / 2);
   });
 });

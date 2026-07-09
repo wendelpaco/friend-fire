@@ -4,7 +4,19 @@ export type ImpactSurface = "wall" | "ground" | "prop";
 /** Visual kind derived from surface for particle bias. */
 export type ImpactKind = "wall" | "ground" | "prop";
 
+/** Coarse state (legacy / speed-only). */
 export type LocomotionState = "idle" | "run";
+
+/**
+ * Directional locomotion (angle between move and model facing).
+ * Prefer `LocomotionDir` from locomotion.ts for new code.
+ */
+export type LocomotionDirection =
+  | "idle"
+  | "forward"
+  | "backward"
+  | "strafeLeft"
+  | "strafeRight";
 
 export interface ImpactPoint {
   x: number;

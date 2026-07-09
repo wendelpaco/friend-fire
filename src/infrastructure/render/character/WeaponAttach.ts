@@ -35,57 +35,61 @@ function mesh(
   return m;
 }
 
-/** Build a low-poly weapon group oriented along −Z (barrel forward). */
+/**
+ * Build a low-poly weapon group oriented along **+Z** (barrel forward).
+ * Matches procedural character facing (+Z vest / yawFromDirection).
+ * (Older −Z weapons made the gun point opposite the chest.)
+ */
 export function buildWeaponMesh(category: WeaponCategory): THREE.Group {
   const g = new THREE.Group();
   g.name = `weapon_${category}`;
 
   if (category === "knife") {
-    // short blade; handle at origin, blade −Z
+    // short blade; handle at origin, blade +Z
     const handle = mesh(0.06, 0.08, 0.12, DARK());
-    handle.position.set(0, 0, 0.02);
+    handle.position.set(0, 0, -0.02);
     g.add(handle);
     const guard = mesh(0.12, 0.04, 0.04, METAL());
-    guard.position.set(0, 0, -0.05);
+    guard.position.set(0, 0, 0.05);
     g.add(guard);
     const blade = mesh(0.04, 0.02, 0.28, BLADE());
-    blade.position.set(0, 0.01, -0.2);
+    blade.position.set(0, 0.01, 0.2);
     g.add(blade);
     return g;
   }
 
   if (category === "pistol") {
-    // compact gun: grip down, barrel −Z
+    // compact gun: grip down, barrel +Z
     const body = mesh(0.08, 0.12, 0.28, METAL());
-    body.position.set(0, 0.02, -0.1);
+    body.position.set(0, 0.02, 0.1);
     g.add(body);
     const grip = mesh(0.07, 0.16, 0.1, DARK());
-    grip.position.set(0, -0.08, 0.02);
+    grip.position.set(0, -0.08, -0.02);
     g.add(grip);
     const slide = mesh(0.07, 0.06, 0.22, METAL());
-    slide.position.set(0, 0.08, -0.12);
+    slide.position.set(0, 0.08, 0.12);
     g.add(slide);
     const barrel = mesh(0.04, 0.04, 0.1, METAL());
-    barrel.position.set(0, 0.04, -0.28);
+    barrel.position.set(0, 0.04, 0.28);
     g.add(barrel);
     return g;
   }
 
-  // rifle — longer silhouette
+  // rifle — longer silhouette, barrel +Z
   const receiver = mesh(0.1, 0.12, 0.55, METAL());
-  receiver.position.set(0, 0.02, -0.2);
+  receiver.position.set(0, 0.02, 0.2);
   g.add(receiver);
   const stock = mesh(0.08, 0.14, 0.22, DARK());
-  stock.position.set(0, 0.0, 0.18);
+  stock.position.set(0, 0.0, -0.18);
   g.add(stock);
   const barrel = mesh(0.05, 0.05, 0.4, METAL());
-  barrel.position.set(0, 0.04, -0.55);
+  barrel.position.set(0, 0.04, 0.55);
   g.add(barrel);
   const mag = mesh(0.06, 0.16, 0.1, DARK());
-  mag.position.set(0, -0.1, -0.08);
+  mag.position.set(0, -0.1, 0.08);
   g.add(mag);
   const handguard = mesh(0.09, 0.08, 0.28, DARK());
-  handguard.position.set(0, 0.0, -0.42);
+  handguard.position.set(0, 0.0, 0.42);
   g.add(handguard);
   return g;
 }

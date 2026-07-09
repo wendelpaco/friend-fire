@@ -1,18 +1,30 @@
-import { DEFAULT_RUN_THRESHOLD } from "@/domains/fx";
+import type { LocomotionWeights } from "@/domains/fx";
 import type { CharacterBones } from "./CharacterRig";
 import type { WeaponCategory } from "./WeaponAttach";
 
-export type LocomotionState = "idle" | "run";
+export type LocomotionState =
+  | "idle"
+  | "forward"
+  | "backward"
+  | "strafeLeft"
+  | "strafeRight"
+  | "run";
 
 export type AnimatorInput = {
   /** Horizontal speed (world units / second). */
   speed: number;
+  /**
+   * Directional blend from {@link CharacterController}.
+   * When omitted, falls back to idle/run from speed only.
+   */
+  weights?: LocomotionWeights;
+  /** Upper-body Y twist toward aim (radians). */
+  torsoTwist?: number;
   /** True on the frame(s) a shot is fired — triggers recoil overlay. */
   shooting?: boolean;
   weaponCategory?: WeaponCategory;
 };
 
-const IDLE_SPEED = DEFAULT_RUN_THRESHOLD;
 const RUN_AMP = 0.55;
 const ARM_AMP = 0.4;
 const IDLE_BOB = 0.012;
@@ -22,9 +34,20 @@ const RECOIL_MS = 0.1;
 const RECOIL_ARM = 0.55;
 const RECOIL_TORSO = 0.12;
 
+const ZERO_WEIGHTS: LocomotionWeights = {
+  idle: 1,
+  forward: 0,
+  backward: 0,
+  strafeLeft: 0,
+  strafeRight: 0,
+};
+
 /**
- * Procedural idle / run / shoot overlay for {@link CharacterBones}.
- * Sin-wave locomotion; no keyframes.
+ * Procedural locomotion with **directional blending**:
+ * idle · walk forward · walk backward · strafe left · strafe right.
+ *
+ * No AnimationMixer / GLTF clips — sin-wave poses weighted by
+ * `locomotionWeights()` so diagonals mix cleanly.
  */
 export class CharacterAnimator {
   private readonly bones: CharacterBones;
@@ -45,7 +68,7 @@ export class CharacterAnimator {
    */
   update(dt: number, input: AnimatorInput): void {
     const speed = Math.max(0, input.speed);
-    this.state = speed < IDLE_SPEED ? "idle" : "run";
+    const w = input.weights ?? fallbackWeights(speed);
 
     if (input.shooting) {
       this.recoilT = RECOIL_MS;
@@ -54,55 +77,120 @@ export class CharacterAnimator {
       this.recoilT = Math.max(0, this.recoilT - dt);
     }
 
-    const { legL, legR, armL, armR, torso, hips, head } = this.bones;
-    const knife = input.weaponCategory === "knife";
+    this.state = dominantState(w);
 
-    // phase advances faster when running
-    const cadence = this.state === "run" ? 8 + Math.min(speed, 8) * 0.6 : 2.2;
+    const moving = 1 - w.idle;
+    const cadence = moving > 0.01 ? 8 + Math.min(speed, 8) * 0.6 : 2.2;
     this.phase += dt * cadence;
 
     const s = Math.sin(this.phase);
     const c = Math.cos(this.phase);
 
-    if (this.state === "idle") {
-      // micro bob on torso / hips Y
-      const bob = Math.sin(this.phase) * IDLE_BOB;
-      hips.position.y = 0.55 + bob;
-      torso.rotation.x = 0.02;
-      torso.rotation.z = Math.sin(this.phase * 0.5) * 0.02;
+    const { legL, legR, armL, armR, torso, hips, head } = this.bones;
+    const knife = input.weaponCategory === "knife";
 
-      legL.rotation.x = 0.02;
-      legR.rotation.x = -0.02;
+    // ── Idle baseline ──────────────────────────────────────────
+    const idleBob = Math.sin(this.phase) * IDLE_BOB;
+    let hipsY = 0.55 + idleBob * w.idle;
+    let torsoX = 0.02 * w.idle;
+    let torsoZ = Math.sin(this.phase * 0.5) * 0.02 * w.idle;
+    let legLX = 0.02 * w.idle;
+    let legRX = -0.02 * w.idle;
+    let legLZ = 0;
+    let legRZ = 0;
 
-      // arms ready (gun) or slightly open (knife)
-      const readyR = knife ? 0.25 : 0.55;
-      const readyL = knife ? 0.25 : 0.4;
-      armL.rotation.set(readyL + s * 0.03, 0, 0.12);
-      armR.rotation.set(readyR + c * 0.03, 0, -0.08);
-      head.rotation.x = -0.02;
-    } else {
-      // run cycle
-      const amp = RUN_AMP * Math.min(1, speed / 4);
-      hips.position.y = 0.55 + Math.abs(s) * RUN_BOB;
-      torso.rotation.x = 0.08;
-      torso.rotation.z = c * 0.04;
+    const readyR = knife ? 0.25 : 0.55;
+    const readyL = knife ? 0.25 : 0.4;
+    let armLX = readyL + s * 0.03 * w.idle;
+    let armRX = readyR + c * 0.03 * w.idle;
+    let armLZ = 0.12 * w.idle;
+    let armRZ = -0.08 * w.idle;
+    let headX = -0.02 * w.idle;
 
-      legL.rotation.x = s * amp;
-      legR.rotation.x = -s * amp;
+    // Amp scales with overall move energy
+    const amp = RUN_AMP * Math.min(1, speed / 4 || moving);
+    const aAmp = ARM_AMP * Math.min(1, speed / 4 || moving);
+    const bob = Math.abs(s) * RUN_BOB;
 
-      // arms opposite phase to legs
-      const aAmp = ARM_AMP * Math.min(1, speed / 4);
-      const baseR = knife ? 0.35 : 0.5;
-      const baseL = knife ? 0.35 : 0.35;
-      armL.rotation.set(baseL + -s * aAmp, 0, 0.1);
-      armR.rotation.set(baseR + s * aAmp * 0.6, 0, -0.08);
-      head.rotation.x = 0.05;
+    // ── Forward walk ───────────────────────────────────────────
+    if (w.forward > 0.001) {
+      const k = w.forward;
+      hipsY += bob * k;
+      torsoX += 0.08 * k;
+      torsoZ += c * 0.04 * k;
+      legLX += s * amp * k;
+      legRX += -s * amp * k;
+      armLX = armLX * (1 - k) + (0.35 + -s * aAmp) * k;
+      armRX = armRX * (1 - k) + ((knife ? 0.35 : 0.5) + s * aAmp * 0.6) * k;
+      armLZ = armLZ * (1 - k) + 0.1 * k;
+      armRZ = armRZ * (1 - k) + -0.08 * k;
+      headX += 0.05 * k;
     }
 
-    // shoot recoil overlay — kick arm/torso opposite aim (−Z)
+    // ── Backward walk (phase inverted feel) ────────────────────
+    if (w.backward > 0.001) {
+      const k = w.backward;
+      hipsY += bob * 0.85 * k;
+      torsoX += -0.06 * k; // lean back slightly
+      torsoZ += c * 0.03 * k;
+      // legs reverse phase vs forward
+      legLX += -s * amp * 0.9 * k;
+      legRX += s * amp * 0.9 * k;
+      armLX = armLX * (1 - k) + (0.4 + s * aAmp * 0.5) * k;
+      armRX = armRX * (1 - k) + (0.45 + -s * aAmp * 0.4) * k;
+      headX += 0.08 * k;
+    }
+
+    // ── Strafe right ───────────────────────────────────────────
+    if (w.strafeRight > 0.001) {
+      const k = w.strafeRight;
+      hipsY += bob * 0.9 * k;
+      torsoZ += 0.1 * k; // lean into strafe
+      // scissor legs on Z (sideways)
+      legLZ += s * amp * 0.7 * k;
+      legRZ += -s * amp * 0.7 * k;
+      legLX += Math.abs(s) * 0.15 * k;
+      legRX += Math.abs(c) * 0.15 * k;
+      armLX = armLX * (1 - k) + (0.4 + c * 0.15) * k;
+      armRX = armRX * (1 - k) + (0.5 + -c * 0.12) * k;
+      armLZ += 0.2 * k;
+      armRZ += -0.15 * k;
+    }
+
+    // ── Strafe left ────────────────────────────────────────────
+    if (w.strafeLeft > 0.001) {
+      const k = w.strafeLeft;
+      hipsY += bob * 0.9 * k;
+      torsoZ += -0.1 * k;
+      legLZ += -s * amp * 0.7 * k;
+      legRZ += s * amp * 0.7 * k;
+      legLX += Math.abs(c) * 0.15 * k;
+      legRX += Math.abs(s) * 0.15 * k;
+      armLX = armLX * (1 - k) + (0.4 + -c * 0.15) * k;
+      armRX = armRX * (1 - k) + (0.5 + c * 0.12) * k;
+      armLZ += -0.15 * k;
+      armRZ += 0.2 * k;
+    }
+
+    hips.position.y = hipsY;
+    hips.rotation.set(0, 0, 0);
+    torso.rotation.x = torsoX;
+    torso.rotation.z = torsoZ;
+    // Aim twist on torso Y (hips stay on body yaw from controller)
+    torso.rotation.y = input.torsoTwist ?? 0;
+
+    legL.rotation.set(legLX, 0, legLZ);
+    legR.rotation.set(legRX, 0, legRZ);
+    armL.rotation.set(armLX, 0, armLZ);
+    armR.rotation.set(armRX, 0, armRZ);
+    head.rotation.x = headX;
+    head.rotation.y = 0;
+    head.rotation.z = 0;
+
+    // shoot recoil overlay — kick arm/torso opposite aim
     if (this.recoilT > 0 && !knife) {
-      const k = this.recoilT / RECOIL_MS; // 1 → 0
-      const kick = Math.sin(k * Math.PI); // smooth pulse
+      const k = this.recoilT / RECOIL_MS;
+      const kick = Math.sin(k * Math.PI);
       armR.rotation.x -= RECOIL_ARM * kick;
       torso.rotation.x -= RECOIL_TORSO * kick;
     } else if (this.recoilT > 0 && knife) {
@@ -129,4 +217,33 @@ export class CharacterAnimator {
     armR.rotation.set(0.55, 0, -0.1);
     head.rotation.set(0, 0, 0);
   }
+}
+
+function fallbackWeights(speed: number): LocomotionWeights {
+  if (speed < 0.3) return { ...ZERO_WEIGHTS };
+  return {
+    idle: 0,
+    forward: 1,
+    backward: 0,
+    strafeLeft: 0,
+    strafeRight: 0,
+  };
+}
+
+function dominantState(w: LocomotionWeights): LocomotionState {
+  if (w.idle >= 0.5) return "idle";
+  let best: LocomotionState = "forward";
+  let bestV = w.forward;
+  if (w.backward > bestV) {
+    best = "backward";
+    bestV = w.backward;
+  }
+  if (w.strafeLeft > bestV) {
+    best = "strafeLeft";
+    bestV = w.strafeLeft;
+  }
+  if (w.strafeRight > bestV) {
+    best = "strafeRight";
+  }
+  return best;
 }

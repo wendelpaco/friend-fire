@@ -118,6 +118,7 @@ export class CharacterRig {
     chest.position.y = 0.32;
     torso.add(chest);
 
+    // Vest on +Z = chest / “front” of the soldier (must match yawFromDirection).
     const vest = boxMesh(0.42, 0.36, 0.14, gearMat);
     vest.position.set(0, 0.34, 0.12);
     torso.add(vest);
@@ -150,8 +151,9 @@ export class CharacterRig {
 
     const weaponSlot = new THREE.Object3D();
     weaponSlot.name = WEAPON_SLOT_NAME;
-    // slight forward offset so barrel points −Z (character faces −Z)
-    weaponSlot.position.set(0.02, -0.02, -0.08);
+    // Character faces **+Z** (vest on +Z). Barrel meshes also along +Z.
+    // Slight forward offset so muzzle sits in front of the hand.
+    weaponSlot.position.set(0.02, -0.02, 0.08);
     handR.add(weaponSlot);
 
     // head

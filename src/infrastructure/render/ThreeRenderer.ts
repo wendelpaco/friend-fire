@@ -262,13 +262,21 @@ export class ThreeRenderer {
 
       const last = this.lastPos.get(p.id);
       const dt = last ? Math.max(1 / 120, now - last.t) : 1 / 60;
-      const speed = last
-        ? Math.hypot(p.x - last.x, p.z - last.z) / dt
-        : 0;
+      // World velocity from position delta (WASD result after collision).
+      const moveX = last ? (p.x - last.x) / dt : 0;
+      const moveZ = last ? (p.z - last.z) / dt : 0;
       this.lastPos.set(p.id, { x: p.x, z: p.z, t: now });
 
       const shooting = this.shootFlags.has(p.id);
-      handle.update(dt, { speed, shooting, weaponCategory: cat });
+      // CharacterController: body faces velocity when moving, aim when idle.
+      // Do NOT set rotation.y = p.rot here — that was the moonwalk bug.
+      handle.update(dt, {
+        moveX,
+        moveZ,
+        aimYaw: p.rot,
+        shooting,
+        weaponCategory: cat,
+      });
 
       // Fog of war: local + same team always visible (if alive); enemies only within radius when on.
       let inVision = true;
@@ -283,7 +291,7 @@ export class ThreeRenderer {
       }
       handle.group.visible = p.alive && inVision;
       handle.group.position.set(p.x, 0, p.z);
-      handle.group.rotation.y = p.rot;
+      // visual yaw applied inside handle.update via CharacterController
     }
     this.shootFlags.clear();
 
@@ -961,7 +969,8 @@ export class ThreeRenderer {
     handle.group.add(label);
 
     handle.group.position.set(p.x, 0, p.z);
-    handle.group.rotation.y = p.rot;
+    handle.resetFacing(p.rot);
+    handle.group.rotation.y = p.rot; // seed; controller takes over next frame
     return handle;
   }
 
