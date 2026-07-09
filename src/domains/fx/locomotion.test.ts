@@ -153,6 +153,22 @@ describe("deltaAngle / smoothYaw", () => {
     expect(next).toBeGreaterThan(0);
     expect(next).toBeLessThan(Math.PI / 2);
   });
+
+  it("caps the per-frame step to maxRadPerSec", () => {
+    const dt = 1 / 60;
+    // lambda 100 wants ~the whole π in one frame; cap must clamp it
+    const next = smoothYaw(0, Math.PI, dt, 100, 2);
+    expect(Math.abs(next)).toBeLessThanOrEqual(2 * dt + 1e-9);
+    expect(next).toBeGreaterThan(0); // still turns the right way
+  });
+
+  it("cap defaults to Infinity (behavior unchanged)", () => {
+    const dt = 1 / 60;
+    expect(smoothYaw(0, 1, dt, 12)).toBeCloseTo(
+      smoothYaw(0, 1, dt, 12, Infinity),
+      12,
+    );
+  });
 });
 
 describe("movingHysteresis", () => {

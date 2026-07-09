@@ -92,17 +92,25 @@ export function deltaAngle(from: number, to: number): number {
 /**
  * Exponential-ish smooth yaw toward target (frame-rate independent).
  * @param lambda higher = snappier (≈12 feels responsive for soldiers)
+ * @param maxRadPerSec hard cap on turn speed — a 180° reversal becomes a
+ *   visible pivot instead of a snap. Default Infinity (no cap).
  */
 export function smoothYaw(
   current: number,
   target: number,
   dt: number,
   lambda = 12,
+  maxRadPerSec = Infinity,
 ): number {
   if (!(dt > 0)) return current;
   const d = deltaAngle(current, target);
   const t = 1 - Math.exp(-lambda * dt);
-  return current + d * t;
+  let step = d * t;
+  const maxStep = maxRadPerSec * dt;
+  if (Number.isFinite(maxStep)) {
+    step = Math.max(-maxStep, Math.min(maxStep, step));
+  }
+  return current + step;
 }
 
 /**
