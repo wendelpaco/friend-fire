@@ -68,6 +68,75 @@ function asWeaponId(id: string | undefined | null): WeaponId | null {
   return id in WEAPONS ? (id as WeaponId) : null;
 }
 
+function pointInWall(
+  x: number,
+  z: number,
+  w: { x: number; z: number; w: number; d: number },
+): boolean {
+  const halfW = w.w / 2;
+  const halfD = w.d / 2;
+  return (
+    x > w.x - halfW &&
+    x < w.x + halfW &&
+    z > w.z - halfD &&
+    z < w.z + halfD
+  );
+}
+
+/** Approximate surface point + outward normal for a wall AABB hit. */
+function wallImpactAt(
+  x: number,
+  z: number,
+  w: { x: number; z: number; w: number; d: number; h?: number },
+  prevX?: number,
+  prevZ?: number,
+): { x: number; y: number; z: number; nx: number; ny: number; nz: number } {
+  const halfW = w.w / 2;
+  const halfD = w.d / 2;
+  const y = Math.min(1.1, (w.h ?? 2.5) * 0.45);
+
+  // Prefer entry face from previous free position when available
+  if (prevX !== undefined && prevZ !== undefined) {
+    const left = w.x - halfW;
+    const right = w.x + halfW;
+    const bottom = w.z - halfD;
+    const top = w.z + halfD;
+    if (prevX <= left && x > left) {
+      return { x: left, y, z: clamp(z, bottom, top), nx: -1, ny: 0, nz: 0 };
+    }
+    if (prevX >= right && x < right) {
+      return { x: right, y, z: clamp(z, bottom, top), nx: 1, ny: 0, nz: 0 };
+    }
+    if (prevZ <= bottom && z > bottom) {
+      return { x: clamp(x, left, right), y, z: bottom, nx: 0, ny: 0, nz: -1 };
+    }
+    if (prevZ >= top && z < top) {
+      return { x: clamp(x, left, right), y, z: top, nx: 0, ny: 0, nz: 1 };
+    }
+  }
+
+  // Nearest face from interior penetration
+  const left = x - (w.x - halfW);
+  const right = w.x + halfW - x;
+  const bottom = z - (w.z - halfD);
+  const top = w.z + halfD - z;
+  const min = Math.min(left, right, bottom, top);
+  if (min === left) {
+    return { x: w.x - halfW, y, z, nx: -1, ny: 0, nz: 0 };
+  }
+  if (min === right) {
+    return { x: w.x + halfW, y, z, nx: 1, ny: 0, nz: 0 };
+  }
+  if (min === bottom) {
+    return { x, y, z: w.z - halfD, nx: 0, ny: 0, nz: -1 };
+  }
+  return { x, y, z: w.z + halfD, nx: 0, ny: 0, nz: 1 };
+}
+
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
 /** Map server primary/secondary/activeSlot/mag into client PlayerState loadout. */
 function loadoutFromNetwork(
   np: {
@@ -571,6 +640,7 @@ export class GameClient {
         this.updateBullets(dt);
       }
       this.three.animateDust(dt);
+      this.three.updateFx(dt);
       this.syncRender();
       this.pushHud();
       this.input.endFrame();
@@ -581,6 +651,7 @@ export class GameClient {
       // Predict local movement only; combat/HP/bots from server via applyNetworkState
       this.updateLocalPlayerNetworked(dt);
       this.three.animateDust(dt);
+      this.three.updateFx(dt);
       this.syncRender();
       this.pushHud();
       this.input.endFrame();
@@ -591,6 +662,7 @@ export class GameClient {
     this.updateBots(dt);
     this.updateBullets(dt);
     this.three.animateDust(dt);
+    this.three.updateFx(dt);
     this.syncRender();
     this.pushHud();
     this.input.endFrame();
@@ -628,14 +700,20 @@ export class GameClient {
     const dz = this.input.aimWorldZ - p.z;
     if (dx !== 0 || dz !== 0) p.rot = Math.atan2(dx, dz);
 
-    // Local fire SFX only (damage is server-side)
+    // Local fire SFX + cosmetic muzzle/wall FX (damage is server-side)
     if (this.input.isMouseDown(0)) {
       // throttle sfx via lastShotAt
       const now = performance.now();
       if (now - p.lastShotAt > 140) {
         p.lastShotAt = now;
-        Sfx.play("shoot");
-        this.three.spawnMuzzleFlash(p.x, p.z, p.rot, now + 45);
+        const wid = p.weapons[p.weaponSlot];
+        const def = wid ? WEAPONS[wid] : null;
+        if (!def?.isMelee) {
+          Sfx.play("shoot");
+          this.three.spawnMuzzle(p.x, p.z, p.rot);
+          this.three.notifyShoot(p.id);
+          this.cosmeticWallRay(p.x, p.z, p.rot, def?.range ?? 50);
+        }
       }
     }
   }
@@ -694,7 +772,19 @@ export class GameClient {
 
   private syncRender() {
     this.three.sync({
-      players: this.state.players,
+      players: this.state.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        team: p.team,
+        isBot: p.isBot,
+        x: p.x,
+        z: p.z,
+        rot: p.rot,
+        alive: p.alive,
+        color: p.color,
+        weaponSlot: p.weaponSlot,
+        weaponId: p.weapons[p.weaponSlot],
+      })),
       bullets: this.state.bullets,
       localPlayerId: this.state.localPlayerId,
       cameraMode: this.state.cameraMode,
@@ -1030,10 +1120,12 @@ export class GameClient {
       bornAt: now,
     };
     this.state.bullets.push(bullet);
-    this.three.spawnMuzzleFlash(p.x, p.z, p.rot, now + 45);
+    this.three.spawnMuzzle(p.x, p.z, p.rot);
+    this.three.notifyShoot(p.id);
   }
 
   private meleeAttack(p: PlayerState, damage: number, range: number) {
+    // Melee: no wall FX (spec — skip wall impacts for knife)
     for (const other of this.state.players) {
       if (!other.alive || other.id === p.id || other.team === p.team) continue;
       const dx = other.x - p.x;
@@ -1049,6 +1141,45 @@ export class GameClient {
     }
   }
 
+  /**
+   * Networked cosmetic: raycast map walls along aim and spawn impact FX.
+   * Collision topology is unchanged.
+   */
+  private cosmeticWallRay(
+    x: number,
+    z: number,
+    rot: number,
+    maxRange: number,
+  ) {
+    const dx = Math.sin(rot);
+    const dz = Math.cos(rot);
+    const steps = 48;
+    const step = Math.min(maxRange, 60) / steps;
+    let px = x + dx * 0.75;
+    let pz = z + dz * 0.75;
+    for (let i = 0; i < steps; i++) {
+      const nx = px + dx * step;
+      const nz = pz + dz * step;
+      for (const w of this.map.walls) {
+        if (pointInWall(nx, nz, w) && !pointInWall(px, pz, w)) {
+          const hit = wallImpactAt(nx, nz, w);
+          this.three.spawnImpact(
+            hit.x,
+            hit.y,
+            hit.z,
+            hit.nx,
+            hit.ny,
+            hit.nz,
+            "wall",
+          );
+          return;
+        }
+      }
+      px = nx;
+      pz = nz;
+    }
+  }
+
   private updateBullets(dt: number) {
     const walls = this.map.walls;
     const next: BulletState[] = [];
@@ -1057,6 +1188,8 @@ export class GameClient {
       const stepX = b.vx * dt;
       const stepZ = b.vz * dt;
       const stepLen = Math.hypot(stepX, stepZ);
+      const prevX = b.x;
+      const prevZ = b.z;
       b.x += stepX;
       b.z += stepZ;
       b.rangeLeft -= stepLen;
@@ -1072,6 +1205,16 @@ export class GameClient {
           b.z < w.z + halfD
         ) {
           hitWall = true;
+          const hit = wallImpactAt(b.x, b.z, w, prevX, prevZ);
+          this.three.spawnImpact(
+            hit.x,
+            hit.y,
+            hit.z,
+            hit.nx,
+            hit.ny,
+            hit.nz,
+            "wall",
+          );
           break;
         }
       }

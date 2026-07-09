@@ -3,6 +3,17 @@ import { CAMERA_HEIGHT, CAMERA_OFFSET } from "@/game/constants";
 import type { BulletState, PlayerState } from "@/game/types";
 import { buildBillboardMesh, buildWallPoster } from "@/game/world/billboards";
 import type { GameMap } from "@/domains/world";
+import {
+  createCharacter,
+  type CharacterHandle,
+  type WeaponCategory,
+} from "./character";
+import {
+  ImpactParticleSystem,
+  type ImpactSurface,
+  MuzzleFlashSystem,
+  WallDamageSystem,
+} from "./fx";
 
 /** Minimal fields required to keep meshes in sync with simulation. */
 export interface RenderSnapshot {
@@ -10,7 +21,10 @@ export interface RenderSnapshot {
     Pick<
       PlayerState,
       "id" | "name" | "team" | "isBot" | "x" | "z" | "rot" | "alive" | "color"
-    >
+    > & {
+      weaponSlot?: number;
+      weaponId?: string;
+    }
   >;
   bullets: ReadonlyArray<Pick<BulletState, "id" | "x" | "z">>;
   localPlayerId: string;
@@ -20,9 +34,26 @@ export interface RenderSnapshot {
   freeCamZ?: number;
 }
 
+/** Map loadout → held weapon silhouette. */
+export function weaponCategoryOf(
+  weaponId?: string | null,
+  weaponSlot?: number,
+): WeaponCategory {
+  if (weaponSlot === 4 || weaponId === "knife") return "knife";
+  if (
+    weaponId === "glock" ||
+    weaponId === "usp" ||
+    weaponId === "deagle"
+  ) {
+    return "pistol";
+  }
+  return "rifle";
+}
+
 /**
  * Visual target: RUSH-B style top-down — warm sand, long sun shadows,
  * local spotlight, radial vignette, tropical horizon, denser props.
+ * Owns combat FX + animated character rigs.
  */
 export class ThreeRenderer {
   readonly scene = new THREE.Scene();
@@ -30,7 +61,9 @@ export class ThreeRenderer {
   readonly renderer: THREE.WebGLRenderer;
 
   private map: GameMap;
-  private playerMeshes = new Map<string, THREE.Group>();
+  private characters = new Map<string, CharacterHandle>();
+  private lastPos = new Map<string, { x: number; z: number; t: number }>();
+  private shootFlags = new Set<string>();
   private bulletMeshes = new Map<string, THREE.Mesh>();
   private wallGroup = new THREE.Group();
   private propGroup = new THREE.Group();
@@ -40,7 +73,9 @@ export class ThreeRenderer {
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private tmpVec = new THREE.Vector3();
   private tmpNdc = new THREE.Vector2();
-  private muzzleFlashes: Array<{ mesh: THREE.Mesh; until: number }> = [];
+  private muzzleFx: MuzzleFlashSystem;
+  private impactFx: ImpactParticleSystem;
+  private wallDamageFx: WallDamageSystem;
   private playerSpot!: THREE.SpotLight;
   private dustParticles!: THREE.Points;
   private vignette!: THREE.Mesh;
@@ -79,6 +114,10 @@ export class ThreeRenderer {
     this.buildWorld();
     this.buildScenery();
     this.buildVignette();
+
+    this.muzzleFx = new MuzzleFlashSystem(this.scene);
+    this.impactFx = new ImpactParticleSystem(this.scene);
+    this.wallDamageFx = new WallDamageSystem(this.scene);
   }
 
   pickGround(mx: number, my: number): { x: number; z: number } | null {
@@ -94,22 +133,37 @@ export class ThreeRenderer {
     return { x: hit.x, z: hit.z };
   }
 
-  spawnMuzzleFlash(x: number, z: number, rot: number, until: number) {
-    const flash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 8, 8),
-      new THREE.MeshBasicMaterial({
-        color: 0xfff0a0,
-        transparent: true,
-        opacity: 0.95,
-      }),
-    );
-    flash.position.set(
-      x + Math.sin(rot) * 0.95,
-      1.0,
-      z + Math.cos(rot) * 0.95,
-    );
-    this.scene.add(flash);
-    this.muzzleFlashes.push({ mesh: flash, until });
+  /** Muzzle flash at gun tip along facing. */
+  spawnMuzzle(x: number, z: number, rot: number) {
+    this.muzzleFx.spawn(x, z, rot);
+  }
+
+  /** Impact sparks/dust + cosmetic wall damage (wall/prop). */
+  spawnImpact(
+    x: number,
+    y: number,
+    z: number,
+    nx: number,
+    ny: number,
+    nz: number,
+    surface: ImpactSurface = "wall",
+  ) {
+    this.impactFx.spawn(x, y, z, nx, ny, nz, surface);
+    if (surface === "wall" || surface === "prop") {
+      this.wallDamageFx.spawn(x, y, z, nx, ny, nz);
+    }
+  }
+
+  /** Advance pooled FX systems (call every frame). */
+  updateFx(dt: number) {
+    this.muzzleFx.update(dt);
+    this.impactFx.update(dt);
+    this.wallDamageFx.update(dt);
+  }
+
+  /** Brief shoot recoil overlay on character next sync. */
+  notifyShoot(playerId: string) {
+    this.shootFlags.add(playerId);
   }
 
   animateDust(dt: number) {
@@ -128,17 +182,39 @@ export class ThreeRenderer {
 
   sync(snapshot: RenderSnapshot) {
     const aliveBulletIds = new Set<string>();
+    const alivePlayerIds = new Set<string>();
+    const now = performance.now() * 0.001;
 
     for (const p of snapshot.players) {
-      let mesh = this.playerMeshes.get(p.id);
-      if (!mesh) {
-        mesh = this.createPlayerMesh(p);
-        this.playerMeshes.set(p.id, mesh);
-        this.scene.add(mesh);
+      alivePlayerIds.add(p.id);
+      let handle = this.characters.get(p.id);
+      if (!handle) {
+        handle = this.createPlayerCharacter(p);
+        this.characters.set(p.id, handle);
+        this.scene.add(handle.group);
       }
-      mesh.visible = p.alive;
-      mesh.position.set(p.x, 0, p.z);
-      mesh.rotation.y = p.rot;
+
+      const cat = weaponCategoryOf(p.weaponId, p.weaponSlot);
+      handle.setWeapon(cat);
+
+      const last = this.lastPos.get(p.id);
+      const dt = last ? Math.max(1 / 120, now - last.t) : 1 / 60;
+      const speed = last
+        ? Math.hypot(p.x - last.x, p.z - last.z) / dt
+        : 0;
+      this.lastPos.set(p.id, { x: p.x, z: p.z, t: now });
+
+      const shooting = this.shootFlags.has(p.id);
+      handle.update(dt, { speed, shooting, weaponCategory: cat });
+
+      handle.group.visible = p.alive;
+      handle.group.position.set(p.x, 0, p.z);
+      handle.group.rotation.y = p.rot;
+    }
+    this.shootFlags.clear();
+
+    for (const id of [...this.characters.keys()]) {
+      if (!alivePlayerIds.has(id)) this.removeCharacter(id);
     }
 
     for (const b of snapshot.bullets) {
@@ -159,7 +235,6 @@ export class ThreeRenderer {
       if (!aliveBulletIds.has(id)) this.removeBulletMesh(id);
     }
 
-    this.updateMuzzleFlashes();
     this.updateCamera(snapshot);
   }
 
@@ -174,6 +249,10 @@ export class ThreeRenderer {
   }
 
   dispose() {
+    this.muzzleFx.dispose();
+    this.impactFx.dispose();
+    this.wallDamageFx.dispose();
+    for (const id of [...this.characters.keys()]) this.removeCharacter(id);
     this.renderer.dispose();
     this.sandTex.dispose();
     this.wallTex.dispose();
@@ -765,124 +844,19 @@ export class ThreeRenderer {
     return new THREE.Sprite(mat);
   }
 
-  private createPlayerMesh(
+  private createPlayerCharacter(
     p: Pick<
       PlayerState,
       "id" | "name" | "team" | "isBot" | "x" | "z" | "rot" | "color"
-    >,
-  ): THREE.Group {
-    const g = new THREE.Group();
-    g.name = p.id;
+    > & { weaponSlot?: number; weaponId?: string },
+  ): CharacterHandle {
+    const handle = createCharacter(p.color);
+    handle.group.name = p.id;
 
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: p.color,
-      roughness: 0.5,
-      metalness: 0.15,
-    });
-    const darkMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1a1a,
-      roughness: 0.65,
-    });
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: 0xd4a574,
-      roughness: 0.7,
-    });
-    const gearMat = new THREE.MeshStandardMaterial({
-      color: p.team === "TR" ? 0x4a3420 : 0x1a3048,
-      roughness: 0.55,
-      metalness: 0.2,
-    });
+    const cat = weaponCategoryOf(p.weaponId, p.weaponSlot);
+    handle.setWeapon(cat);
 
-    // legs
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.55, 0.28), darkMat);
-    legL.position.set(-0.14, 0.28, 0);
-    legL.castShadow = true;
-    g.add(legL);
-    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.55, 0.28), darkMat);
-    legR.position.set(0.14, 0.28, 0);
-    legR.castShadow = true;
-    g.add(legR);
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.72, 0.42), bodyMat);
-    body.position.y = 0.92;
-    body.castShadow = true;
-    g.add(body);
-
-    const vest = new THREE.Mesh(
-      new THREE.BoxGeometry(0.62, 0.48, 0.22),
-      gearMat,
-    );
-    vest.position.set(0, 0.98, 0.14);
-    vest.castShadow = true;
-    g.add(vest);
-
-    // pouches
-    const pouch = new THREE.Mesh(
-      new THREE.BoxGeometry(0.35, 0.18, 0.12),
-      darkMat,
-    );
-    pouch.position.set(0, 0.85, 0.28);
-    g.add(pouch);
-
-    const head = new THREE.Mesh(
-      new THREE.BoxGeometry(0.36, 0.36, 0.36),
-      skinMat,
-    );
-    head.position.y = 1.48;
-    head.castShadow = true;
-    g.add(head);
-
-    const helmet = new THREE.Mesh(
-      new THREE.BoxGeometry(0.42, 0.16, 0.44),
-      bodyMat,
-    );
-    helmet.position.y = 1.7;
-    g.add(helmet);
-
-    // arms
-    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, 0.18), bodyMat);
-    armL.position.set(-0.42, 0.95, 0);
-    armL.castShadow = true;
-    g.add(armL);
-    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, 0.18), bodyMat);
-    armR.position.set(0.42, 0.95, -0.1);
-    armR.rotation.x = 0.4;
-    armR.castShadow = true;
-    g.add(armR);
-
-    const gun = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, 0.12, 0.85),
-      new THREE.MeshStandardMaterial({
-        color: 0x1c1c1c,
-        metalness: 0.55,
-        roughness: 0.35,
-      }),
-    );
-    gun.position.set(0.38, 0.95, -0.45);
-    gun.name = "gun";
-    g.add(gun);
-
-    const stock = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, 0.14, 0.22),
-      darkMat,
-    );
-    stock.position.set(0.38, 0.95, 0.05);
-    g.add(stock);
-
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.5, 0.7, 32),
-      new THREE.MeshBasicMaterial({
-        color: p.color,
-        transparent: true,
-        opacity: 0.8,
-        side: THREE.DoubleSide,
-      }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.04;
-    g.add(ring);
-
-    // soft ground blob under feet
+    // Soft ground blob under feet
     const blob = new THREE.Mesh(
       new THREE.CircleGeometry(0.55, 20),
       new THREE.MeshBasicMaterial({
@@ -893,21 +867,30 @@ export class ThreeRenderer {
     );
     blob.rotation.x = -Math.PI / 2;
     blob.position.y = 0.02;
-    g.add(blob);
+    handle.group.add(blob);
 
     const label = this.makeSpriteText(
       p.isBot ? p.name.replace("BOT ", "") : p.name,
       "#ffffff",
       256,
     );
-    label.position.y = 2.2;
+    label.position.y = 2.05;
     label.scale.set(2.0, 0.65, 1);
     label.name = "label";
-    g.add(label);
+    handle.group.add(label);
 
-    g.position.set(p.x, 0, p.z);
-    g.rotation.y = p.rot;
-    return g;
+    handle.group.position.set(p.x, 0, p.z);
+    handle.group.rotation.y = p.rot;
+    return handle;
+  }
+
+  private removeCharacter(id: string) {
+    const handle = this.characters.get(id);
+    if (!handle) return;
+    this.scene.remove(handle.group);
+    handle.dispose();
+    this.characters.delete(id);
+    this.lastPos.delete(id);
   }
 
   private removeBulletMesh(id: string) {
@@ -917,22 +900,6 @@ export class ThreeRenderer {
     mesh.geometry.dispose();
     (mesh.material as THREE.Material).dispose();
     this.bulletMeshes.delete(id);
-  }
-
-  private updateMuzzleFlashes() {
-    const now = performance.now();
-    this.muzzleFlashes = this.muzzleFlashes.filter((f) => {
-      if (now >= f.until) {
-        this.scene.remove(f.mesh);
-        f.mesh.geometry.dispose();
-        (f.mesh.material as THREE.Material).dispose();
-        return false;
-      }
-      const mat = f.mesh.material as THREE.MeshBasicMaterial;
-      const life = (f.until - now) / 50;
-      mat.opacity = Math.max(0, life);
-      return true;
-    });
   }
 
   private updateCamera(snapshot: RenderSnapshot) {
