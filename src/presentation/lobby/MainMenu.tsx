@@ -32,6 +32,10 @@ import {
 } from "@/presentation/lobby/RoomPanel";
 import { ServerBrowser } from "@/presentation/lobby/ServerBrowser";
 
+/**
+ * Read localStorage only after mount. Never call from useState initializers —
+ * SSR has no storage, client does → hydration text mismatch (e.g. OP vs PA).
+ */
 function readStorage<T>(key: string, fallback: T, parse?: (v: string) => T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -43,28 +47,22 @@ function readStorage<T>(key: string, fallback: T, parse?: (v: string) => T): T {
   }
 }
 
+const DEFAULT_NICKNAME = "Operador";
+const DEFAULT_REGION: "BR" | "US" = "BR";
+const DEFAULT_VOLUME = 70;
+
 export function MainMenu() {
   const router = useRouter();
-  const [region, setRegion] = useState<"BR" | "US">(() =>
-    readStorage("ff_region", "BR", (v) =>
-      v === "BR" || v === "US" ? v : "BR",
-    ),
-  );
-  const [volume, setVolume] = useState(() =>
-    readStorage("ff_volume", 70, (v) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : 70;
-    }),
-  );
-  const [nickname, setNickname] = useState(() =>
-    readStorage("ff_nickname", "Operador"),
-  );
+  // Fixed defaults for SSR + first client paint (must match).
+  const [region, setRegion] = useState<"BR" | "US">(DEFAULT_REGION);
+  const [volume, setVolume] = useState(DEFAULT_VOLUME);
+  const [nickname, setNickname] = useState(DEFAULT_NICKNAME);
   const [editingName, setEditingName] = useState(false);
   const [roomPanel, setRoomPanel] = useState<RoomPanelMode | null>(null);
   const [serverBrowserOpen, setServerBrowserOpen] = useState(false);
   const [missions, setMissions] = useState<DailyMission[]>([]);
   const [xpTotal, setXpTotal] = useState(0);
-  const [lastMap, setLastMap] = useState(() => getLastMapId("dust"));
+  const [lastMap, setLastMap] = useState("dust");
   const [quickMatchBusy, setQuickMatchBusy] = useState(false);
   const [quickMatchError, setQuickMatchError] = useState<string | null>(null);
   /** Bumped on cancel / new search so stale results leave and do not navigate. */
@@ -73,7 +71,20 @@ export function MainMenu() {
   const [rejoinBusy, setRejoinBusy] = useState(false);
   const [rejoinError, setRejoinError] = useState<string | null>(null);
 
+  // Hydrate prefs from localStorage after mount (client-only).
   useEffect(() => {
+    setNickname(readStorage("ff_nickname", DEFAULT_NICKNAME));
+    setRegion(
+      readStorage("ff_region", DEFAULT_REGION, (v) =>
+        v === "BR" || v === "US" ? v : DEFAULT_REGION,
+      ),
+    );
+    setVolume(
+      readStorage("ff_volume", DEFAULT_VOLUME, (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : DEFAULT_VOLUME;
+      }),
+    );
     setMissions(getMissionsWithProgress());
     setXpTotal(getXp());
     setLastMap(getLastMapId("dust"));
