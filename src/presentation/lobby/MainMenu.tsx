@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { GAME_NAME, GAME_TAGLINE } from "@/game/constants";
+import {
+  RoomPanel,
+  type RoomPanelMode,
+} from "@/presentation/lobby/RoomPanel";
 
 const DAILY = [
   { label: "Jogue 3 partidas", xp: 150, progress: "0/3" },
@@ -38,6 +42,7 @@ export function MainMenu() {
     readStorage("ff_nickname", "Operador"),
   );
   const [editingName, setEditingName] = useState(false);
+  const [roomPanel, setRoomPanel] = useState<RoomPanelMode | null>(null);
 
   const saveNickname = (name: string) => {
     const clean = name.trim().slice(0, 16) || "Operador";
@@ -150,21 +155,23 @@ export function MainMenu() {
 
           <nav className="flex flex-col gap-2">
             <Link
-              href="/play"
+              href="/play?mode=local"
               className="rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-600 to-amber-500 px-5 py-3.5 text-center text-sm font-black tracking-[0.2em] text-black shadow-lg shadow-amber-900/35 transition hover:from-amber-500 hover:to-amber-400 hover:shadow-amber-700/40"
             >
               JOGO RÁPIDO
             </Link>
-            <MenuButton disabled title="Multiplayer online em breve">
-              PROCURAR SALAS
+            <MenuButton onClick={() => setRoomPanel("create")}>
+              CRIAR SALA
             </MenuButton>
-            <MenuButton disabled title="Em breve">
+            <MenuButton onClick={() => setRoomPanel("join")}>
               ENTRAR POR CÓDIGO
             </MenuButton>
             <div className="grid grid-cols-2 gap-2">
-              <MenuButton disabled>COSMÉTICOS</MenuButton>
+              <MenuButton disabled title="Em breve">
+                COSMÉTICOS
+              </MenuButton>
               <Link
-                href="/play"
+                href="/play?mode=local"
                 className="rounded-xl border border-white/10 bg-black/45 px-4 py-3 text-center text-xs font-semibold tracking-widest text-white/75 transition hover:border-white/20 hover:bg-black/60 hover:text-white"
               >
                 TREINO
@@ -269,7 +276,7 @@ export function MainMenu() {
               </li>
             </ul>
             <Link
-              href="/play"
+              href="/play?mode=local"
               className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 py-3 text-xs font-bold tracking-[0.18em] text-white/85 transition hover:bg-white/10 hover:text-white"
             >
               ENTRAR NO AQUECIMENTO
@@ -299,6 +306,10 @@ export function MainMenu() {
           </div>
         </div>
       </div>
+
+      {roomPanel && (
+        <RoomPanel mode={roomPanel} onClose={() => setRoomPanel(null)} />
+      )}
     </div>
   );
 }
@@ -307,16 +318,19 @@ function MenuButton({
   children,
   disabled,
   title,
+  onClick,
 }: {
   children: React.ReactNode;
   disabled?: boolean;
   title?: string;
+  onClick?: () => void;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
       title={title}
+      onClick={onClick}
       className="rounded-xl border border-white/10 bg-black/45 px-5 py-3.5 text-center text-sm font-semibold tracking-widest text-white/75 transition hover:border-white/20 hover:bg-black/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
     >
       {children}

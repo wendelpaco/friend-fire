@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import type { HudSnapshot } from "@/game/types";
 import { GameHud } from "./GameHud";
 
-export function GameCanvas() {
+export type PlayMode = "local" | "room";
+
+interface GameCanvasProps {
+  mode?: PlayMode;
+  roomCode?: string;
+}
+
+export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<import("@/infrastructure/render/GameClient").GameClient | null>(
@@ -94,11 +101,17 @@ export function GameCanvas() {
       {hud && (
         <GameHud
           hud={hud}
+          roomCode={mode === "room" ? roomCode : undefined}
           onResume={() => engineRef.current?.setPaused(false)}
           onDismissHelp={() => engineRef.current?.dismissHelp()}
           onOpenHelp={() => engineRef.current?.openHelp()}
           onMatchContinue={onMatchContinue}
         />
+      )}
+      {mode === "room" && roomCode && !hud && !loading && (
+        <div className="pointer-events-none absolute left-1/2 top-20 z-20 -translate-x-1/2 rounded-lg border border-amber-400/40 bg-black/70 px-4 py-1.5 font-mono text-sm font-bold tracking-[0.3em] text-amber-200 shadow-lg backdrop-blur-md">
+          SALA {roomCode}
+        </div>
       )}
       {error && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/85 text-red-300">

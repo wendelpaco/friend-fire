@@ -22,6 +22,7 @@ function phaseLabel(hud: HudSnapshot) {
 
 interface GameHudProps {
   hud: HudSnapshot;
+  roomCode?: string;
   onResume: () => void;
   onDismissHelp: () => void;
   onOpenHelp: () => void;
@@ -30,6 +31,7 @@ interface GameHudProps {
 
 export function GameHud({
   hud,
+  roomCode,
   onResume,
   onDismissHelp,
   onOpenHelp,
@@ -138,6 +140,11 @@ export function GameHud({
             </span>
           </div>
         </div>
+        {roomCode && (
+          <div className="rounded-md border border-amber-400/35 bg-black/70 px-3 py-1 font-mono text-[11px] font-bold tracking-[0.28em] text-amber-200/95 shadow backdrop-blur-md">
+            SALA {roomCode}
+          </div>
+        )}
       </div>
 
       {/* Killfeed */}
