@@ -33,6 +33,12 @@ export class MatchState extends Schema {
   @type("number") scoreCT: number = 0;
   @type("number") timeLeft: number = 20;
   @type("string") code: string = "";
+  /** Map id: dust | favela | yard */
+  @type("string") mapId: string = "dust";
+  /** Display name for the active map */
+  @type("string") mapName: string = "Dust FF";
+  /** Optional room nickname (empty if unset) */
+  @type("string") roomName: string = "";
   /** Server combat authority active */
   @type("boolean") authoritative: boolean = true;
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();

@@ -50,10 +50,35 @@ const KILL_REWARD = 300;
 const ROUND_WIN_REWARD = 3250;
 const ROUND_LOSS_REWARD = 1400;
 
+/** Known maps for room create / browser metadata */
+const MAPS: Record<string, string> = {
+  dust: "Dust FF",
+  favela: "Favela",
+  yard: "Yard",
+};
+
+const DEFAULT_MAP_ID = "dust";
+
 export type GameRoomOptions = {
   code?: string;
   name?: string;
+  mapId?: string;
+  roomName?: string;
 };
+
+export type GameRoomMetadata = {
+  code: string;
+  mapId: string;
+  mapName: string;
+  roomName: string;
+  phase?: string;
+};
+
+function resolveMap(mapId?: string): { mapId: string; mapName: string } {
+  const id =
+    typeof mapId === "string" && mapId in MAPS ? mapId : DEFAULT_MAP_ID;
+  return { mapId: id, mapName: MAPS[id]! };
+}
 
 type RuntimeExtra = {
   fireCd: number;
@@ -78,9 +103,25 @@ export class GameRoom extends Room<MatchState> {
     this.state.authoritative = true;
 
     const code = this.resolveCode(options.code);
+    const { mapId, mapName } = resolveMap(options.mapId);
+    const roomName =
+      typeof options.roomName === "string"
+        ? options.roomName.trim().slice(0, 32)
+        : "";
+
     this.state.code = code;
+    this.state.mapId = mapId;
+    this.state.mapName = mapName;
+    this.state.roomName = roomName;
+
     (this.listing as { code?: string }).code = code;
-    await this.setMetadata({ code });
+    await this.setMetadata({
+      code,
+      mapId,
+      mapName,
+      roomName,
+      phase: this.state.phase,
+    } satisfies GameRoomMetadata);
 
     this.applyPhaseToState();
     this.syncBots();
@@ -110,7 +151,9 @@ export class GameRoom extends Room<MatchState> {
       client.send("pong", { t: Date.now() });
     });
 
-    console.log(`[GameRoom] created code=${code} roomId=${this.roomId} auth=1`);
+    console.log(
+      `[GameRoom] created code=${code} map=${mapId} roomId=${this.roomId} auth=1`,
+    );
   }
 
   onAuth(_client: Client, options: GameRoomOptions) {
@@ -557,11 +600,15 @@ export class GameRoom extends Room<MatchState> {
   }
 
   private applyPhaseToState() {
+    const prevPhase = this.state.phase;
     this.state.phase = this.phase.phase;
     this.state.round = this.phase.round;
     this.state.scoreTR = this.phase.scoreTR;
     this.state.scoreCT = this.phase.scoreCT;
     this.state.timeLeft = Math.max(0, this.phase.timeLeft);
+    if (prevPhase !== this.phase.phase) {
+      void this.setMetadata({ phase: this.phase.phase });
+    }
   }
 
   private syncBots() {
