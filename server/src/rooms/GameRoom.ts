@@ -66,7 +66,10 @@ import {
   PLAYER_RADIUS,
   PLAYER_SPEED,
   resolveCircleWalls,
-  SPAWNS,
+  segmentBlockedByWalls,
+  spawnsForTeam,
+  wallsForMap,
+  type WallRect,
 } from "../sim/world";
 
 const MATCH_SIZE = 6;
@@ -75,6 +78,8 @@ const BOT_NAMES = ["Lucão", "Pedrão", "Enzo", "Davi", "Theo", "Rafa"];
 const KILL_REWARD = 300;
 const ROUND_WIN_REWARD = 3250;
 const ROUND_LOSS_REWARD = 1400;
+/** Warmup respawn delay — short so deaths don't feel like a soft-lock. */
+const WARMUP_RESPAWN_MS = 1200;
 
 /** Known maps for room create / browser metadata */
 const MAPS: Record<string, string> = {
@@ -149,6 +154,8 @@ export class GameRoom extends Room<MatchState> {
   private bomb: BombSimState = createBombState();
   private heProjectiles: HeProjectile[] = [];
   private heSeq = 0;
+  /** Collision + cover for current map (hitscan cannot ignore walls). */
+  private walls: WallRect[] = wallsForMap("dust");
 
   async onCreate(options: GameRoomOptions = {}) {
     this.setState(new MatchState());
@@ -156,6 +163,7 @@ export class GameRoom extends Room<MatchState> {
 
     const code = this.resolveCode(options.code);
     const { mapId, mapName } = resolveMap(options.mapId);
+    this.walls = wallsForMap(mapId);
     const roomName =
       typeof options.roomName === "string"
         ? options.roomName.trim().slice(0, 32)
@@ -379,7 +387,7 @@ export class GameRoom extends Room<MatchState> {
       if (input.dx !== 0 || input.dz !== 0) {
         const nx = p.x + input.dx * PLAYER_SPEED * dt;
         const nz = p.z + input.dz * PLAYER_SPEED * dt;
-        const r = resolveCircleWalls(nx, nz, PLAYER_RADIUS);
+        const r = resolveCircleWalls(nx, nz, PLAYER_RADIUS, this.walls);
         p.x = r.x;
         p.z = r.z;
       }
@@ -435,6 +443,9 @@ export class GameRoom extends Room<MatchState> {
   private tickBots(dt: number) {
     const list: PlayerState[] = [];
     this.state.players.forEach((p) => list.push(p));
+    // Warmup: bots idle / walk only — no shooting.
+    // Infinite-death bug: 4 bots with AK/M4 + wallhack hitscan melted players on join.
+    const canShoot = this.phase.phase === "live";
 
     for (const bot of list) {
       if (!bot.isBot || !bot.alive) continue;
@@ -450,7 +461,21 @@ export class GameRoom extends Room<MatchState> {
           target = e;
         }
       }
-      if (!target) continue;
+      if (!target) {
+        // Warmup wander when no enemy (or still pick nothing)
+        if (!canShoot) {
+          const t = Date.now() * 0.001 + bot.id.length;
+          const r = resolveCircleWalls(
+            bot.x + Math.sin(t) * BOT_SPEED * 0.35 * dt,
+            bot.z + Math.cos(t) * BOT_SPEED * 0.35 * dt,
+            PLAYER_RADIUS,
+            this.walls,
+          );
+          bot.x = r.x;
+          bot.z = r.z;
+        }
+        continue;
+      }
 
       const dx = target.x - bot.x;
       const dz = target.z - bot.z;
@@ -461,7 +486,12 @@ export class GameRoom extends Room<MatchState> {
 
       let mx = 0;
       let mz = 0;
-      if (dist > 10) {
+      if (!canShoot) {
+        // Warmup: light patrol only — stay near spawn, don't chase hard
+        const t = Date.now() * 0.002 + bot.x;
+        mx = Math.sin(t) * BOT_SPEED * 0.25 * dt;
+        mz = Math.cos(t) * BOT_SPEED * 0.25 * dt;
+      } else if (dist > 10) {
         mx = (dx / dist) * BOT_SPEED * dt;
         mz = (dz / dist) * BOT_SPEED * dt;
       } else if (dist < 5) {
@@ -471,9 +501,16 @@ export class GameRoom extends Room<MatchState> {
         mx = (-dz / dist) * BOT_SPEED * 0.6 * dt;
         mz = (dx / dist) * BOT_SPEED * 0.6 * dt;
       }
-      const r = resolveCircleWalls(bot.x + mx, bot.z + mz, PLAYER_RADIUS);
+      const r = resolveCircleWalls(
+        bot.x + mx,
+        bot.z + mz,
+        PLAYER_RADIUS,
+        this.walls,
+      );
       bot.x = r.x;
       bot.z = r.z;
+
+      if (!canShoot) continue;
 
       // Prefer primary if owned and has ammo
       if (bot.primaryId && bot.activeSlot !== 1) {
@@ -542,6 +579,9 @@ export class GameRoom extends Room<MatchState> {
   }
 
   private hitscan(shooter: PlayerState, damage: number, maxRange: number) {
+    // Bots never deal damage in warmup (belt + suspenders with tickBots).
+    if (shooter.isBot && this.phase.phase !== "live") return;
+
     const dirX = Math.sin(shooter.rot);
     const dirZ = Math.cos(shooter.rot);
     let bestT = maxRange;
@@ -558,6 +598,18 @@ export class GameRoom extends Room<MatchState> {
       const cz = shooter.z + dirZ * t;
       const dist = Math.hypot(other.x - cx, other.z - cz);
       if (dist < HIT_RADIUS && t < bestT) {
+        // Cover blocks bullets (was infinite LOS → spawn camp death loop)
+        if (
+          segmentBlockedByWalls(
+            shooter.x,
+            shooter.z,
+            other.x,
+            other.z,
+            this.walls,
+          )
+        ) {
+          return;
+        }
         bestT = t;
         hit = other;
       }
@@ -578,12 +630,12 @@ export class GameRoom extends Room<MatchState> {
 
       if (this.phase.phase === "warmup") {
         const id = hit.id;
-        setTimeout(() => {
+        this.clock.setTimeout(() => {
           const p = this.state.players.get(id);
           if (p && this.phase.phase === "warmup" && !p.alive) {
             this.respawnOne(p);
           }
-        }, 2000);
+        }, WARMUP_RESPAWN_MS);
       }
     }
   }
@@ -835,12 +887,12 @@ export class GameRoom extends Room<MatchState> {
         victims.push(other);
         if (this.phase.phase === "warmup") {
           const id = other.id;
-          setTimeout(() => {
+          this.clock.setTimeout(() => {
             const p = this.state.players.get(id);
             if (p && this.phase.phase === "warmup" && !p.alive) {
               this.respawnOne(p);
             }
-          }, 2000);
+          }, WARMUP_RESPAWN_MS);
         }
       }
     });
@@ -864,10 +916,28 @@ export class GameRoom extends Room<MatchState> {
   private respawnOne(p: PlayerState) {
     p.hp = 100;
     p.alive = true;
+    p.armor = Math.max(0, p.armor);
     this.applySpawn(p);
     const ex = this.ensureExtra(p.id, p);
-    ex.fireCd = 0;
+    ex.fireCd = 0.25; // brief spawn protection vs accidental fire
     ex.heHeld = false;
+    // Top off active mag so empty-gun death doesn't soft-lock shooting
+    const w = activeWeaponStats(p.primaryId, p.secondaryId, p.activeSlot);
+    if (w && !w.isMelee) {
+      const pack = ex.ammo[w.id] ?? fullAmmo(w);
+      if (pack.mag <= 0 && pack.reserve > 0) {
+        const take = Math.min(w.magazine, pack.reserve);
+        pack.mag = take;
+        pack.reserve -= take;
+      } else if (pack.mag <= 0) {
+        const full = fullAmmo(w);
+        pack.mag = full.mag;
+        pack.reserve = full.reserve;
+      }
+      ex.ammo[w.id] = pack;
+      p.mag = pack.mag;
+      p.reserve = pack.reserve;
+    }
   }
 
   private applyHumanLoadout(p: PlayerState): AmmoMap {
@@ -1032,10 +1102,13 @@ export class GameRoom extends Room<MatchState> {
 
   private applySpawn(p: PlayerState) {
     const team = (p.team === "CT" ? "CT" : "TR") as Team;
-    const list = SPAWNS[team];
+    const list = spawnsForTeam(this.state.mapId, team);
     const s = list[Math.floor(Math.random() * list.length)]!;
-    p.x = s.x + (Math.random() - 0.5);
-    p.z = s.z + (Math.random() - 0.5);
+    p.x = s.x + (Math.random() - 0.5) * 1.5;
+    p.z = s.z + (Math.random() - 0.5) * 1.5;
+    const placed = resolveCircleWalls(p.x, p.z, PLAYER_RADIUS, this.walls);
+    p.x = placed.x;
+    p.z = placed.z;
     p.rot = team === "TR" ? Math.PI / 4 : (-3 * Math.PI) / 4;
   }
 }

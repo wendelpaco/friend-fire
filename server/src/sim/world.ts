@@ -90,3 +90,78 @@ export const SPAWNS = {
     { x: 12, z: 18 },
   ],
 } as const;
+
+export type MapId = "dust" | "favela" | "yard";
+
+/** Per-map walls (keep rough parity with client maps). */
+const MAP_WALLS: Record<MapId, WallRect[]> = {
+  dust: WALLS,
+  favela: [
+    { x: 0, z: -24, w: 48, d: 1.4 },
+    { x: 0, z: 24, w: 48, d: 1.4 },
+    { x: -24, z: 0, w: 1.4, d: 48 },
+    { x: 24, z: 0, w: 1.4, d: 48 },
+    { x: -10, z: -8, w: 10, d: 1.4 },
+    { x: 8, z: -8, w: 12, d: 1.4 },
+    { x: -6, z: 0, w: 1.4, d: 12 },
+    { x: 6, z: 2, w: 1.4, d: 10 },
+    { x: -14, z: 8, w: 12, d: 1.4 },
+    { x: 12, z: 8, w: 10, d: 1.4 },
+    { x: -16, z: -4, w: 1.4, d: 10 },
+    { x: 16, z: -4, w: 1.4, d: 10 },
+    { x: -4, z: 14, w: 1.2, d: 8 },
+    { x: 4, z: 14, w: 1.2, d: 8 },
+    { x: 0, z: 18.5, w: 6, d: 1.0 },
+    { x: 0, z: -14, w: 4, d: 1.2 },
+  ],
+  yard: WALLS,
+};
+
+export function resolveMapId(raw?: string): MapId {
+  if (raw === "favela" || raw === "yard" || raw === "dust") return raw;
+  return "dust";
+}
+
+export function wallsForMap(mapId: string): WallRect[] {
+  return MAP_WALLS[resolveMapId(mapId)] ?? WALLS;
+}
+
+export function spawnsForTeam(
+  mapId: string,
+  team: "TR" | "CT",
+): ReadonlyArray<{ x: number; z: number }> {
+  // Shared spawn corners across maps for now (maps share 48×48 bounds).
+  void mapId;
+  return SPAWNS[team];
+}
+
+/**
+ * True if segment from (x0,z0)→(x1,z1) intersects a wall rect (2D AABB).
+ * Used so hitscan cannot shoot through cover (fixes “die through walls”).
+ */
+export function segmentBlockedByWalls(
+  x0: number,
+  z0: number,
+  x1: number,
+  z1: number,
+  walls: WallRect[] = WALLS,
+): boolean {
+  const dx = x1 - x0;
+  const dz = z1 - z0;
+  const dist = Math.hypot(dx, dz);
+  if (!(dist > 0.05)) return false;
+  const steps = Math.max(2, Math.ceil(dist / 0.35));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = x0 + dx * t;
+    const z = z0 + dz * t;
+    for (const w of walls) {
+      const halfW = w.w / 2;
+      const halfD = w.d / 2;
+      if (Math.abs(x - w.x) <= halfW && Math.abs(z - w.z) <= halfD) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
