@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { GAME_NAME, GAME_TAGLINE } from "@/game/constants";
@@ -10,7 +11,9 @@ import {
   getXp,
   type DailyMission,
 } from "@/domains/identity";
-import { getLastMapId } from "@/domains/world";
+import { getLastMapId, setLastMapId } from "@/domains/world";
+import { getRoomClient } from "@/infrastructure/realtime/roomClient";
+import { LeaderboardPanel } from "@/presentation/lobby/LeaderboardPanel";
 import {
   RoomPanel,
   type RoomPanelMode,
@@ -29,6 +32,7 @@ function readStorage<T>(key: string, fallback: T, parse?: (v: string) => T): T {
 }
 
 export function MainMenu() {
+  const router = useRouter();
   const [region, setRegion] = useState<"BR" | "US">(() =>
     readStorage("ff_region", "BR", (v) =>
       v === "BR" || v === "US" ? v : "BR",
@@ -49,6 +53,8 @@ export function MainMenu() {
   const [missions, setMissions] = useState<DailyMission[]>([]);
   const [xpTotal, setXpTotal] = useState(0);
   const [lastMap, setLastMap] = useState(() => getLastMapId("dust"));
+  const [quickMatchBusy, setQuickMatchBusy] = useState(false);
+  const [quickMatchError, setQuickMatchError] = useState<string | null>(null);
 
   useEffect(() => {
     setMissions(getMissionsWithProgress());
@@ -57,6 +63,41 @@ export function MainMenu() {
   }, []);
 
   const quickPlayHref = `/play?mode=local&map=${encodeURIComponent(lastMap || "dust")}`;
+
+  const handleQuickMatchOnline = async () => {
+    setQuickMatchError(null);
+    setQuickMatchBusy(true);
+    try {
+      const mapId = lastMap || getLastMapId("dust") || "dust";
+      const client = getRoomClient();
+      const { code, host } = await client.quickMatch({ mapId });
+      const snap = client.snapshot();
+      const map = snap.mapId || mapId;
+      setLastMapId(map);
+      setLastMap(map);
+      const qs = new URLSearchParams({
+        mode: "room",
+        code,
+        map,
+      });
+      if (host) qs.set("host", "1");
+      router.push(`/play?${qs.toString()}`);
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : "Servidor multiplayer indisponível.";
+      setQuickMatchError(
+        msg.includes("Failed to list") ||
+          msg.includes("fetch") ||
+          msg.includes("indisponível")
+          ? "Servidor multiplayer indisponível. Rode `npm run dev:server` e tente de novo."
+          : msg,
+      );
+    } finally {
+      setQuickMatchBusy(false);
+    }
+  };
 
   const saveNickname = (name: string) => {
     const clean = name.trim().slice(0, 16) || "Operador";
@@ -174,6 +215,22 @@ export function MainMenu() {
             >
               JOGO RÁPIDO
             </Link>
+            <button
+              type="button"
+              disabled={quickMatchBusy}
+              onClick={() => void handleQuickMatchOnline()}
+              className="rounded-xl border border-sky-400/40 bg-gradient-to-r from-sky-700 to-sky-600 px-5 py-3.5 text-center text-sm font-black tracking-[0.14em] text-white shadow-lg shadow-sky-950/40 transition hover:from-sky-600 hover:to-sky-500 disabled:cursor-not-allowed disabled:opacity-55"
+            >
+              {quickMatchBusy ? "PROCURANDO…" : "JOGO RÁPIDO ONLINE"}
+            </button>
+            {quickMatchError && (
+              <p
+                role="alert"
+                className="rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
+              >
+                {quickMatchError}
+              </p>
+            )}
             <MenuButton onClick={() => setRoomPanel("create")}>
               CRIAR SALA
             </MenuButton>
@@ -280,6 +337,10 @@ export function MainMenu() {
               })}
             </ul>
           </div>
+
+          <div className="mt-4">
+            <LeaderboardPanel />
+          </div>
         </div>
 
         {/* Right column */}
@@ -303,7 +364,7 @@ export function MainMenu() {
               </li>
               <li className="flex gap-2">
                 <span className="text-amber-500">▸</span>
-                Multiplayer online e matchmaking em breve
+                Multiplayer online com matchmaking rápido
               </li>
             </ul>
             <Link

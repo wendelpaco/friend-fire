@@ -2,12 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { setLastMapId } from "@/domains/world";
+import { listMaps, setLastMapId } from "@/domains/world";
 import {
   getRoomClient,
+  type ListRoomsOptions,
   type RoomListItem,
+  type RoomVisibility,
 } from "@/infrastructure/realtime/roomClient";
-import { measurePing } from "@/infrastructure/realtime/ping";
+
+const FILTER_MAPS = listMaps().map((m) => ({
+  id: m.id,
+  label: m.displayName || m.id,
+}));
 
 function roomDisplayName(room: RoomListItem): string {
   if (room.roomName?.trim()) return room.roomName.trim();
@@ -19,9 +25,8 @@ function playersLabel(room: RoomListItem): string {
   return `${room.clients}/${max}`;
 }
 
-function formatPingLabel(pingMs: number | null | undefined): string {
-  if (pingMs == null) return "Offline";
-  return `Ping ~${pingMs}ms`;
+function visibilityOf(room: RoomListItem): RoomVisibility {
+  return room.visibility === "private" ? "private" : "public";
 }
 
 interface ServerBrowserProps {
@@ -35,41 +40,44 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
   const [loading, setLoading] = useState(true);
   const [joiningCode, setJoiningCode] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  /** null = offline / unknown; number = RTT ms; undefined = not measured yet */
-  const [pingMs, setPingMs] = useState<number | null | undefined>(undefined);
+  const [mapFilter, setMapFilter] = useState<string>("");
+  const [hasSlotsOnly, setHasSlotsOnly] = useState(false);
   const mounted = useRef(true);
 
-  const fetchRooms = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    setError(null);
-    // Probe host RTT once per refresh (spec §2.6); soft-fail → Offline.
-    void measurePing()
-      .then((ms) => {
-        if (mounted.current) setPingMs(ms);
-      })
-      .catch(() => {
-        if (mounted.current) setPingMs(null);
-      });
-    try {
-      const list = await getRoomClient().listRooms();
-      if (!mounted.current) return;
-      setRooms(Array.isArray(list) ? list : []);
-    } catch (e) {
-      if (!mounted.current) return;
-      const msg =
-        e instanceof Error
-          ? e.message
-          : "Servidor multiplayer indisponível.";
-      setError(
-        msg.includes("Failed to list") || msg.includes("fetch")
-          ? "Servidor multiplayer indisponível. Rode `npm run dev:server` e tente de novo."
-          : msg,
-      );
-      setRooms([]);
-    } finally {
-      if (mounted.current && !silent) setLoading(false);
-    }
-  }, []);
+  const buildListOpts = useCallback((): ListRoomsOptions => {
+    const opts: ListRoomsOptions = { visibility: "public" };
+    if (mapFilter) opts.mapId = mapFilter;
+    if (hasSlotsOnly) opts.hasSlots = true;
+    return opts;
+  }, [mapFilter, hasSlotsOnly]);
+
+  const fetchRooms = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      setError(null);
+      try {
+        const list = await getRoomClient().listRooms(buildListOpts());
+        if (!mounted.current) return;
+        setRooms(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (!mounted.current) return;
+        const msg =
+          e instanceof Error
+            ? e.message
+            : "Servidor multiplayer indisponível.";
+        setError(
+          msg.includes("Failed to list") || msg.includes("fetch")
+            ? "Servidor multiplayer indisponível. Rode `npm run dev:server` e tente de novo."
+            : msg,
+        );
+        setRooms([]);
+      } finally {
+        if (mounted.current && !silent) setLoading(false);
+      }
+    },
+    [buildListOpts],
+  );
+
   useEffect(() => {
     mounted.current = true;
     void fetchRooms(false);
@@ -134,16 +142,6 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
             >
               Procurar salas
             </h2>
-            <p
-              className={
-                pingMs == null
-                  ? "mt-1 text-xs tabular-nums text-white/35"
-                  : "mt-1 text-xs tabular-nums text-emerald-400/80"
-              }
-              aria-live="polite"
-            >
-              {pingMs === undefined ? "Ping …" : formatPingLabel(pingMs)}
-            </p>
           </div>
           <button
             type="button"
@@ -156,6 +154,33 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-white/50">
+            <span className="sr-only">Mapa</span>
+            <select
+              value={mapFilter}
+              onChange={(e) => setMapFilter(e.target.value)}
+              className="rounded-lg border border-white/10 bg-black/50 px-2.5 py-1.5 text-xs font-semibold text-white/85 outline-none focus:border-amber-400/50"
+              aria-label="Filtrar por mapa"
+            >
+              <option value="" className="bg-[#0e1118]">
+                Todos os mapas
+              </option>
+              {FILTER_MAPS.map((m) => (
+                <option key={m.id} value={m.id} className="bg-[#0e1118]">
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-white/45">
+            <input
+              type="checkbox"
+              checked={hasSlotsOnly}
+              onChange={(e) => setHasSlotsOnly(e.target.checked)}
+              className="accent-amber-500"
+            />
+            Só com vaga
+          </label>
           <button
             type="button"
             disabled={loading}
@@ -203,11 +228,12 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
               </p>
             </div>
           ) : (
-            <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[560px] border-collapse text-left text-sm">
               <thead className="sticky top-0 bg-[#141820] text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">
                 <tr>
                   <th className="px-3 py-2.5 font-semibold">Nome</th>
                   <th className="px-3 py-2.5 font-semibold">Mapa</th>
+                  <th className="px-3 py-2.5 font-semibold">Visib.</th>
                   <th className="px-3 py-2.5 font-semibold">Jogadores</th>
                   <th className="px-3 py-2.5 font-semibold">Código</th>
                   <th className="px-3 py-2.5 text-right font-semibold">
@@ -219,6 +245,7 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
                 {rooms.map((room) => {
                   const key = room.roomId || room.code;
                   const busy = joiningCode === room.code;
+                  const vis = visibilityOf(room);
                   return (
                     <tr
                       key={key}
@@ -229,6 +256,17 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
                       </td>
                       <td className="px-3 py-2.5 text-white/65">
                         {room.mapName || room.mapId || "—"}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span
+                          className={`inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                            vis === "public"
+                              ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300/90"
+                              : "border-white/15 bg-white/5 text-white/50"
+                          }`}
+                        >
+                          {vis === "public" ? "Pública" : "Privada"}
+                        </span>
                       </td>
                       <td className="px-3 py-2.5 tabular-nums text-white/65">
                         {playersLabel(room)}

@@ -10,7 +10,10 @@ import {
   getLastMapId,
   setLastMapId,
 } from "@/domains/world";
-import { getRoomClient } from "@/infrastructure/realtime/roomClient";
+import {
+  getRoomClient,
+  type RoomVisibility,
+} from "@/infrastructure/realtime/roomClient";
 import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
 
 export type RoomPanelMode = "create" | "join";
@@ -50,6 +53,8 @@ export function RoomPanel({
     resolveMapId(initialMapId ?? getLastMapId()),
   );
   const [roomName, setRoomName] = useState("");
+  /** Spec §2.1 — default public so room appears in browser. */
+  const [isPublic, setIsPublic] = useState(true);
 
   const selectMap = (id: CreateMapId) => {
     setMapId(id);
@@ -85,8 +90,10 @@ export function RoomPanel({
     try {
       const client = getRoomClient();
       const name = roomName.trim().slice(0, 32);
+      const visibility: RoomVisibility = isPublic ? "public" : "private";
       const { code } = await client.create({
         mapId,
+        visibility,
         ...(name ? { roomName: name } : {}),
       });
       setLastMapId(mapId);
@@ -138,7 +145,11 @@ export function RoomPanel({
         <div className="mb-1 flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold tracking-[0.28em] text-amber-500/80">
-              SALA PRIVADA
+              {mode === "create"
+                ? isPublic
+                  ? "SALA PÚBLICA"
+                  : "SALA PRIVADA"
+                : "SALA"}
             </p>
             <h2
               id="room-panel-title"
@@ -181,6 +192,11 @@ export function RoomPanel({
                       <span className="text-white/60">{roomName.trim()}</span>
                     </>
                   ) : null}
+                  {" "}
+                  ·{" "}
+                  <span className="text-white/60">
+                    {isPublic ? "Pública" : "Privada"}
+                  </span>
                   . Colyseus — entre na sala e peça aos amigos para usar o mesmo
                   código.
                 </p>
@@ -250,6 +266,25 @@ export function RoomPanel({
                   onChange={(e) => setRoomName(e.target.value.slice(0, 32))}
                   className="mt-2 w-full rounded-xl border border-white/15 bg-black/50 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-amber-400/60"
                 />
+
+                <label className="mt-4 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+                  <span>
+                    <span className="block text-sm font-semibold text-white/85">
+                      Sala pública
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-white/40">
+                      {isPublic
+                        ? "Aparece no browser de salas"
+                        : "Só entra com o código"}
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={isPublic}
+                    onChange={(e) => setIsPublic(e.target.checked)}
+                    className="h-4 w-4 accent-amber-500"
+                  />
+                </label>
 
                 {error && (
                   <p className="mt-3 rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-sm text-red-300">
