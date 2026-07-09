@@ -8,7 +8,9 @@ import {
 } from "@/domains/session";
 import {
   getLastMapId,
+  listMaps,
   setLastMapId,
+  type MapId,
 } from "@/domains/world";
 import {
   getRoomClient,
@@ -18,14 +20,15 @@ import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
 
 export type RoomPanelMode = "create" | "join";
 
-/** Maps selectable at create time (ids match multi-map registry). */
-const CREATE_MAPS = [
-  { id: "dust", label: "Dust FF" },
-  { id: "favela", label: "Favela" },
-  { id: "yard", label: "Yard" },
-] as const;
+/** Maps selectable at create time (registry order + accent/blurb). */
+const CREATE_MAPS = listMaps().map((m) => ({
+  id: m.id as MapId,
+  label: m.displayName || m.id,
+  accent: m.accent,
+  blurb: m.blurb ?? "",
+}));
 
-type CreateMapId = (typeof CREATE_MAPS)[number]["id"];
+type CreateMapId = MapId;
 
 function resolveMapId(id: string | undefined): CreateMapId {
   if (id === "dust" || id === "favela" || id === "yard") return id;
@@ -141,7 +144,7 @@ export function RoomPanel({
       aria-modal="true"
       aria-labelledby="room-panel-title"
     >
-      <div className="w-full max-w-md rounded-2xl border border-white/15 bg-[#0e1118] p-6 shadow-2xl">
+      <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-[#0e1118] p-6 shadow-2xl">
         <div className="mb-1 flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold tracking-[0.28em] text-amber-500/80">
@@ -229,26 +232,57 @@ export function RoomPanel({
                   ).
                 </p>
 
-                <label
-                  htmlFor="create-map-select"
-                  className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40"
-                >
+                <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">
                   Mapa
-                </label>
-                <select
-                  id="create-map-select"
-                  value={mapId}
-                  onChange={(e) =>
-                    selectMap(e.target.value as CreateMapId)
-                  }
-                  className="mt-2 w-full rounded-xl border border-white/15 bg-black/50 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-amber-400/60"
+                </p>
+                <div
+                  className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3"
+                  role="listbox"
+                  aria-label="Selecionar mapa"
                 >
-                  {CREATE_MAPS.map((m) => (
-                    <option key={m.id} value={m.id} className="bg-[#0e1118]">
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
+                  {CREATE_MAPS.map((m) => {
+                    const selected = mapId === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => selectMap(m.id)}
+                        className={`relative min-h-[5.5rem] overflow-hidden rounded-xl border p-3 text-left transition ${
+                          selected
+                            ? "border-white/40 shadow-lg ring-1 ring-white/20"
+                            : "border-white/10 hover:border-white/25"
+                        }`}
+                        style={{
+                          background: `linear-gradient(145deg, ${m.accent}55 0%, ${m.accent}14 42%, #0a0c12 100%)`,
+                          boxShadow: selected
+                            ? `0 0 0 1px ${m.accent}88, 0 8px 24px ${m.accent}22`
+                            : undefined,
+                        }}
+                      >
+                        <span
+                          className="mb-2 block h-1.5 w-9 rounded-full"
+                          style={{ background: m.accent }}
+                          aria-hidden
+                        />
+                        <span className="block text-sm font-bold tracking-wide text-white">
+                          {m.label}
+                        </span>
+                        {m.blurb ? (
+                          <span className="mt-1 block text-[11px] leading-snug text-white/55">
+                            {m.blurb}
+                          </span>
+                        ) : null}
+                        {selected ? (
+                          <span className="absolute right-2 top-2 text-[10px] font-bold uppercase tracking-wider text-amber-200/90">
+                            ✓
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
 
                 <label
                   htmlFor="create-room-name"

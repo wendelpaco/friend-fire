@@ -13,6 +13,8 @@ export interface ShopCatalogItem {
   weaponId?: WeaponId;
   /** Armor points to set (max with current) */
   armorAmount?: number;
+  /** HE grenades granted (stack) — wave5 §2.4 */
+  heAmount?: number;
   emoji: string;
 }
 
@@ -81,6 +83,14 @@ export const SHOP_CATALOG: ShopCatalogItem[] = [
     armorAmount: 100,
     emoji: "🛡",
   },
+  {
+    id: "he",
+    name: "GRANADA HE",
+    price: 300,
+    category: "gear",
+    heAmount: 1,
+    emoji: "💣",
+  },
 ];
 
 export function canOpenBuyMenu(phase: RoundPhase): boolean {
@@ -97,6 +107,8 @@ export interface BuyPlayerSlice {
   weapons: Partial<Record<number, WeaponId>>;
   ammo: Partial<Record<WeaponId, { mag: number; reserve: number }>>;
   weaponSlot: number;
+  /** Owned HE grenade count (wave5 §2.4). */
+  heCount?: number;
 }
 
 /** Pure purchase apply — returns new player money/loadout fields. */
@@ -116,6 +128,7 @@ export function tryBuy(
     weapons: { ...player.weapons },
     ammo: { ...player.ammo },
     weaponSlot: player.weaponSlot,
+    heCount: player.heCount ?? 0,
   };
 
   if (item.armorAmount != null) {
@@ -123,6 +136,20 @@ export function tryBuy(
       return { ok: false, reason: "Colete já equipado" };
     }
     next.armor = item.armorAmount;
+    return {
+      ok: true,
+      money: next.money,
+      message: `Comprou ${item.name}`,
+      player: next,
+    };
+  }
+
+  if (item.heAmount != null && item.heAmount > 0) {
+    const cur = player.heCount ?? 0;
+    if (cur >= 2) {
+      return { ok: false, reason: "Máximo de HE" };
+    }
+    next.heCount = Math.min(2, cur + item.heAmount);
     return {
       ok: true,
       money: next.money,

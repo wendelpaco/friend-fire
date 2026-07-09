@@ -9,9 +9,16 @@ import {
   formatMissionProgress,
   getMissionsWithProgress,
   getXp,
+  progressInTier,
+  xpToTier,
   type DailyMission,
 } from "@/domains/identity";
-import { getLastMapId, setLastMapId } from "@/domains/world";
+import {
+  getLastMapId,
+  listMaps,
+  setLastMapId,
+  type MapId,
+} from "@/domains/world";
 import {
   clearLastRoom,
   getLastRoom,
@@ -74,6 +81,17 @@ export function MainMenu() {
   }, []);
 
   const quickPlayHref = `/play?mode=local&map=${encodeURIComponent(lastMap || "dust")}`;
+  const rank = xpToTier(xpTotal);
+  const rankProgress = progressInTier(xpTotal);
+  const lobbyMaps = listMaps();
+
+  const selectLobbyMap = (id: string) => {
+    const mapId = (id === "favela" || id === "yard" || id === "dust"
+      ? id
+      : "dust") as MapId;
+    setLastMapId(mapId);
+    setLastMap(mapId);
+  };
 
   const cancelQuickMatch = () => {
     quickMatchGen.current += 1;
@@ -256,17 +274,100 @@ export function MainMenu() {
                   <button
                     type="button"
                     onClick={() => setEditingName(true)}
-                    className="text-left"
+                    className="w-full text-left"
                   >
                     <div className="truncate font-semibold text-amber-100">
                       {nickname}
                     </div>
                     <div className="text-[11px] text-white/40">
-                      {xpTotal} XP · Recruta · clique para editar
+                      <span className="font-semibold text-amber-200/90">
+                        {rank.name}
+                      </span>
+                      {" · "}
+                      {xpTotal.toLocaleString("pt-BR")} XP
+                      {" · clique para editar"}
                     </div>
                   </button>
                 )}
               </div>
+            </div>
+            <div className="mt-3">
+              <div className="mb-1 flex items-center justify-between text-[10px] tabular-nums text-white/35">
+                <span>{rank.name}</span>
+                <span>
+                  {rank.nextXp != null
+                    ? `${xpTotal.toLocaleString("pt-BR")} / ${rank.nextXp.toLocaleString("pt-BR")}`
+                    : "MAX"}
+                </span>
+              </div>
+              <div
+                className="h-1.5 overflow-hidden rounded-full bg-white/10"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(rankProgress * 100)}
+                aria-label={`Progresso rank ${rank.name}`}
+              >
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-400 transition-[width] duration-300"
+                  style={{ width: `${Math.round(rankProgress * 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* map cards — quick play / online match map */}
+          <div className="mb-4">
+            <p className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/35">
+              Mapa
+            </p>
+            <div
+              className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+              role="listbox"
+              aria-label="Selecionar mapa"
+            >
+              {lobbyMaps.map((m) => {
+                const selected = lastMap === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => selectLobbyMap(m.id)}
+                    className={`relative min-h-[5.25rem] overflow-hidden rounded-xl border p-3 text-left transition ${
+                      selected
+                        ? "border-white/40 shadow-lg ring-1 ring-white/15"
+                        : "border-white/10 hover:border-white/25"
+                    }`}
+                    style={{
+                      background: `linear-gradient(145deg, ${m.accent}55 0%, ${m.accent}12 42%, #0a0c12 100%)`,
+                      boxShadow: selected
+                        ? `0 0 0 1px ${m.accent}88, 0 8px 20px ${m.accent}20`
+                        : undefined,
+                    }}
+                  >
+                    <span
+                      className="mb-2 block h-1.5 w-8 rounded-full"
+                      style={{ background: m.accent }}
+                      aria-hidden
+                    />
+                    <span className="block text-xs font-bold tracking-wide text-white sm:text-sm">
+                      {m.displayName}
+                    </span>
+                    {m.blurb ? (
+                      <span className="mt-1 block text-[10px] leading-snug text-white/50 sm:text-[11px]">
+                        {m.blurb}
+                      </span>
+                    ) : null}
+                    {selected ? (
+                      <span className="absolute right-2 top-2 text-[10px] font-bold text-amber-200/90">
+                        ✓
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

@@ -40,4 +40,18 @@ describe("tryBuy", () => {
     if (!r.ok || !r.player) return;
     expect(r.player.armor).toBe(100);
   });
+
+  it("buys HE grenade at 300 and stacks heCount", () => {
+    const r = tryBuy(base, "he");
+    expect(r.ok).toBe(true);
+    if (!r.ok || !r.player) return;
+    expect(r.player.money).toBe(3000 - 300);
+    expect(r.player.heCount).toBe(1);
+
+    const r2 = tryBuy({ ...r.player }, "he");
+    expect(r2.ok).toBe(true);
+    if (!r2.ok || !r2.player) return;
+    expect(r2.player.heCount).toBe(2);
+    expect(r2.player.money).toBe(3000 - 600);
+  });
 });
