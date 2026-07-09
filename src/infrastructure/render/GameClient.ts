@@ -10,7 +10,7 @@ import {
   WEAPONS,
 } from "@/domains/combat";
 import { Sfx } from "@/infrastructure/audio/Sfx";
-import { getOrCreateSessionId } from "@/domains/identity";
+import { getOrCreateSessionId, recordMatchResult } from "@/domains/identity";
 import {
   createMatchPhase,
   moneyAfterRound,
@@ -94,6 +94,8 @@ export class GameClient {
   private footCooldown = 0;
   private buyMessage: string | null = null;
   private buyMessageUntil = 0;
+  /** Fire `recordMatchResult` once per match_over transition. */
+  private missionMatchRecorded = false;
   /** When true, combat/bots come from Colyseus; local only predicts movement. */
   private networked = false;
   private networkSessionId: string | null = null;
@@ -184,6 +186,7 @@ export class GameClient {
   }) {
     if (!this.networked) return;
     this.networkSessionId = net.sessionId;
+    const prevPhase = this.state.phase;
 
     if (net.phase === "warmup" || net.phase === "live" || net.phase === "ended" || net.phase === "match_over") {
       this.state.phase = net.phase;
@@ -244,6 +247,12 @@ export class GameClient {
       this.state.players = nextPlayers;
     }
     this.state.bullets = [];
+
+    if (this.state.phase === "match_over" && prevPhase !== "match_over") {
+      this.maybeRecordMissionResult();
+    } else if (this.state.phase !== "match_over") {
+      this.missionMatchRecorded = false;
+    }
   }
 
   start() {
@@ -468,6 +477,7 @@ export class GameClient {
     }
 
     if (this.state.phase === "match_over") {
+      this.maybeRecordMissionResult();
       this.pushHud();
       this.input.endFrame();
       return;
@@ -635,6 +645,38 @@ export class GameClient {
       }
       this.beginLiveRoundEffects();
     }
+
+    if (next.phase === "match_over" && prev.phase !== "match_over") {
+      this.maybeRecordMissionResult();
+    } else if (next.phase !== "match_over") {
+      this.missionMatchRecorded = false;
+    }
+  }
+
+  /** Grant daily mission progress once when the match finishes. */
+  private maybeRecordMissionResult() {
+    if (this.state.phase !== "match_over" || this.missionMatchRecorded) return;
+    this.missionMatchRecorded = true;
+
+    const local = this.state.players.find(
+      (p) => p.id === this.state.localPlayerId,
+    );
+    if (!local) return;
+
+    const won =
+      (local.team === "TR" && this.state.scoreTR > this.state.scoreCT) ||
+      (local.team === "CT" && this.state.scoreCT > this.state.scoreTR);
+
+    const { xpGranted } = recordMatchResult({
+      won,
+      kills: local.kills,
+    });
+
+    if (xpGranted > 0) {
+      const msg = `Missão completa! +${xpGranted} XP`;
+      this.flashBuyMessage(msg);
+      this.addChat("SYSTEM", msg, "system");
+    }
   }
 
   private recordMapAdImpressions() {
@@ -678,6 +720,9 @@ export class GameClient {
     const next = onRoundWin(this.toPhaseState(), winner);
     this.applyPhaseState(next);
     this.applyRoundEndEffects(winner);
+    if (next.phase === "match_over") {
+      this.maybeRecordMissionResult();
+    }
   }
 
   private respawnPlayer(p: PlayerState) {

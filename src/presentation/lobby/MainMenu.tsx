@@ -1,19 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { GAME_NAME, GAME_TAGLINE } from "@/game/constants";
+import {
+  formatMissionProgress,
+  getMissionsWithProgress,
+  getXp,
+  type DailyMission,
+} from "@/domains/identity";
 import {
   RoomPanel,
   type RoomPanelMode,
 } from "@/presentation/lobby/RoomPanel";
-
-const DAILY = [
-  { label: "Jogue 3 partidas", xp: 150, progress: "0/3" },
-  { label: "Vença 3 partidas", xp: 450, progress: "0/3" },
-  { label: "Complete 2 objetivos", xp: 250, progress: "0/2" },
-];
 
 function readStorage<T>(key: string, fallback: T, parse?: (v: string) => T): T {
   if (typeof window === "undefined") return fallback;
@@ -43,6 +43,13 @@ export function MainMenu() {
   );
   const [editingName, setEditingName] = useState(false);
   const [roomPanel, setRoomPanel] = useState<RoomPanelMode | null>(null);
+  const [missions, setMissions] = useState<DailyMission[]>([]);
+  const [xpTotal, setXpTotal] = useState(0);
+
+  useEffect(() => {
+    setMissions(getMissionsWithProgress());
+    setXpTotal(getXp());
+  }, []);
 
   const saveNickname = (name: string) => {
     const clean = name.trim().slice(0, 16) || "Operador";
@@ -145,7 +152,7 @@ export function MainMenu() {
                       {nickname}
                     </div>
                     <div className="text-[11px] text-white/40">
-                      Nível 1 · Recruta · clique para editar
+                      {xpTotal} XP · Recruta · clique para editar
                     </div>
                   </button>
                 )}
@@ -225,28 +232,42 @@ export function MainMenu() {
               <h2 className="text-[10px] font-bold tracking-[0.22em] text-white/55">
                 MISSÕES DO DIA
               </h2>
-              <span className="text-[10px] text-orange-300/70">1 dia · streak</span>
+              <span className="text-[10px] font-semibold tabular-nums text-amber-300/80">
+                {xpTotal} XP
+              </span>
             </div>
             <ul className="space-y-2">
-              {DAILY.map((m) => (
-                <li
-                  key={m.label}
-                  className="flex items-center justify-between gap-2 text-sm text-white/70"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/20 text-[8px] text-white/30">
-                      ○
+              {missions.map((m) => {
+                const done = m.progress >= m.target;
+                return (
+                  <li
+                    key={m.id}
+                    className={`flex items-center justify-between gap-2 text-sm ${
+                      done ? "text-emerald-200/85" : "text-white/70"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[8px] ${
+                          done
+                            ? "border-emerald-400/60 bg-emerald-500/20 text-emerald-300"
+                            : "border-white/20 text-white/30"
+                        }`}
+                        aria-hidden
+                      >
+                        {done ? "✓" : "○"}
+                      </span>
+                      <span className="truncate">{m.label}</span>
+                      <span className="shrink-0 text-[10px] text-white/30">
+                        {formatMissionProgress(m)}
+                      </span>
                     </span>
-                    <span className="truncate">{m.label}</span>
-                    <span className="shrink-0 text-[10px] text-white/30">
-                      {m.progress}
+                    <span className="shrink-0 text-xs font-semibold text-amber-400/90">
+                      +{m.xp} XP
                     </span>
-                  </span>
-                  <span className="shrink-0 text-xs font-semibold text-amber-400/90">
-                    +{m.xp} XP
-                  </span>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>

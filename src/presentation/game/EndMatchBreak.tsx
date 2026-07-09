@@ -7,7 +7,14 @@ import {
   recordImpression,
   StubRewardedAdPort,
 } from "@/domains/ads";
-import { getOrCreateSessionId, getXp, setXp } from "@/domains/identity";
+import {
+  formatMissionProgress,
+  getMissionsWithProgress,
+  getOrCreateSessionId,
+  getXp,
+  setXp,
+  type DailyMission,
+} from "@/domains/identity";
 import { pushImpression } from "@/infrastructure/analytics/queue";
 import { DEFAULT_MATCH } from "@/domains/match";
 
@@ -31,6 +38,7 @@ export function EndMatchBreak({
   const [rewardBusy, setRewardBusy] = useState(false);
   const [rewardDone, setRewardDone] = useState(false);
   const [xpTotal, setXpTotal] = useState(0);
+  const [missions, setMissions] = useState<DailyMission[]>([]);
   const impressed = useRef(false);
   const continued = useRef(false);
   /** Sync in-flight flag (blocks continue + double claim before re-render). */
@@ -47,6 +55,7 @@ export function EndMatchBreak({
 
   useEffect(() => {
     setXpTotal(getXp());
+    setMissions(getMissionsWithProgress());
   }, []);
 
   useEffect(() => {
@@ -112,6 +121,35 @@ export function EndMatchBreak({
             <span className="text-sky-300">{scoreCT}</span>
           </div>
         </div>
+
+        {missions.length > 0 && (
+          <div className="border-b border-white/10 px-4 py-3">
+            <p className="mb-2 text-center text-[9px] font-bold tracking-[0.22em] text-white/40">
+              MISSÕES DO DIA
+            </p>
+            <ul className="space-y-1">
+              {missions.map((m) => {
+                const done = m.progress >= m.target;
+                return (
+                  <li
+                    key={m.id}
+                    className={`flex items-center justify-between gap-2 text-[11px] ${
+                      done ? "text-emerald-300/90" : "text-white/55"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5 truncate">
+                      <span aria-hidden>{done ? "✓" : "○"}</span>
+                      <span className="truncate">{m.label}</span>
+                    </span>
+                    <span className="shrink-0 tabular-nums text-white/40">
+                      {formatMissionProgress(m)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         {/* Sponsored creative */}
         <a
