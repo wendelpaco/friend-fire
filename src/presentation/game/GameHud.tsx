@@ -186,18 +186,25 @@ export function GameHud({
         )}
       </div>
 
-      {/* Killfeed */}
-      <div className="absolute right-4 top-4 flex w-72 flex-col items-end gap-1">
-        {hud.killFeed.map((k) => (
+      {/* Killfeed — max 6; new rows fade/slide in */}
+      <div className="absolute right-4 top-4 flex w-80 flex-col items-end gap-1.5">
+        {hud.killFeed.slice(0, 6).map((k) => (
           <div
             key={k.id}
-            className="flex items-center gap-1.5 rounded-md border border-white/10 bg-black/60 px-2.5 py-1 text-[11px] shadow backdrop-blur-sm"
+            className="animate-kill-feed-in flex items-center gap-2 rounded-md border border-white/12 bg-black/70 px-2.5 py-1.5 text-[11px] shadow-lg shadow-black/40 backdrop-blur-md"
           >
-            <span className="font-semibold text-orange-300">{k.killer}</span>
-            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-white/50">
+            <span className="max-w-[7rem] truncate font-semibold text-orange-300">
+              {k.killer}
+            </span>
+            <span
+              className="shrink-0 rounded border border-amber-400/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-amber-200/80"
+              title={k.weapon}
+            >
               {k.weapon}
             </span>
-            <span className="font-semibold text-sky-300">{k.victim}</span>
+            <span className="max-w-[7rem] truncate font-semibold text-sky-300">
+              {k.victim}
+            </span>
           </div>
         ))}
       </div>
