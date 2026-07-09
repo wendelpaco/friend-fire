@@ -6,7 +6,7 @@ import { CONTROLS_HELP } from "@/game/constants";
 import type { HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { BuyMenu } from "@/presentation/game/BuyMenu";
-import type { MatchResult } from "@/domains/stats";
+import { kdRatio, type MatchResult } from "@/domains/stats";
 import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
 import { SettingsPanel } from "@/presentation/game/SettingsPanel";
 import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
@@ -64,6 +64,10 @@ export function GameHud({
     if (!hud.paused) setShowSettings(false);
   }, [hud.paused]);
   const localRow = hud.scoreboard.find((r) => r.isLocal);
+  const maxKills = hud.scoreboard.reduce(
+    (m, r) => Math.max(m, r.kills),
+    0,
+  );
   const matchStats =
     localRow != null
       ? {
@@ -377,63 +381,93 @@ export function GameHud({
       {/* Scoreboard */}
       {hud.showScoreboard && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-[2px]">
-          <div className="w-full max-w-xl overflow-hidden rounded-xl border border-white/15 bg-[#0c0e14]/95 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
-              <span className="text-sm font-bold tracking-widest text-white/80">
+          <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-white/15 bg-[#0c0e14]/95 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.03] px-5 py-3">
+              <span className="text-sm font-bold tracking-widest text-white/85">
                 PLACAR
               </span>
-              <span className="text-xs text-white/40">
-                {hud.scoreTR} TR · {hud.scoreCT} CT
+              <span className="rounded-md bg-white/5 px-2.5 py-0.5 font-mono text-xs tabular-nums text-white/50">
+                <span className="text-orange-400/90">{hud.scoreTR}</span>
+                <span className="mx-1.5 text-white/25">–</span>
+                <span className="text-sky-400/90">{hud.scoreCT}</span>
               </span>
             </div>
             <table className="w-full text-left text-sm">
-              <thead className="text-[10px] uppercase tracking-wider text-white/40">
-                <tr className="border-b border-white/5">
-                  <th className="px-5 py-2 font-medium">Jogador</th>
-                  <th className="px-3 py-2 font-medium">Time</th>
-                  <th className="px-3 py-2 text-right font-medium">K</th>
-                  <th className="px-3 py-2 text-right font-medium">D</th>
-                  <th className="px-5 py-2 text-right font-medium">$</th>
+              <thead className="text-[10px] uppercase tracking-wider text-white/35">
+                <tr className="border-b border-white/8">
+                  <th className="px-5 py-2.5 font-medium">Jogador</th>
+                  <th className="px-2 py-2.5 font-medium">Time</th>
+                  <th className="px-2 py-2.5 text-right font-medium">K</th>
+                  <th className="px-2 py-2.5 text-right font-medium">D</th>
+                  <th className="px-2 py-2.5 text-right font-medium">K/D</th>
+                  <th className="px-2 py-2.5 text-right font-medium">$</th>
+                  <th className="px-4 py-2.5 text-right font-medium">ms</th>
                 </tr>
               </thead>
               <tbody>
-                {hud.scoreboard.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={`border-b border-white/5 ${
-                      row.isLocal ? "bg-amber-500/10" : ""
-                    } ${!row.alive ? "opacity-45" : ""}`}
-                  >
-                    <td className="px-5 py-2 font-medium">
-                      {row.name}
-                      {row.isLocal && (
-                        <span className="ml-2 text-[9px] text-amber-400">
-                          VOCÊ
+                {hud.scoreboard.map((row) => {
+                  const isMvp = maxKills > 0 && row.kills === maxKills;
+                  const kd = kdRatio(row.kills, row.deaths);
+                  return (
+                    <tr
+                      key={row.id}
+                      className={`border-b border-white/[0.04] ${
+                        isMvp
+                          ? "bg-amber-400/[0.09]"
+                          : row.isLocal
+                            ? "bg-white/[0.04]"
+                            : ""
+                      } ${!row.alive ? "opacity-45" : ""}`}
+                    >
+                      <td className="px-5 py-2 font-medium">
+                        <span className="inline-flex items-center gap-1.5">
+                          {isMvp && (
+                            <span
+                              className="rounded bg-amber-400/20 px-1 py-px text-[9px] font-black tracking-wide text-amber-300"
+                              title="MVP"
+                            >
+                              MVP
+                            </span>
+                          )}
+                          <span className={isMvp ? "text-amber-50" : undefined}>
+                            {row.name}
+                          </span>
+                          {row.isLocal && (
+                            <span className="text-[9px] font-semibold text-white/40">
+                              VOCÊ
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={
-                          row.team === "TR"
-                            ? "text-orange-400"
-                            : "text-sky-400"
-                        }
-                      >
-                        {row.team}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {row.kills}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {row.deaths}
-                    </td>
-                    <td className="px-5 py-2 text-right tabular-nums text-emerald-400/90">
-                      {row.money}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-2 py-2">
+                        <span
+                          className={
+                            row.team === "TR"
+                              ? "text-orange-400"
+                              : "text-sky-400"
+                          }
+                        >
+                          {row.team}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums">
+                        {row.kills}
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums text-white/70">
+                        {row.deaths}
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums text-white/55">
+                        {kd.toFixed(2)}
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums text-emerald-400/90">
+                        {row.money}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums text-white/30">
+                        —
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
