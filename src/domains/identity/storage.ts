@@ -10,17 +10,26 @@ const XP_KEY = "ff_xp";
 const NICK_KEY = "ff_nickname";
 const REGION_KEY = "ff_region";
 
+/** In-process fallback when localStorage is unavailable / throws. */
+let memorySessionId: string | null = null;
+
+function newSessionId(): string {
+  return `sess_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function getOrCreateSessionId(): string {
   if (typeof window === "undefined") return "server";
   try {
     let id = localStorage.getItem(SESSION_KEY);
     if (!id) {
-      id = `sess_${Math.random().toString(36).slice(2, 10)}`;
+      id = memorySessionId ?? newSessionId();
       localStorage.setItem(SESSION_KEY, id);
     }
+    memorySessionId = id;
     return id;
   } catch {
-    return `sess_${Math.random().toString(36).slice(2, 10)}`;
+    if (!memorySessionId) memorySessionId = newSessionId();
+    return memorySessionId;
   }
 }
 

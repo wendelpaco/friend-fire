@@ -33,10 +33,14 @@ export function EndMatchBreak({
   const [xpTotal, setXpTotal] = useState(0);
   const impressed = useRef(false);
   const continued = useRef(false);
+  /** Sync in-flight flag (blocks continue + double claim before re-render). */
+  const rewardInFlight = useRef(false);
+  /** Sync claimed flag so double-click cannot grant XP twice. */
+  const rewardClaimed = useRef(false);
   const ad = pickRotatingAd("end_match_break", 0);
 
   const continueOnce = useCallback(() => {
-    if (continued.current) return;
+    if (continued.current || rewardInFlight.current) return;
     continued.current = true;
     onContinue();
   }, [onContinue]);
@@ -57,22 +61,26 @@ export function EndMatchBreak({
     pushImpression(imp);
   }, [ad.id]);
 
+  // Pause countdown auto-continue while rewarded ad is in flight.
   useEffect(() => {
+    if (rewardBusy) return;
     if (secondsLeft <= 0) {
       continueOnce();
       return;
     }
     const t = window.setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
     return () => window.clearTimeout(t);
-  }, [secondsLeft, continueOnce]);
+  }, [secondsLeft, continueOnce, rewardBusy]);
 
   const claimReward = useCallback(async () => {
-    if (rewardBusy || rewardDone) return;
+    if (rewardInFlight.current || rewardClaimed.current) return;
+    rewardInFlight.current = true;
     setRewardBusy(true);
     try {
       const port = new StubRewardedAdPort();
       const result = await port.show("rewarded_xp");
       if (result === "completed") {
+        rewardClaimed.current = true;
         const next = grantRewardedXp(getXp(), REWARD_XP);
         setXp(next);
         setXpTotal(next);
@@ -80,9 +88,10 @@ export function EndMatchBreak({
         onRewardedComplete?.(next);
       }
     } finally {
+      rewardInFlight.current = false;
       setRewardBusy(false);
     }
-  }, [rewardBusy, rewardDone, onRewardedComplete]);
+  }, [onRewardedComplete]);
 
   const winner =
     scoreTR > scoreCT ? "TR" : scoreCT > scoreTR ? "CT" : "EMPATE";
@@ -167,7 +176,8 @@ export function EndMatchBreak({
           <button
             type="button"
             onClick={continueOnce}
-            className="rounded-lg bg-amber-500 py-3 text-sm font-bold tracking-wide text-black transition hover:bg-amber-400"
+            disabled={rewardBusy}
+            className="rounded-lg bg-amber-500 py-3 text-sm font-bold tracking-wide text-black transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Continuar
             <span className="ml-2 tabular-nums text-black/55">
