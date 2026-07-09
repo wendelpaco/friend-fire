@@ -17,15 +17,27 @@ import {
 } from "@/domains/identity";
 import { pushImpression } from "@/infrastructure/analytics/queue";
 import { DEFAULT_MATCH } from "@/domains/match";
+import type { MatchResult } from "@/domains/stats";
+import { MatchStatsCard } from "@/presentation/game/MatchStatsCard";
 
 const COUNTDOWN_S: number = DEFAULT_MATCH.endMatchPause;
 const REWARD_XP = 50;
+
+export interface MatchEndStats {
+  kills: number;
+  deaths: number;
+  money: number;
+  result: MatchResult;
+  mapName: string;
+}
 
 export interface EndMatchBreakProps {
   scoreTR: number;
   scoreCT: number;
   onContinue: () => void;
   onRewardedComplete?: (newXp: number) => void;
+  /** Local player end-of-match stats card (above missions/ad). */
+  stats?: MatchEndStats | null;
 }
 
 export function EndMatchBreak({
@@ -33,6 +45,7 @@ export function EndMatchBreak({
   scoreCT,
   onContinue,
   onRewardedComplete,
+  stats,
 }: EndMatchBreakProps) {
   const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_S);
   const [rewardBusy, setRewardBusy] = useState(false);
@@ -121,6 +134,16 @@ export function EndMatchBreak({
             <span className="text-sky-300">{scoreCT}</span>
           </div>
         </div>
+
+        {stats && (
+          <MatchStatsCard
+            kills={stats.kills}
+            deaths={stats.deaths}
+            money={stats.money}
+            result={stats.result}
+            mapName={stats.mapName}
+          />
+        )}
 
         {missions.length > 0 && (
           <div className="border-b border-white/10 px-4 py-3">

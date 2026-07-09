@@ -5,8 +5,10 @@ import { CONTROLS_HELP } from "@/game/constants";
 import type { HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { BuyMenu } from "@/presentation/game/BuyMenu";
+import type { MatchResult } from "@/domains/stats";
 import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
 import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
+import type { Team } from "@/shared/types/team";
 
 function formatTime(seconds: number) {
   const s = Math.max(0, Math.ceil(seconds));
@@ -20,6 +22,18 @@ function phaseLabel(hud: HudSnapshot) {
   if (hud.phase === "ended") return "FIM DO ROUND";
   if (hud.phase === "match_over") return "FIM DA PARTIDA";
   return formatTime(hud.timeLeft);
+}
+
+/** Local team result from final scores. */
+function matchResultForTeam(
+  team: Team,
+  scoreTR: number,
+  scoreCT: number,
+): MatchResult {
+  if (scoreTR === scoreCT) return "draw";
+  const trWon = scoreTR > scoreCT;
+  if (team === "TR") return trWon ? "win" : "loss";
+  return trWon ? "loss" : "win";
 }
 
 interface GameHudProps {
@@ -43,6 +57,22 @@ export function GameHud({
   onBuy,
   onCloseBuy,
 }: GameHudProps) {
+  const localRow = hud.scoreboard.find((r) => r.isLocal);
+  const matchStats =
+    localRow != null
+      ? {
+          kills: localRow.kills,
+          deaths: localRow.deaths,
+          money: localRow.money,
+          mapName: hud.mapName,
+          result: matchResultForTeam(
+            localRow.team,
+            hud.scoreTR,
+            hud.scoreCT,
+          ),
+        }
+      : null;
+
   return (
     <div className="pointer-events-none absolute inset-0 z-10 select-none font-sans text-white">
       {/* Damage vignette */}
@@ -488,6 +518,7 @@ export function GameHud({
           scoreTR={hud.scoreTR}
           scoreCT={hud.scoreCT}
           onContinue={onMatchContinue}
+          stats={matchStats}
         />
       )}
     </div>

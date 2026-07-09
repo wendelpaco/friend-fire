@@ -10,7 +10,11 @@ import {
   WEAPONS,
 } from "@/domains/combat";
 import { Sfx } from "@/infrastructure/audio/Sfx";
-import { getOrCreateSessionId, recordMatchResult } from "@/domains/identity";
+import {
+  getNickname,
+  getOrCreateSessionId,
+  recordMatchResult,
+} from "@/domains/identity";
 import {
   createMatchPhase,
   moneyAfterRound,
@@ -18,6 +22,11 @@ import {
   tickPhase,
   type MatchPhaseState,
 } from "@/domains/match";
+import {
+  appendMatch,
+  upsertPlayerStats,
+  type MatchResult,
+} from "@/domains/stats";
 import { pushImpression } from "@/infrastructure/analytics/queue";
 import {
   BOT_LINES,
@@ -840,7 +849,10 @@ export class GameClient {
     }
   }
 
-  /** Grant daily mission progress once when the match finishes. */
+  /**
+   * Once per match_over: daily mission progress + match history + leaderboard.
+   * Shares a single latch so missions and stats stay in lockstep.
+   */
   private maybeRecordMissionResult() {
     if (this.state.phase !== "match_over" || this.missionMatchRecorded) return;
     this.missionMatchRecorded = true;
@@ -850,13 +862,27 @@ export class GameClient {
     );
     if (!local) return;
 
-    const won =
-      (local.team === "TR" && this.state.scoreTR > this.state.scoreCT) ||
-      (local.team === "CT" && this.state.scoreCT > this.state.scoreTR);
+    const result = this.localMatchResult(local.team);
+    const won = result === "win";
 
     const { xpGranted } = recordMatchResult({
       won,
       kills: local.kills,
+    });
+
+    const nickname = getNickname();
+    appendMatch({
+      nickname,
+      kills: local.kills,
+      deaths: local.deaths,
+      money: local.money,
+      result,
+      map: this.map.displayName,
+    });
+    upsertPlayerStats({
+      nickname,
+      kills: local.kills,
+      won,
     });
 
     if (xpGranted > 0) {
@@ -864,6 +890,13 @@ export class GameClient {
       this.flashBuyMessage(msg);
       this.addChat("SYSTEM", msg, "system");
     }
+  }
+
+  private localMatchResult(team: Team): MatchResult {
+    if (this.state.scoreTR === this.state.scoreCT) return "draw";
+    const trWon = this.state.scoreTR > this.state.scoreCT;
+    if (team === "TR") return trWon ? "win" : "loss";
+    return trWon ? "loss" : "win";
   }
 
   private recordMapAdImpressions() {
