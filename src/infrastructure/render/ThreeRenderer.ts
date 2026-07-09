@@ -2,6 +2,10 @@ import * as THREE from "three";
 import { CAMERA_HEIGHT, CAMERA_OFFSET } from "@/game/constants";
 import type { BulletState, PlayerState } from "@/game/types";
 import { buildBillboardMesh, buildWallPoster } from "@/game/world/billboards";
+import {
+  FOG_ENABLED_KEY,
+  getFogEnabled as readFogEnabledPref,
+} from "@/domains/prefs";
 import type { GameMap } from "@/domains/world";
 import {
   createCharacter,
@@ -84,9 +88,20 @@ export class ThreeRenderer {
   private vignette!: THREE.Mesh;
   private wallTex!: THREE.CanvasTexture;
   private sandTex!: THREE.CanvasTexture;
+  /** Limited-vision cull; from `ff_fog_enabled` (default true). */
+  private fogEnabled = true;
+  private readonly onPrefsEvent = () => {
+    this.fogEnabled = readFogEnabledPref();
+  };
+  private readonly onStorageEvent = (e: StorageEvent) => {
+    if (e.key === null || e.key === FOG_ENABLED_KEY) {
+      this.fogEnabled = readFogEnabledPref();
+    }
+  };
 
   constructor(canvas: HTMLCanvasElement, map: GameMap) {
     this.map = map;
+    this.fogEnabled = readFogEnabledPref();
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
 
@@ -121,6 +136,20 @@ export class ThreeRenderer {
     this.muzzleFx = new MuzzleFlashSystem(this.scene);
     this.impactFx = new ImpactParticleSystem(this.scene);
     this.wallDamageFx = new WallDamageSystem(this.scene);
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("ff-prefs", this.onPrefsEvent);
+      window.addEventListener("storage", this.onStorageEvent);
+    }
+  }
+
+  /** Enable/disable enemy distance fog-of-war cull (in-memory). */
+  setFogEnabled(on: boolean) {
+    this.fogEnabled = on;
+  }
+
+  getFogEnabled(): boolean {
+    return this.fogEnabled;
   }
 
   pickGround(mx: number, my: number): { x: number; z: number } | null {
@@ -211,9 +240,14 @@ export class ThreeRenderer {
       const shooting = this.shootFlags.has(p.id);
       handle.update(dt, { speed, shooting, weaponCategory: cat });
 
-      // Fog of war: local + same team always visible (if alive); enemies only within radius.
+      // Fog of war: local + same team always visible (if alive); enemies only within radius when on.
       let inVision = true;
-      if (local && p.id !== local.id && p.team !== local.team) {
+      if (
+        this.fogEnabled &&
+        local &&
+        p.id !== local.id &&
+        p.team !== local.team
+      ) {
         const dist = Math.hypot(p.x - local.x, p.z - local.z);
         inVision = dist <= FOG_VISION_RADIUS;
       }
@@ -259,6 +293,10 @@ export class ThreeRenderer {
   }
 
   dispose() {
+    if (typeof window !== "undefined") {
+      window.removeEventListener("ff-prefs", this.onPrefsEvent);
+      window.removeEventListener("storage", this.onStorageEvent);
+    }
     this.muzzleFx.dispose();
     this.impactFx.dispose();
     this.wallDamageFx.dispose();
