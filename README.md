@@ -11,6 +11,7 @@ Shooter tático **top-down** no navegador, inspirado no vibe do [RUSH B](https:/
 - Maps: [`docs/maps.md`](docs/maps.md)
 - Sponsor one-pager: [`docs/sponsors.md`](docs/sponsors.md)
 - Wave 3 features: [`docs/superpowers/specs/2026-07-09-wave3-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave3-product-features-design.md) · short runbook [`docs/wave3.md`](docs/wave3.md)
+- Wave 4 features: [`docs/superpowers/specs/2026-07-09-wave4-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave4-product-features-design.md) · short runbook [`docs/wave4.md`](docs/wave4.md)
 
 ## Scripts
 
@@ -116,7 +117,8 @@ friend-fire/
 
 Rooms use Colyseus (`server/`, room name `game`). **Public** rooms appear in the server browser; **private** rooms are invite/code-only (not listed by default).
 
-Full wave 3 product notes: [`docs/wave3.md`](docs/wave3.md) · design: [`docs/superpowers/specs/2026-07-09-wave3-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave3-product-features-design.md).
+Full wave 3 product notes: [`docs/wave3.md`](docs/wave3.md) · design: [`docs/superpowers/specs/2026-07-09-wave3-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave3-product-features-design.md).  
+Wave 4 (prefs, region filter, reconnect, queue UI): [`docs/wave4.md`](docs/wave4.md) · design: [`docs/superpowers/specs/2026-07-09-wave4-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave4-product-features-design.md).
 
 ```bash
 # terminal A — Next.js
@@ -211,7 +213,21 @@ Create accepts optional `mapId`, room label, and `visibility`; room metadata exp
 
 ### Fog of war (client-only)
 
-Local vision radius (~14 world units): distant enemies hidden / area dimmed. **Presentation only** — does not change server authority or hitscan. Toggle/settings may default ON in solo and room mode. See wave 3 design §2.5.
+Local vision radius (~14 world units): distant enemies hidden / area dimmed. **Presentation only** — does not change server authority or hitscan. Default ON; toggle in pause / Settings (`ff_fog_enabled`). See wave 3 design §2.5 · wave 4 §2.1.
+
+### Wave 4 lobby & pause polish
+
+| Feature | Notes |
+|---------|--------|
+| Settings (pause) | Volume (`ff_volume`), fog, camera default locked/free (`ff_camera_default`) |
+| Region on rooms | `BR` \| `US` on create/metadata/list; filter `GET /rooms?region=`; default from identity |
+| Map chips | Accent color swatches in ServerBrowser + RoomPanel (no image assets) |
+| Rejoin | `ff_last_room_code` after leave/disconnect; lobby **Reentrar na última sala** |
+| Quick Match queue | “Procurando partida…” overlay + cancel |
+| Room full | Join error “Sala cheia”; Entrar disabled when `clients >= maxClients` |
+| Kill feed | Max ~6 lines, fade polish, death/spectate hint |
+
+Runbook: [`docs/wave4.md`](docs/wave4.md).
 
 ## Controles
 
@@ -229,17 +245,18 @@ Local vision radius (~14 world units): distant enemies hidden / area dimmed. **P
 | H | Ajuda (controles) |
 | F | Respawn manual (só no aquecimento, se morto) |
 
-## O que já tem (v1 + wave 2 + wave 3)
+## O que já tem (v1 + wave 2 + wave 3 + wave 4)
 
 - Câmera isométrica / top-down (Three.js) + polish visual Dust FF
 - Buy menu, SFX procedural, câmera livre
 - Ads in-game + lobby/pausa + end-match break + rewarded XP stub
 - Solo local com bots **e** salas **públicas/privadas** com **combate no server**
-- Server browser (filtros, ping) · Quick Match · invite link · multi-map
-- Match-end stats + ranking local do dia · fog of war (client vision)
+- Server browser (filtros map/slots/region, ping, map chips) · Quick Match queue UI · invite · multi-map
+- Match-end stats + ranking local do dia · fog toggle + Settings (volume, camera)
+- Rejoin última sala · room full UX · kill feed polish
 - Rounds: aquecimento → live → fim → **match_over**
 - HUD completo · lobby · domínios com `npm test`
-- Wave 3 runbook: [`docs/wave3.md`](docs/wave3.md)
+- Wave 3: [`docs/wave3.md`](docs/wave3.md) · Wave 4: [`docs/wave4.md`](docs/wave4.md)
 
 ## Roadmap
 
