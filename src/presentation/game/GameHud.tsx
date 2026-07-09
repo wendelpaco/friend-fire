@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { CONTROLS_HELP } from "@/game/constants";
 import type { HudSnapshot } from "@/game/types";
-import { AdBanner } from "@/components/ads/AdBanner";
+import { AdBanner } from "@/presentation/ads/AdBanner";
 import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
 
 function formatTime(seconds: number) {

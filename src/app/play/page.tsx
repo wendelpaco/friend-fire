@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 
 const GameCanvas = dynamic(
   () =>
-    import("@/components/game/GameCanvas").then((m) => m.GameCanvas),
+    import("@/presentation/game/GameCanvas").then((m) => m.GameCanvas),
   {
     ssr: false,
     loading: () => (

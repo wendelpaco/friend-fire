@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AdBanner } from "@/components/ads/AdBanner";
+import { AdBanner } from "@/presentation/ads/AdBanner";
 import { GAME_NAME, GAME_TAGLINE } from "@/game/constants";
 
 const DAILY = [
