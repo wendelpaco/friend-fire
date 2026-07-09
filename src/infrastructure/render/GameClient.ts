@@ -63,6 +63,30 @@ import {
 import { Input } from "./input";
 import { ThreeRenderer } from "./ThreeRenderer";
 
+/** Mirrors SettingsPanel keys — keep in sync with presentation/game/SettingsPanel. */
+const PREFS_EVENT = "ff-prefs";
+
+function readCameraDefault(): "locked" | "free" {
+  if (typeof window === "undefined") return "locked";
+  try {
+    return localStorage.getItem("ff_camera_default") === "free"
+      ? "free"
+      : "locked";
+  } catch {
+    return "locked";
+  }
+}
+
+function readFogEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const v = localStorage.getItem("ff_fog_enabled");
+    return v == null ? true : v !== "0" && v !== "false";
+  } catch {
+    return true;
+  }
+}
+
 let idCounter = 0;
 function uid(prefix: string) {
   idCounter += 1;
@@ -264,10 +288,32 @@ export class GameClient {
 
     this.sessionId = getOrCreateSessionId();
     this.state = this.createInitialState();
+    this.applyFogPref(readFogEnabled());
     this.initBotTimers();
     this.input.bind();
+    if (typeof window !== "undefined") {
+      window.addEventListener(PREFS_EVENT, this.onPrefsEvent);
+    }
     // Seed meshes from initial players
     this.syncRender();
+  }
+
+  private onPrefsEvent = (ev: Event) => {
+    const detail = (ev as CustomEvent<{ fogEnabled?: boolean }>).detail;
+    if (detail && typeof detail.fogEnabled === "boolean") {
+      this.applyFogPref(detail.fogEnabled);
+    } else {
+      this.applyFogPref(readFogEnabled());
+    }
+  };
+
+  private applyFogPref(enabled: boolean) {
+    const three = this.three as ThreeRenderer & {
+      setFogEnabled?: (on: boolean) => void;
+    };
+    if (typeof three.setFogEnabled === "function") {
+      three.setFogEnabled(enabled);
+    }
   }
 
   setHudListener(fn: (hud: HudSnapshot) => void) {
@@ -440,6 +486,9 @@ export class GameClient {
   dispose() {
     this.stop();
     this.input.unbind();
+    if (typeof window !== "undefined") {
+      window.removeEventListener(PREFS_EVENT, this.onPrefsEvent);
+    }
     this.three.dispose();
   }
 
@@ -457,6 +506,8 @@ export class GameClient {
     } catch {
       showHelp = true;
     }
+
+    const cameraMode = readCameraDefault();
 
     const players: PlayerState[] = [
       this.makePlayer(localId, "Você", "TR", false, 0),
@@ -492,7 +543,7 @@ export class GameClient {
       showScoreboard: false,
       showHelp,
       showBuyMenu: false,
-      cameraMode: "locked",
+      cameraMode,
       hitMarkerUntil: 0,
       damageFlashUntil: 0,
       lastDamageAmount: 0,

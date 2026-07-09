@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { CONTROLS_HELP } from "@/game/constants";
 import type { HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { BuyMenu } from "@/presentation/game/BuyMenu";
 import type { MatchResult } from "@/domains/stats";
 import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
+import { SettingsPanel } from "@/presentation/game/SettingsPanel";
 import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
 import type { Team } from "@/shared/types/team";
 
@@ -57,6 +59,10 @@ export function GameHud({
   onBuy,
   onCloseBuy,
 }: GameHudProps) {
+  const [showSettings, setShowSettings] = useState(false);
+  useEffect(() => {
+    if (!hud.paused) setShowSettings(false);
+  }, [hud.paused]);
   const localRow = hud.scoreboard.find((r) => r.isLocal);
   const matchStats =
     localRow != null
@@ -477,45 +483,56 @@ export function GameHud({
         />
       )}
 
-      {/* Pause menu */}
+      {/* Pause menu / settings */}
       {hud.paused && !hud.showHelp && !hud.matchOver && !hud.showBuyMenu && (
         <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-black/75 backdrop-blur-md">
-          <div className="w-full max-w-sm rounded-2xl border border-white/12 bg-[#0e1118] p-6 shadow-2xl">
-            <div className="mb-1 text-center text-[10px] font-semibold tracking-[0.3em] text-white/40">
-              PAUSADO
-            </div>
-            <h2 className="mb-5 text-center text-2xl font-black">Friend Fire</h2>
-
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={onResume}
-                className="rounded-lg bg-amber-500 py-3 text-sm font-bold tracking-wide text-black transition hover:bg-amber-400"
-              >
-                Continuar
-              </button>
-              <button
-                type="button"
-                onClick={onOpenHelp}
-                className="rounded-lg border border-white/10 bg-white/5 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
-              >
-                Ver controles
-              </button>
-              <Link
-                href="/"
-                className="rounded-lg border border-white/10 bg-white/5 py-3 text-center text-sm font-semibold text-white/80 transition hover:bg-white/10"
-              >
-                Sair para o menu
-              </Link>
-            </div>
-
-            <div className="mt-5">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/35">
-                Patrocinado
+          {showSettings ? (
+            <SettingsPanel onBack={() => setShowSettings(false)} />
+          ) : (
+            <div className="w-full max-w-sm rounded-2xl border border-white/12 bg-[#0e1118] p-6 shadow-2xl">
+              <div className="mb-1 text-center text-[10px] font-semibold tracking-[0.3em] text-white/40">
+                PAUSADO
               </div>
-              <AdBanner placement="pause_banner" compact rotateMs={6000} />
+              <h2 className="mb-5 text-center text-2xl font-black">Friend Fire</h2>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={onResume}
+                  className="rounded-lg bg-amber-500 py-3 text-sm font-bold tracking-wide text-black transition hover:bg-amber-400"
+                >
+                  Continuar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(true)}
+                  className="rounded-lg border border-white/10 bg-white/5 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                >
+                  Configurações
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenHelp}
+                  className="rounded-lg border border-white/10 bg-white/5 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                >
+                  Ver controles
+                </button>
+                <Link
+                  href="/"
+                  className="rounded-lg border border-white/10 bg-white/5 py-3 text-center text-sm font-semibold text-white/80 transition hover:bg-white/10"
+                >
+                  Sair para o menu
+                </Link>
+              </div>
+
+              <div className="mt-5">
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/35">
+                  Patrocinado
+                </div>
+                <AdBanner placement="pause_banner" compact rotateMs={6000} />
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
