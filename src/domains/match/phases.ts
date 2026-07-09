@@ -3,9 +3,6 @@ import { DEFAULT_MATCH, type MatchPhaseState } from "./types";
 
 export type { RoundPhase, MatchPhaseState } from "./types";
 
-/** Round intermission length (seconds). Match-over break uses DEFAULT_MATCH.endMatchPause in UI (Task 5). */
-const DEFAULT_END_PAUSE = 5;
-
 export function createMatchPhase(
   opts?: Partial<
     Pick<MatchPhaseState, "warmupTime" | "roundTime" | "endPause" | "roundsToWin">
@@ -20,7 +17,7 @@ export function createMatchPhase(
     scoreCT: 0,
     warmupTime,
     roundTime: opts?.roundTime ?? DEFAULT_MATCH.round,
-    endPause: opts?.endPause ?? DEFAULT_END_PAUSE,
+    endPause: opts?.endPause ?? DEFAULT_MATCH.endPause,
     roundsToWin: opts?.roundsToWin ?? DEFAULT_MATCH.roundsToWin,
   };
 }
@@ -62,7 +59,7 @@ export function onRoundWin(m: MatchPhaseState, winner: Team): MatchPhaseState {
       scoreTR,
       scoreCT,
       phase: "match_over",
-      timeLeft: m.endPause,
+      timeLeft: DEFAULT_MATCH.endMatchPause,
     };
   }
   return {

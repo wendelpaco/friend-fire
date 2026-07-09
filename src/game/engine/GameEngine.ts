@@ -92,7 +92,7 @@ export class GameEngine {
   private matchConfig = {
     warmupTime: WARMUP_TIME,
     roundTime: ROUND_TIME,
-    endPause: 5,
+    endPause: DEFAULT_MATCH.endPause,
     roundsToWin: DEFAULT_MATCH.roundsToWin,
   };
 
@@ -758,15 +758,19 @@ export class GameEngine {
       return;
     }
 
-    // Match finished — freeze gameplay; end-match break UI is Task 5.
+    // Tick timer only while not already finished; then freeze sim on match_over
+    // (including same-frame transition from live timer expiry). End-match UI is Task 5.
+    if (this.state.phase !== "match_over") {
+      this.updateAim();
+      this.updateTimer(dt);
+    }
+
     if (this.state.phase === "match_over") {
       this.pushHud();
       this.input.endFrame();
       return;
     }
 
-    this.updateAim();
-    this.updateTimer(dt);
     this.updateLocalPlayer(dt);
     this.updateBots(dt);
     this.updateBullets(dt);

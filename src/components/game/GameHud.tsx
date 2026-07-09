@@ -297,7 +297,9 @@ export function GameHud({
             <div className="mt-2 text-sm text-white/55">
               {hud.phase === "warmup"
                 ? "Respawn em instantes · ou pressione F"
-                : "Aguarde o próximo round"}
+                : hud.phase === "match_over"
+                  ? "Partida encerrada · aguarde o resultado"
+                  : "Aguarde o próximo round"}
             </div>
           </div>
         </div>

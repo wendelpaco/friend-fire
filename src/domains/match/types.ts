@@ -19,5 +19,8 @@ export const DEFAULT_MATCH = {
   warmup: 20,
   round: 90,
   roundsToWin: 8,
+  /** Round intermission (`ended` phase) length. */
+  endPause: 5,
+  /** Match-finished pause (`match_over` phase) length. */
   endMatchPause: 8,
 } as const;
