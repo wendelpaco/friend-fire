@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { HudSnapshot } from "@/game/types";
+import {
+  ColyseusRoomClient,
+  type NetworkRoomState,
+} from "@/infrastructure/realtime/roomClient";
 import { GameHud } from "./GameHud";
 
 export type PlayMode = "local" | "room";
@@ -12,23 +16,31 @@ interface GameCanvasProps {
   roomCode?: string;
 }
 
+const INPUT_HZ = 20;
+const INPUT_MS = 1000 / INPUT_HZ;
+
 export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<import("@/infrastructure/render/GameClient").GameClient | null>(
     null,
   );
+  const roomRef = useRef<ColyseusRoomClient | null>(null);
   const router = useRouter();
   const [hud, setHud] = useState<HudSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [net, setNet] = useState<NetworkRoomState | null>(null);
 
   const onMatchContinue = useCallback(() => {
+    void roomRef.current?.leave();
+    roomRef.current = null;
     engineRef.current?.dispose();
     engineRef.current = null;
     router.push("/");
   }, [router]);
 
+  // Boot local engine (always — hybrid combat even in room mode)
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -80,6 +92,75 @@ export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
     };
   }, []);
 
+  // Colyseus session when mode=room
+  useEffect(() => {
+    if (mode !== "room" || !roomCode) {
+      setNet(null);
+      return;
+    }
+
+    let cancelled = false;
+    const client = new ColyseusRoomClient();
+    roomRef.current = client;
+
+    const unsub = client.onState((state) => {
+      if (!cancelled) setNet(state as NetworkRoomState);
+    });
+
+    const connect = async () => {
+      try {
+        await client.connect(roomCode);
+      } catch (e) {
+        // Hybrid fallback: keep local GameClient running; surface banner via net state
+        if (!cancelled) {
+          setNet(client.snapshot());
+          console.warn("[room] Colyseus connect failed:", e);
+        }
+      }
+    };
+    void connect();
+
+    const inputTimer = window.setInterval(() => {
+      const engine = engineRef.current;
+      if (!engine || !client.isConnected()) return;
+      const move = engine.input.moveVector();
+      const slot = engine.input.weaponSlotKey() ?? 0;
+      client.sendInput({
+        dx: move.x,
+        dz: move.z,
+        aimX: engine.input.aimWorldX,
+        aimZ: engine.input.aimWorldZ,
+        fire: engine.input.isMouseDown(0),
+        reload: engine.input.isDown("KeyR"),
+        slot,
+      });
+    }, INPUT_MS);
+
+    return () => {
+      cancelled = true;
+      unsub();
+      window.clearInterval(inputTimer);
+      void client.leave();
+      if (roomRef.current === client) roomRef.current = null;
+    };
+  }, [mode, roomCode]);
+
+  const displayCode =
+    (net?.code && net.code.length > 0 ? net.code : roomCode) ?? undefined;
+
+  const netBanner =
+    mode === "room"
+      ? net?.mode === "connecting"
+        ? "Conectando ao servidor…"
+        : net?.mode === "error" || (net && !net.connected && net.error)
+          ? net.error || "Servidor multiplayer indisponível"
+          : net?.connected
+            ? `Online · ${net.players.filter((p) => !p.isBot).length} humano(s) · híbrido local`
+            : roomCode
+              ? "Conectando ao servidor…"
+              : null
+      : null;
+
   return (
     <div
       ref={containerRef}
@@ -101,16 +182,29 @@ export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
       {hud && (
         <GameHud
           hud={hud}
-          roomCode={mode === "room" ? roomCode : undefined}
+          roomCode={mode === "room" ? displayCode : undefined}
           onResume={() => engineRef.current?.setPaused(false)}
           onDismissHelp={() => engineRef.current?.dismissHelp()}
           onOpenHelp={() => engineRef.current?.openHelp()}
           onMatchContinue={onMatchContinue}
         />
       )}
-      {mode === "room" && roomCode && !hud && !loading && (
+      {mode === "room" && displayCode && !hud && !loading && (
         <div className="pointer-events-none absolute left-1/2 top-20 z-20 -translate-x-1/2 rounded-lg border border-amber-400/40 bg-black/70 px-4 py-1.5 font-mono text-sm font-bold tracking-[0.3em] text-amber-200 shadow-lg backdrop-blur-md">
-          SALA {roomCode}
+          SALA {displayCode}
+        </div>
+      )}
+      {netBanner && !loading && (
+        <div
+          className={`pointer-events-none absolute bottom-4 left-1/2 z-20 max-w-[min(92vw,28rem)] -translate-x-1/2 rounded-lg border px-3 py-2 text-center text-[11px] shadow-lg backdrop-blur-md ${
+            net?.mode === "error" || (net && !net.connected && net.error)
+              ? "border-red-400/40 bg-red-950/80 text-red-100"
+              : net?.connected
+                ? "border-emerald-400/35 bg-black/70 text-emerald-100/90"
+                : "border-white/15 bg-black/70 text-white/70"
+          }`}
+        >
+          {netBanner}
         </div>
       )}
       {error && (

@@ -16,6 +16,30 @@ Abra [http://localhost:3000](http://localhost:3000).
 - **Menu** → `/`
 - **Partida** → `/play` (ou botão *Jogo Rápido*)
 
+## Multiplayer dev
+
+Private rooms use a Colyseus server (`server/`, room name `game`).
+
+```bash
+# terminal A — Next.js client
+npm run dev
+
+# terminal B — Colyseus on ws://localhost:2567
+npm run dev:server
+# or: cd server && npm run dev
+```
+
+1. Open the lobby → **Criar sala** (needs server up) → share the 6-char code  
+2. Second browser / profile → **Entrar por código** → same code  
+3. Both land on `/play?mode=room&code=XXXXXX` with HUD **SALA XXXXXX** from server state  
+
+Env (optional):
+
+```bash
+NEXT_PUBLIC_COLYSEUS_URL=ws://localhost:2567
+```
+
+**Hybrid v1:** create/join + roster/code sync go through Colyseus; movement/combat/bots still simulate locally in the browser until the server owns combat. If the server is down, create fails with a clear message; play mode still loads local combat with a disconnect banner.
 ## Controles
 
 | Tecla | Ação |

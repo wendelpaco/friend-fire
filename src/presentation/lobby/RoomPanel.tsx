@@ -6,7 +6,7 @@ import {
   isValidRoomCode,
   normalizeRoomCode,
 } from "@/domains/session";
-import { getLocalRoomClient } from "@/infrastructure/realtime/roomClient";
+import { getRoomClient } from "@/infrastructure/realtime/roomClient";
 
 export type RoomPanelMode = "create" | "join";
 
@@ -30,7 +30,7 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
     setError(null);
     setBusy(true);
     try {
-      const client = getLocalRoomClient();
+      const client = getRoomClient();
       const { code } = await client.create();
       setCreatedCode(code);
     } catch (e) {
@@ -54,8 +54,14 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
     }
     setBusy(true);
     try {
-      const client = getLocalRoomClient();
-      await client.join(code);
+      // Soft validation: try Colyseus join. If host has not entered /play yet,
+      // room may be empty — still allow navigation; play page joinOrCreates.
+      const client = getRoomClient();
+      try {
+        await client.join(code);
+      } catch {
+        // Host may still be on the lobby code screen; play will joinOrCreate.
+      }
       goToRoom(code);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao entrar na sala");
@@ -107,7 +113,8 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-white/40">
-                  Mock local — multiplayer real chega com o servidor Colyseus.
+                  Colyseus — entre na sala e peça aos amigos para usar o mesmo
+                  código. Combate ainda roda em híbrido local no cliente.
                 </p>
                 <div className="mt-5 flex flex-col gap-2">
                   <button
@@ -131,9 +138,10 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
             ) : (
               <>
                 <p className="text-sm leading-relaxed text-white/55">
-                  Gere um código de 6 caracteres e entre na partida local com
-                  o código no HUD. Amigos poderão entrar com o mesmo código
-                  quando o multiplayer estiver online.
+                  Cria uma sala no servidor Colyseus e gera um código de 6
+                  caracteres. Amigos entram com o mesmo código (servidor em{" "}
+                  <code className="text-amber-200/80">npm run dev:server</code>
+                  ).
                 </p>
                 {error && (
                   <p className="mt-3 rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-sm text-red-300">
