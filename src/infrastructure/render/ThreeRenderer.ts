@@ -15,6 +15,9 @@ import {
   WallDamageSystem,
 } from "./fx";
 
+/** Enemy players beyond this distance from the local player are culled. */
+export const FOG_VISION_RADIUS = 14;
+
 /** Minimal fields required to keep meshes in sync with simulation. */
 export interface RenderSnapshot {
   players: ReadonlyArray<
@@ -184,6 +187,7 @@ export class ThreeRenderer {
     const aliveBulletIds = new Set<string>();
     const alivePlayerIds = new Set<string>();
     const now = performance.now() * 0.001;
+    const local = snapshot.players.find((x) => x.id === snapshot.localPlayerId);
 
     for (const p of snapshot.players) {
       alivePlayerIds.add(p.id);
@@ -207,7 +211,13 @@ export class ThreeRenderer {
       const shooting = this.shootFlags.has(p.id);
       handle.update(dt, { speed, shooting, weaponCategory: cat });
 
-      handle.group.visible = p.alive;
+      // Fog of war: local + same team always visible (if alive); enemies only within radius.
+      let inVision = true;
+      if (local && p.id !== local.id && p.team !== local.team) {
+        const dist = Math.hypot(p.x - local.x, p.z - local.z);
+        inVision = dist <= FOG_VISION_RADIUS;
+      }
+      handle.group.visible = p.alive && inVision;
       handle.group.position.set(p.x, 0, p.z);
       handle.group.rotation.y = p.rot;
     }
@@ -421,7 +431,7 @@ export class ThreeRenderer {
     this.playerSpot = new THREE.SpotLight(
       0xfff1d0,
       1.85,
-      30,
+      16,
       Math.PI / 2.8,
       0.65,
       1.0,
