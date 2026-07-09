@@ -6,36 +6,88 @@ import {
   isValidRoomCode,
   normalizeRoomCode,
 } from "@/domains/session";
+import {
+  getLastMapId,
+  setLastMapId,
+} from "@/domains/world";
 import { getRoomClient } from "@/infrastructure/realtime/roomClient";
+import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
 
 export type RoomPanelMode = "create" | "join";
+
+/** Maps selectable at create time (ids match multi-map registry). */
+const CREATE_MAPS = [
+  { id: "dust", label: "Dust FF" },
+  { id: "favela", label: "Favela" },
+  { id: "yard", label: "Yard" },
+] as const;
+
+type CreateMapId = (typeof CREATE_MAPS)[number]["id"];
+
+type LobbyCreateClient = {
+  create(opts?: {
+    mapId?: string;
+    roomName?: string;
+  }): Promise<{ code: string }>;
+  join(code: string): Promise<void>;
+  leave(): Promise<void>;
+};
+
+function asCreateClient(): LobbyCreateClient {
+  return getRoomClient() as unknown as LobbyCreateClient;
+}
+
+function resolveMapId(id: string | undefined): CreateMapId {
+  if (id === "dust" || id === "favela" || id === "yard") return id;
+  return "dust";
+}
 
 interface RoomPanelProps {
   mode: RoomPanelMode;
   onClose: () => void;
+  /** Preferred default map (e.g. last local map from MainMenu). */
+  mapId?: string;
 }
 
-export function RoomPanel({ mode, onClose }: RoomPanelProps) {
+export function RoomPanel({
+  mode,
+  onClose,
+  mapId: initialMapId,
+}: RoomPanelProps) {
   const router = useRouter();
   const [codeInput, setCodeInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [createdCode, setCreatedCode] = useState<string | null>(null);
+  const [mapId, setMapId] = useState<CreateMapId>(() =>
+    resolveMapId(initialMapId ?? getLastMapId()),
+  );
+  const [roomName, setRoomName] = useState("");
+
+  const selectMap = (id: CreateMapId) => {
+    setMapId(id);
+    setLastMapId(id);
+  };
 
   const handleClose = () => {
     // Drop lobby seat if host created a room but never entered /play.
     if (mode === "create" && createdCode) {
-      void getRoomClient().leave();
+      void asCreateClient().leave();
     }
     onClose();
   };
 
-  const goToRoom = (code: string, host = false) => {
+  const goToRoom = (code: string, host = false, roomMapId?: string) => {
     const qs = new URLSearchParams({
       mode: "room",
       code,
     });
     if (host) qs.set("host", "1");
+    // Map fixed at /play entry (GameCanvas boots once — no mid-session swap).
+    // Host uses create selection; guests prefer server map when available.
+    const map = roomMapId || (host ? mapId : undefined) || getLastMapId() || "dust";
+    qs.set("map", map);
+    setLastMapId(map);
     router.push(`/play?${qs.toString()}`);
   };
 
@@ -43,8 +95,13 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
     setError(null);
     setBusy(true);
     try {
-      const client = getRoomClient();
-      const { code } = await client.create();
+      const client = asCreateClient();
+      const name = roomName.trim().slice(0, 32);
+      const { code } = await client.create({
+        mapId,
+        ...(name ? { roomName: name } : {}),
+      });
+      setLastMapId(mapId);
       setCreatedCode(code);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha ao criar sala");
@@ -56,7 +113,7 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
   const handleEnterCreated = () => {
     if (!createdCode) return;
     // Host already holds the room seat from create(); play reuses it.
-    goToRoom(createdCode, true);
+    goToRoom(createdCode, true, mapId);
   };
 
   const handleJoin = async () => {
@@ -69,9 +126,15 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
     setBusy(true);
     try {
       // Join-only: missing/typo codes must not create a room or navigate.
-      const client = getRoomClient();
+      const client = asCreateClient();
       await client.join(code);
-      goToRoom(code, false);
+      // Prefer server mapId when present so guest loads the host's map.
+      const snap = (
+        getRoomClient() as unknown as {
+          snapshot?: () => { mapId?: string | null };
+        }
+      ).snapshot?.();
+      goToRoom(code, false, snap?.mapId || undefined);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Falha ao entrar na sala";
       setError(msg.includes("Sala não existe") ? "Sala não existe" : msg);
@@ -123,8 +186,19 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
                   </div>
                 </div>
                 <p className="mt-3 text-xs text-white/40">
-                  Colyseus — entre na sala e peça aos amigos para usar o mesmo
-                  código. Combate ainda roda em híbrido local no cliente.
+                  Mapa:{" "}
+                  <span className="text-white/60">
+                    {CREATE_MAPS.find((m) => m.id === mapId)?.label ?? mapId}
+                  </span>
+                  {roomName.trim() ? (
+                    <>
+                      {" "}
+                      · Nome:{" "}
+                      <span className="text-white/60">{roomName.trim()}</span>
+                    </>
+                  ) : null}
+                  . Colyseus — entre na sala e peça aos amigos para usar o mesmo
+                  código.
                 </p>
                 <div className="mt-5 flex flex-col gap-2">
                   <button
@@ -134,6 +208,7 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
                   >
                     Entrar na sala
                   </button>
+                  <CopyInviteLink code={createdCode} host={false} />
                   <button
                     type="button"
                     onClick={() => {
@@ -153,6 +228,45 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
                   <code className="text-amber-200/80">npm run dev:server</code>
                   ).
                 </p>
+
+                <label
+                  htmlFor="create-map-select"
+                  className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40"
+                >
+                  Mapa
+                </label>
+                <select
+                  id="create-map-select"
+                  value={mapId}
+                  onChange={(e) =>
+                    selectMap(e.target.value as CreateMapId)
+                  }
+                  className="mt-2 w-full rounded-xl border border-white/15 bg-black/50 px-4 py-3 text-sm font-semibold text-white outline-none focus:border-amber-400/60"
+                >
+                  {CREATE_MAPS.map((m) => (
+                    <option key={m.id} value={m.id} className="bg-[#0e1118]">
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+
+                <label
+                  htmlFor="create-room-name"
+                  className="mt-3 block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40"
+                >
+                  Nome da sala (opcional)
+                </label>
+                <input
+                  id="create-room-name"
+                  value={roomName}
+                  maxLength={32}
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder="Ex.: Run B amigos"
+                  onChange={(e) => setRoomName(e.target.value.slice(0, 32))}
+                  className="mt-2 w-full rounded-xl border border-white/15 bg-black/50 px-4 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-amber-400/60"
+                />
+
                 {error && (
                   <p className="mt-3 rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-sm text-red-300">
                     {error}

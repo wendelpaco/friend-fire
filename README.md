@@ -8,6 +8,7 @@ Shooter tático **top-down** no navegador, inspirado no vibe do [RUSH B](https:/
 
 - Product design: [`docs/superpowers/specs/2026-07-09-friend-fire-product-design.md`](docs/superpowers/specs/2026-07-09-friend-fire-product-design.md)
 - Implementation plan: [`docs/superpowers/plans/2026-07-09-friend-fire-v1-implementation.md`](docs/superpowers/plans/2026-07-09-friend-fire-v1-implementation.md)
+- Maps: [`docs/maps.md`](docs/maps.md)
 - Sponsor one-pager: [`docs/sponsors.md`](docs/sponsors.md)
 
 ## Scripts
@@ -123,9 +124,58 @@ npm run dev:server
 # or: cd server && npm run dev
 ```
 
-1. Lobby → **Criar sala** (server must be up) → share the 6-char code  
-2. Second browser / profile → **Entrar por código**  
-3. Both open `/play?mode=room&code=XXXXXX` · HUD shows **SALA XXXXXX** from server state  
+1. Lobby → **Criar sala** (server must be up) → share the 6-char code **or** use **Copiar link do convite**  
+2. Second browser / profile → **Entrar por código**, open the invite URL, or **Procurar salas**  
+3. Both play with `/play?mode=room&code=XXXXXX&host=0` · HUD shows **SALA XXXXXX** + copy-link chip  
+
+### Invite link
+
+```
+${origin}/play?mode=room&code=XXXXXX&host=0
+```
+
+Built by `buildInviteUrl` / `CopyInviteLink` (`src/domains/session/invite.ts`). Guests use `host=0`; the create host path uses `host=1` when entering the room.
+
+### Maps
+
+| id | Name |
+|----|------|
+| `dust` | Dust FF (default) |
+| `favela` | Favela |
+| `yard` | Yard |
+
+- Map list / ids: [`docs/maps.md`](docs/maps.md)  
+- Last pick stored in `localStorage` key **`ff_last_map`** via `getLastMapId` / `setLastMapId`  
+- Solo: `/play?map=dust|favela|yard` · rooms carry `mapId` from create / server state  
+
+### Server browser & `/rooms`
+
+- **Lobby UI:** **Procurar salas** → live list (nome, mapa, jogadores, fase, código, entrar) with refresh.  
+- **HTTP API** (Colyseus process, default `http://localhost:2567`):
+
+```http
+GET /rooms
+```
+
+Example payload (open `game` rooms):
+
+```json
+[
+  {
+    "code": "ABC234",
+    "mapId": "dust",
+    "mapName": "Dust FF",
+    "players": 3,
+    "maxPlayers": 10,
+    "humans": 2,
+    "bots": 1,
+    "phase": "warmup",
+    "locked": false
+  }
+]
+```
+
+Create accepts optional `mapId` + room label; room metadata exposes the same fields for the browser.
 
 **Authoritative combat (room mode):** when Colyseus is connected, movement, hitscan fire, bots, and round wipes run on the server. The client predicts local motion and plays SFX; HP/positions reconcile from state. Offline **Jogo rápido** still runs full local sim. If the server is down, room create fails with a clear message.
 

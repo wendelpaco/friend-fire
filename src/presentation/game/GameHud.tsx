@@ -6,6 +6,7 @@ import type { HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { BuyMenu } from "@/presentation/game/BuyMenu";
 import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
+import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
 
 function formatTime(seconds: number) {
   const s = Math.max(0, Math.ceil(seconds));
@@ -146,8 +147,11 @@ export function GameHud({
           </div>
         </div>
         {roomCode && (
-          <div className="rounded-md border border-amber-400/35 bg-black/70 px-3 py-1 font-mono text-[11px] font-bold tracking-[0.28em] text-amber-200/95 shadow backdrop-blur-md">
-            SALA {roomCode}
+          <div className="flex items-center gap-1.5">
+            <div className="rounded-md border border-amber-400/35 bg-black/70 px-3 py-1 font-mono text-[11px] font-bold tracking-[0.28em] text-amber-200/95 shadow backdrop-blur-md">
+              SALA {roomCode}
+            </div>
+            <CopyInviteLink code={roomCode} host={false} variant="compact" />
           </div>
         )}
       </div>
