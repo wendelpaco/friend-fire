@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Friend Fire
 
-## Getting Started
+Shooter tático **top-down** no navegador, inspirado no vibe do [RUSH B](https://x.com/wescld) (CS 2D / multiplayer tático).
 
-First, run the development server:
+**Stack:** Next.js 16 · React 19 · TypeScript · Three.js · Tailwind CSS 4
+
+## Rodar
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abra [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Menu** → `/`
+- **Partida** → `/play` (ou botão *Jogo Rápido*)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Controles
 
-## Learn More
+| Tecla | Ação |
+|--------|------|
+| WASD / setas | Mover |
+| Mouse | Mirar |
+| Clique esquerdo | Atirar |
+| R | Recarregar |
+| 1–4 | Trocar arma |
+| Tab | Placar |
+| Esc | Pausar / menu |
+| H | Ajuda (controles) |
+| F | Respawn manual (só no aquecimento, se morto) |
 
-To learn more about Next.js, take a look at the following resources:
+## O que já tem
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Câmera isométrica / top-down com Three.js (tone mapping, sombras, partículas)
+- Mapa `Dust FF` com paredes, carros, barris, dumpsters e bomb sites A/B
+- **Outdoors e posters de anúncio** in-game (monetização) + banners no lobby/pausa
+- Jogador local + bots TR/CT com chat de rádio
+- Tiro, faca, reload, hit marker, flash de dano
+- Rounds: aquecimento → live → fim de round
+- HUD profissional: vida, colete, munição, economia, minimapa, killfeed
+- Menu de pausa, placar (Tab), ajuda na primeira partida
+- Lobby com nickname, região BR/US e missões do dia
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Monetização (ads)
 
-## Deploy on Vercel
+- Catálogo em `src/game/ads/catalog.ts` — troque creatives sem mexer na engine
+- Slots 3D: `map.billboards` + `map.wallPosters` em `src/game/world/maps.ts`
+- UI: `AdBanner` no menu e na pausa (`menu_banner`, `pause_banner`)
+- Cada creative tem badge **AD** (disclosure)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Estrutura
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+  app/                 # rotas Next.js
+  components/
+    menu/              # lobby
+    game/              # canvas + HUD
+  game/
+    engine/            # GameEngine, Input
+    world/             # mapas e colisão
+    constants.ts
+    types.ts
+```
+
+## Próximos passos (roadmap)
+
+1. **Multiplayer online** — Colyseus + Redis (salas BR/US)
+2. **API** — Hono para conta, XP, missões
+3. **Buy menu** entre rounds
+4. **C4** plantar/desarmar de verdade
+5. **Mais mapas** e modos
+6. **Áudio** (passos, tiros, rádio)
+7. **Bots com LLM** para callouts/xingos dinâmicos
+
+## Build
+
+```bash
+npm run build
+npm start
+```
