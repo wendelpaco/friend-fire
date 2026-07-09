@@ -1,10 +1,20 @@
 import { Client, type Room } from "colyseus.js";
-import { getNickname } from "@/domains/identity";
+import { getNickname, getRegion, type RegionCode } from "@/domains/identity";
 import {
   generateRoomCode,
   isValidRoomCode,
   normalizeRoomCode,
 } from "@/domains/session";
+import { saveLastRoom } from "@/infrastructure/realtime/lastRoom";
+
+export {
+  clearLastRoom,
+  getLastRoom,
+  saveLastRoom,
+  LAST_ROOM_CODE_KEY,
+  LAST_ROOM_MAP_KEY,
+  type LastRoom,
+} from "@/infrastructure/realtime/lastRoom";
 
 /** WebSocket URL for the Colyseus game server (Task 10). */
 export const COLYSEUS_URL =
@@ -17,11 +27,15 @@ export const GAME_ROOM_NAME = "game";
 
 export type RoomVisibility = "public" | "private";
 
+export type RoomRegion = RegionCode;
+
 export type CreateRoomOptions = {
   mapId?: string;
   roomName?: string;
   /** Browser listing visibility; server default is typically public. */
   visibility?: RoomVisibility;
+  /** BR | US — defaults to identity getRegion() on create. */
+  region?: RoomRegion;
 };
 
 /** Query params for GET /rooms (server browser filters). */
@@ -29,10 +43,14 @@ export type ListRoomsOptions = {
   mapId?: string;
   hasSlots?: boolean;
   visibility?: RoomVisibility;
+  /** Filter rooms by region (GET /rooms?region=BR). */
+  region?: RoomRegion;
 };
 
 export type QuickMatchOptions = {
   mapId?: string;
+  /** Prefer rooms in this region; defaults to getRegion(). */
+  region?: RoomRegion;
 };
 
 export type QuickMatchResult = {
@@ -52,6 +70,7 @@ export type RoomListItem = {
   maxClients: number;
   phase?: string;
   visibility?: RoomVisibility;
+  region?: RoomRegion;
 };
 
 export interface RoomClient {
@@ -235,6 +254,11 @@ function normalizeVisibility(raw: unknown): RoomVisibility | undefined {
   return undefined;
 }
 
+function normalizeRegion(raw: unknown): RoomRegion | undefined {
+  if (raw === "BR" || raw === "US") return raw;
+  return undefined;
+}
+
 function normalizeRoomListItem(raw: unknown): RoomListItem | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -251,17 +275,24 @@ function normalizeRoomListItem(raw: unknown): RoomListItem | null {
     maxClients: Number(o.maxClients ?? o.maxPlayers ?? 0) || 0,
     phase: typeof o.phase === "string" ? o.phase : undefined,
     visibility: normalizeVisibility(o.visibility),
+    region: normalizeRegion(o.region),
   };
 }
 
-/** Build `?mapId=&hasSlots=1&visibility=` for GET /rooms. */
+/** Build `?mapId=&hasSlots=1&visibility=&region=` for GET /rooms. */
 export function buildRoomsQuery(opts?: ListRoomsOptions): string {
   const params = new URLSearchParams();
   if (opts?.mapId) params.set("mapId", opts.mapId);
   if (opts?.hasSlots) params.set("hasSlots", "1");
   if (opts?.visibility) params.set("visibility", opts.visibility);
+  if (opts?.region) params.set("region", opts.region);
   const qs = params.toString();
   return qs ? `?${qs}` : "";
+}
+
+/** Resolve region for create/quickMatch (explicit opts or identity default). */
+function resolveRegion(region?: RoomRegion): RoomRegion {
+  return region ?? getRegion();
 }
 
 /**
@@ -336,13 +367,14 @@ export class LocalRoomClient implements RoomClient {
   private readonly listeners = new Set<(state: unknown) => void>();
   private lastInput: unknown = null;
 
-  async create(_opts?: CreateRoomOptions): Promise<{ code: string }> {
+  async create(opts?: CreateRoomOptions): Promise<{ code: string }> {
     let code = generateRoomCode();
     for (let i = 0; i < 8 && localRooms.has(code); i++) {
       code = generateRoomCode();
     }
     localRooms.set(code, { code, players: ["local"] });
     this.code = code;
+    saveLastRoom({ code, mapId: opts?.mapId ?? "" });
     this.emit();
     return { code };
   }
@@ -352,9 +384,11 @@ export class LocalRoomClient implements RoomClient {
   }
 
   async quickMatch(opts?: QuickMatchOptions): Promise<QuickMatchResult> {
+    const region = resolveRegion(opts?.region);
     const rooms = await this.listRooms({
       hasSlots: true,
       visibility: "public",
+      region,
     });
     const best = pickQuickMatchRoom(rooms, opts?.mapId);
     if (best?.code) {
@@ -364,6 +398,7 @@ export class LocalRoomClient implements RoomClient {
     const { code } = await this.create({
       mapId: opts?.mapId,
       visibility: "public",
+      region,
     });
     return { code, host: true };
   }
@@ -381,6 +416,7 @@ export class LocalRoomClient implements RoomClient {
       room.players.push("local");
     }
     this.code = normalized;
+    saveLastRoom({ code: normalized, mapId: "" });
     this.emit();
   }
 
@@ -458,6 +494,7 @@ export class ColyseusRoomClient implements RoomClient {
     try {
       await this.leave();
       const client = makeClient();
+      const region = resolveRegion(opts?.region);
       // Host creates a real room and keeps the seat so the code stays joinable
       // until the host opens /play (or leaves). Guests use join-only.
       const room = await client.create(GAME_ROOM_NAME, {
@@ -465,12 +502,16 @@ export class ColyseusRoomClient implements RoomClient {
         mapId: opts?.mapId,
         roomName: opts?.roomName,
         visibility: opts?.visibility,
+        region,
       });
       this.bindRoom(room);
       const code = await waitForCode(room);
       this.code = code;
       this.mode = "in_room";
       this.error = null;
+      const mapId =
+        opts?.mapId ?? stringFieldFromState(room.state, "mapId") ?? "";
+      saveLastRoom({ code, mapId });
       this.emit();
       return { code };
     } catch (e) {
@@ -490,10 +531,12 @@ export class ColyseusRoomClient implements RoomClient {
    * Returns host=true when a new room was created.
    */
   async quickMatch(opts?: QuickMatchOptions): Promise<QuickMatchResult> {
+    const region = resolveRegion(opts?.region);
     try {
       const rooms = await this.listRooms({
         hasSlots: true,
         visibility: "public",
+        region,
       });
       const best = pickQuickMatchRoom(rooms, opts?.mapId);
       if (best?.code) {
@@ -503,6 +546,7 @@ export class ColyseusRoomClient implements RoomClient {
       const { code } = await this.create({
         mapId: opts?.mapId,
         visibility: "public",
+        region,
       });
       return { code, host: true };
     } catch (e) {
@@ -538,6 +582,8 @@ export class ColyseusRoomClient implements RoomClient {
       this.code = serverCode;
       this.mode = "in_room";
       this.error = null;
+      const mapId = stringFieldFromState(room.state, "mapId") ?? "";
+      saveLastRoom({ code: serverCode, mapId });
       this.emit();
     } catch (e) {
       this.mode = "error";
@@ -567,6 +613,11 @@ export class ColyseusRoomClient implements RoomClient {
       this.code &&
       normalizeRoomCode(this.code) === normalized
     ) {
+      const mapId =
+        options.mapId ??
+        stringFieldFromState(this.room?.state, "mapId") ??
+        "";
+      saveLastRoom({ code: this.code, mapId });
       this.emit();
       return;
     }
@@ -579,18 +630,23 @@ export class ColyseusRoomClient implements RoomClient {
       this.emit();
       try {
         const client = makeClient();
+        const region = resolveRegion(options.region);
         const room = await client.joinOrCreate(GAME_ROOM_NAME, {
           code: normalized,
           name: getNickname(),
           mapId: options.mapId,
           roomName: options.roomName,
           visibility: options.visibility,
+          region,
         });
         this.bindRoom(room);
         const serverCode = await waitForCode(room).catch(() => normalized);
         this.code = serverCode || normalized;
         this.mode = "in_room";
         this.error = null;
+        const mapId =
+          options.mapId ?? stringFieldFromState(room.state, "mapId") ?? "";
+        saveLastRoom({ code: this.code, mapId });
         this.emit();
       } catch (e) {
         this.mode = "error";
