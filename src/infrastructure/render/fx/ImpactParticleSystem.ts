@@ -4,8 +4,9 @@ import * as THREE from "three";
 export type ImpactSurface = "wall" | "ground" | "prop";
 
 const MAX_BURSTS = 40;
-const PARTICLES_PER_BURST = 24; // headroom for max sparks+dust
-const POOL_PARTICLES = MAX_BURSTS * PARTICLES_PER_BURST;
+/** Keep total pool ≤500 (spec §7 particle budget). */
+const PARTICLES_PER_BURST = 12;
+const POOL_PARTICLES = 480;
 const GRAVITY = -9.5;
 
 const SPARK_COLORS = [0xffaa33, 0xffcc44, 0xffee66, 0xff8833];

@@ -702,18 +702,21 @@ export class GameClient {
 
     // Local fire SFX + cosmetic muzzle/wall FX (damage is server-side)
     if (this.input.isMouseDown(0)) {
-      // throttle sfx via lastShotAt
       const now = performance.now();
-      if (now - p.lastShotAt > 140) {
+      const wid = p.weapons[p.weaponSlot];
+      const def = wid ? WEAPONS[wid] : null;
+      if (def?.isMelee) return;
+      const ammo = wid ? p.ammo[wid] : null;
+      // Respect weapon fire rate and local mag when present (sync may lag)
+      if (ammo && ammo.mag <= 0) return;
+      const cd = def?.fireRate ?? 140;
+      if (now - p.lastShotAt > cd) {
         p.lastShotAt = now;
-        const wid = p.weapons[p.weaponSlot];
-        const def = wid ? WEAPONS[wid] : null;
-        if (!def?.isMelee) {
-          Sfx.play("shoot");
-          this.three.spawnMuzzle(p.x, p.z, p.rot);
-          this.three.notifyShoot(p.id);
-          this.cosmeticWallRay(p.x, p.z, p.rot, def?.range ?? 50);
-        }
+        if (ammo) ammo.mag = Math.max(0, ammo.mag - 1);
+        Sfx.play("shoot");
+        this.three.spawnMuzzle(p.x, p.z, p.rot);
+        this.three.notifyShoot(p.id);
+        this.cosmeticWallRay(p.x, p.z, p.rot, def?.range ?? 50);
       }
     }
   }

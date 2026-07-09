@@ -1,14 +1,21 @@
 import * as THREE from "three";
+import {
+  CHUNK_SIZE_MAX,
+  CHUNK_SIZE_MIN,
+  DECAL_NORMAL_BIAS,
+  DECAL_SIZE_MAX,
+  DECAL_SIZE_MIN,
+  DEFAULT_CHUNK_LIFE,
+  DEFAULT_DECAL_LIFE,
+  MAX_CHUNKS,
+  MAX_DECALS,
+} from "@/domains/fx";
 
 /** Spec 5.3–5.4: cosmetic wall decals + temporary chunks. No collision change. */
-const MAX_DECALS = 80;
-const MAX_CHUNKS = 40;
-const DECAL_LIFE = 10.0; // seconds (8–12s range; default 10)
-const CHUNK_LIFE = 5.0;
 const CHUNK_FADE = 0.4;
-const DECAL_SIZE_MIN = 0.12;
-const DECAL_SIZE_MAX = 0.22;
-const NORMAL_BIAS = 0.02;
+const DECAL_LIFE = DEFAULT_DECAL_LIFE;
+const CHUNK_LIFE = DEFAULT_CHUNK_LIFE;
+const NORMAL_BIAS = DECAL_NORMAL_BIAS;
 
 interface DecalSlot {
   mesh: THREE.Mesh;
@@ -99,7 +106,9 @@ export class WallDamageSystem {
     }
   }
 
-  /** Spawn scorch decal + temporary wall chunk at impact (visual only). */
+  /**
+   * Spawn scorch decal; temporary chunk only on walls (domain: prop = decal-only).
+   */
   spawn(
     x: number,
     y: number,
@@ -107,6 +116,7 @@ export class WallDamageSystem {
     nx: number,
     ny: number,
     nz: number,
+    surface: "wall" | "ground" | "prop" = "wall",
   ): void {
     const nLen = Math.hypot(nx, ny, nz) || 1;
     const nnx = nx / nLen;
@@ -114,7 +124,9 @@ export class WallDamageSystem {
     const nnz = nz / nLen;
 
     this.spawnDecal(x, y, z, nnx, nny, nnz);
-    this.spawnChunk(x, y, z, nnx, nny, nnz);
+    if (surface === "wall") {
+      this.spawnChunk(x, y, z, nnx, nny, nnz);
+    }
   }
 
   update(dt: number): void {

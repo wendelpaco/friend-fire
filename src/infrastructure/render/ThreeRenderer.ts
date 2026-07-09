@@ -150,7 +150,7 @@ export class ThreeRenderer {
   ) {
     this.impactFx.spawn(x, y, z, nx, ny, nz, surface);
     if (surface === "wall" || surface === "prop") {
-      this.wallDamageFx.spawn(x, y, z, nx, ny, nz);
+      this.wallDamageFx.spawn(x, y, z, nx, ny, nz, surface);
     }
   }
 

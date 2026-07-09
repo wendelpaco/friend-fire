@@ -1,3 +1,4 @@
+import { DEFAULT_RUN_THRESHOLD } from "@/domains/fx";
 import type { CharacterBones } from "./CharacterRig";
 import type { WeaponCategory } from "./WeaponAttach";
 
@@ -11,7 +12,7 @@ export type AnimatorInput = {
   weaponCategory?: WeaponCategory;
 };
 
-const IDLE_SPEED = 0.3;
+const IDLE_SPEED = DEFAULT_RUN_THRESHOLD;
 const RUN_AMP = 0.55;
 const ARM_AMP = 0.4;
 const IDLE_BOB = 0.012;
