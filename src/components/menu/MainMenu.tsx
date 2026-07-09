@@ -83,7 +83,7 @@ export function MainMenu() {
           </span>
           <div className="min-w-0 flex-1">
             <AdBanner
-              placement="menu_banner"
+              placement="lobby_banner"
               compact
               className="max-h-14"
               rotateMs={7000}
@@ -284,7 +284,7 @@ export function MainMenu() {
               </span>
               <span className="text-[10px] text-white/25">outdoors · menu</span>
             </div>
-            <AdBanner placement="menu_banner" rotateMs={9000} />
+            <AdBanner placement="lobby_banner" rotateMs={9000} />
             <p className="mt-2 px-1 text-[10px] leading-relaxed text-white/30">
               Espaços premium em outdoors 3D e banners do lobby. Ideal para
               marcas gamer e SaaS.{" "}
