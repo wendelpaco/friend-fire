@@ -35,6 +35,10 @@ export type CharacterHandle = {
       moveZ: number;
       /** Aim yaw from sim (`player.rot`). */
       aimYaw: number;
+      /** World Y from motor (jump). */
+      rootY?: number;
+      crouching?: boolean;
+      airborne?: boolean;
       shooting?: boolean;
       weaponCategory?: WeaponCategory;
     },
@@ -92,10 +96,17 @@ export function createCharacter(teamColor: number): CharacterHandle {
         speed: state.speed,
         weights: state.weights,
         torsoTwist: state.torsoTwist,
+        crouching: input.crouching,
+        airborne: input.airborne,
         shooting: input.shooting,
         weaponCategory,
       };
       animator.update(dt, animIn);
+
+      // Root height from motor (jump). Orientation uses XZ only.
+      if (input.rootY != null && Number.isFinite(input.rootY)) {
+        rig.group.position.y = input.rootY;
+      }
     },
     dispose() {
       weapons.dispose();

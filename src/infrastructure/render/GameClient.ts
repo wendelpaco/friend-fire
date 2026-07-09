@@ -75,9 +75,10 @@ import {
   getMapById,
   mapCollisionWalls,
   resolveCircleWalls,
+  tickMotor,
   type GameMap,
   type WallRect,
-} from "@/game/world/maps";
+} from "@/domains/world";
 import { Input } from "./input";
 import { ThreeRenderer } from "./ThreeRenderer";
 
@@ -636,6 +637,10 @@ export class GameClient {
       alive: boolean;
       x: number;
       z: number;
+      y?: number;
+      vy?: number;
+      crouching?: boolean;
+      onGround?: boolean;
       rot: number;
       hp: number;
       armor?: number;
@@ -772,6 +777,18 @@ export class GameClient {
         this.enterSpectator(null);
       }
 
+      // Jump/crouch: remote from server; local keeps prediction (soft y blend).
+      let y = np.y ?? existing?.y ?? 0;
+      let vy = np.vy ?? existing?.vy ?? 0;
+      let crouching = np.crouching ?? existing?.crouching ?? false;
+      let onGround = np.onGround ?? existing?.onGround ?? true;
+      if (isLocal && existing) {
+        y = existing.y * 0.5 + y * 0.5;
+        crouching = existing.crouching;
+        onGround = existing.onGround;
+        vy = existing.vy;
+      }
+
       nextPlayers.push({
         id: np.id,
         name: np.name,
@@ -779,6 +796,10 @@ export class GameClient {
         isBot: np.isBot,
         x,
         z,
+        y,
+        vy,
+        crouching,
+        onGround,
         rot,
         hp: np.hp,
         armor: np.armor ?? existing?.armor ?? 0,
@@ -991,6 +1012,10 @@ export class GameClient {
       isBot,
       x: spawn.x + (Math.random() - 0.5) * 1.5,
       z: spawn.z + (Math.random() - 0.5) * 1.5,
+      y: 0,
+      vy: 0,
+      crouching: false,
+      onGround: true,
       rot: team === "TR" ? Math.PI / 4 : (-3 * Math.PI) / 4,
       hp: 100,
       armor: team === "CT" ? 50 : 0,
@@ -1121,33 +1146,14 @@ export class GameClient {
     this.input.endFrame();
   }
 
-  /** Client prediction while server is authoritative. */
+  /** Client prediction while server is authoritative (includes jump/crouch). */
   private updateLocalPlayerNetworked(dt: number) {
     const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
     if (!p || !p.alive) return;
 
-    const move = this.input.moveVector();
-    if (this.state.cameraMode === "free") {
-      const pan = PLAYER_SPEED * 1.8 * dt;
-      this.freeCamX += move.x * pan;
-      this.freeCamZ += move.z * pan;
-    } else if (move.x !== 0 || move.z !== 0) {
-      const nx = p.x + move.x * PLAYER_SPEED * dt;
-      const nz = p.z + move.z * PLAYER_SPEED * dt;
-      const resolved = resolveCircleWalls(
-        nx,
-        nz,
-        PLAYER_RADIUS,
-        this.collisionWalls,
-      );
-      p.x = resolved.x;
-      p.z = resolved.z;
-      this.footCooldown -= dt;
-      if (this.footCooldown <= 0) {
-        Sfx.play("foot");
-        this.footCooldown = 0.32;
-      }
-    }
+    this.applyPlayerMotor(p, dt, {
+      freeCamPan: this.state.cameraMode === "free",
+    });
 
     const dx = this.input.aimWorldX - p.x;
     const dz = this.input.aimWorldZ - p.z;
@@ -1243,6 +1249,9 @@ export class GameClient {
         isBot: p.isBot,
         x: p.x,
         z: p.z,
+        y: p.y ?? 0,
+        crouching: p.crouching ?? false,
+        onGround: p.onGround ?? true,
         rot: p.rot,
         alive: p.alive,
         color: p.color,
@@ -1533,6 +1542,10 @@ export class GameClient {
     const spawn = spawns[Math.floor(Math.random() * spawns.length)]!;
     p.x = spawn.x + (Math.random() - 0.5);
     p.z = spawn.z + (Math.random() - 0.5);
+    p.y = 0;
+    p.vy = 0;
+    p.crouching = false;
+    p.onGround = true;
     p.hp = 100;
     p.alive = true;
     p.reloadingUntil = 0;
@@ -1540,6 +1553,68 @@ export class GameClient {
     for (const [wid, ammo] of Object.entries(p.ammo)) {
       if (!ammo) continue;
       p.ammo[wid as WeaponId] = completeReload(ammo, wid as WeaponId);
+    }
+  }
+
+  /**
+   * CS-like horizontal + jump/crouch motor.
+   * Free cam pans view; body still aims/shoots and can jump in place.
+   */
+  private applyPlayerMotor(
+    p: PlayerState,
+    dt: number,
+    opts: { freeCamPan: boolean },
+  ) {
+    const move = this.input.moveVector();
+    if (opts.freeCamPan) {
+      const pan = PLAYER_SPEED * 1.8 * dt;
+      this.freeCamX += move.x * pan;
+      this.freeCamZ += move.z * pan;
+    }
+
+    const wishX = opts.freeCamPan ? 0 : move.x;
+    const wishZ = opts.freeCamPan ? 0 : move.z;
+    // Space = jump when alive (spectator Space is handled elsewhere).
+    const jump = this.input.wasJumpPressed();
+    const crouch = this.input.isCrouchDown();
+
+    const next = tickMotor(
+      {
+        x: p.x,
+        z: p.z,
+        y: p.y ?? 0,
+        vy: p.vy ?? 0,
+        crouching: p.crouching ?? false,
+        onGround: p.onGround ?? true,
+      },
+      {
+        wishX,
+        wishZ,
+        jump,
+        crouch,
+        dt,
+        standSpeed: PLAYER_SPEED,
+        walls: this.collisionWalls,
+      },
+    );
+    p.x = next.x;
+    p.z = next.z;
+    p.y = next.y;
+    p.vy = next.vy;
+    p.crouching = next.crouching;
+    p.onGround = next.onGround;
+
+    if (
+      next.onGround &&
+      !opts.freeCamPan &&
+      (wishX !== 0 || wishZ !== 0) &&
+      !next.crouching
+    ) {
+      this.footCooldown -= dt;
+      if (this.footCooldown <= 0) {
+        Sfx.play("foot");
+        this.footCooldown = 0.32;
+      }
     }
   }
 
@@ -1558,29 +1633,9 @@ export class GameClient {
       return;
     }
 
-    const move = this.input.moveVector();
-    if (this.state.cameraMode === "free") {
-      // Free cam: WASD pans view; player stays (still aims/shoots)
-      const pan = PLAYER_SPEED * 1.8 * dt;
-      this.freeCamX += move.x * pan;
-      this.freeCamZ += move.z * pan;
-    } else if (move.x !== 0 || move.z !== 0) {
-      const nx = p.x + move.x * PLAYER_SPEED * dt;
-      const nz = p.z + move.z * PLAYER_SPEED * dt;
-      const resolved = resolveCircleWalls(
-        nx,
-        nz,
-        PLAYER_RADIUS,
-        this.collisionWalls,
-      );
-      p.x = resolved.x;
-      p.z = resolved.z;
-      this.footCooldown -= dt;
-      if (this.footCooldown <= 0) {
-        Sfx.play("foot");
-        this.footCooldown = 0.32;
-      }
-    }
+    this.applyPlayerMotor(p, dt, {
+      freeCamPan: this.state.cameraMode === "free",
+    });
 
     const dx = this.input.aimWorldX - p.x;
     const dz = this.input.aimWorldZ - p.z;

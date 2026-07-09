@@ -14,6 +14,7 @@ export class Input {
       this.justPressed.add(e.code);
     }
     this.keys.add(e.code);
+    // Prevent browser chrome: Space scrolls, Ctrl+click menus, arrows scroll, Tab focus.
     if (
       [
         "Space",
@@ -22,11 +23,23 @@ export class Input {
         "ArrowLeft",
         "ArrowRight",
         "Tab",
+        "ControlLeft",
+        "ControlRight",
       ].includes(e.code)
     ) {
       e.preventDefault();
     }
   };
+
+  /** Hold crouch (either Control key). */
+  isCrouchDown() {
+    return this.isDown("ControlLeft") || this.isDown("ControlRight");
+  }
+
+  /** Jump edge (Space). */
+  wasJumpPressed() {
+    return this.wasPressed("Space");
+  }
 
   private onKeyUp = (e: KeyboardEvent) => {
     this.keys.delete(e.code);

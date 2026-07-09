@@ -5,3 +5,4 @@ export * from "./maps/yard";
 export * from "./maps/registry";
 export * from "./collision";
 export * from "./lastMap";
+export * from "./motor";

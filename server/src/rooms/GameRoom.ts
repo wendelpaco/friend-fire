@@ -59,6 +59,7 @@ import {
   starterSecondary,
   WEAPONS,
 } from "../sim/weapons";
+import { tickMotor } from "../sim/motor";
 import {
   applyDamage,
   BOT_SPEED,
@@ -136,6 +137,8 @@ type RuntimeExtra = {
   ammo: AmmoMap;
   /** Edge-detect HE throw (hold G). */
   heHeld: boolean;
+  /** Edge-detect jump (Space). */
+  jumpHeld: boolean;
 };
 
 /**
@@ -213,6 +216,8 @@ export class GameRoom extends Room<MatchState> {
         slot: Number(message?.slot) || 0,
         plant: Boolean(message?.plant),
         he: Boolean(message?.he),
+        jump: Boolean(message?.jump),
+        crouch: Boolean(message?.crouch),
       });
     });
 
@@ -280,6 +285,7 @@ export class GameRoom extends Room<MatchState> {
       aimZ: player.z,
       ammo,
       heHeld: false,
+      jumpHeld: false,
     });
     this.syncBots();
 
@@ -384,13 +390,34 @@ export class GameRoom extends Room<MatchState> {
       const ex = this.ensureExtra(key, p);
       if (!input) return;
 
-      if (input.dx !== 0 || input.dz !== 0) {
-        const nx = p.x + input.dx * PLAYER_SPEED * dt;
-        const nz = p.z + input.dz * PLAYER_SPEED * dt;
-        const r = resolveCircleWalls(nx, nz, PLAYER_RADIUS, this.walls);
-        p.x = r.x;
-        p.z = r.z;
-      }
+      // Jump edge + crouch hold + XZ walls (same motor as client)
+      const jumpEdge = Boolean(input.jump) && !ex.jumpHeld;
+      ex.jumpHeld = Boolean(input.jump);
+      const next = tickMotor(
+        {
+          x: p.x,
+          z: p.z,
+          y: p.y,
+          vy: p.vy,
+          crouching: p.crouching,
+          onGround: p.onGround,
+        },
+        {
+          wishX: input.dx,
+          wishZ: input.dz,
+          jump: jumpEdge,
+          crouch: Boolean(input.crouch),
+          dt,
+          standSpeed: PLAYER_SPEED,
+          walls: this.walls,
+        },
+      );
+      p.x = next.x;
+      p.z = next.z;
+      p.y = next.y;
+      p.vy = next.vy;
+      p.crouching = next.crouching;
+      p.onGround = next.onGround;
 
       const adx = input.aimX - p.x;
       const adz = input.aimZ - p.z;
@@ -917,10 +944,15 @@ export class GameRoom extends Room<MatchState> {
     p.hp = 100;
     p.alive = true;
     p.armor = Math.max(0, p.armor);
+    p.y = 0;
+    p.vy = 0;
+    p.crouching = false;
+    p.onGround = true;
     this.applySpawn(p);
     const ex = this.ensureExtra(p.id, p);
     ex.fireCd = 0.25; // brief spawn protection vs accidental fire
     ex.heHeld = false;
+    ex.jumpHeld = false;
     // Top off active mag so empty-gun death doesn't soft-lock shooting
     const w = activeWeaponStats(p.primaryId, p.secondaryId, p.activeSlot);
     if (w && !w.isMelee) {
@@ -1007,7 +1039,14 @@ export class GameRoom extends Room<MatchState> {
         const w = getWeapon(p.primaryId);
         if (w) ammo[p.primaryId] = fullAmmo(w);
       }
-      ex = { fireCd: 0, aimX: p.x, aimZ: p.z, ammo, heHeld: false };
+      ex = {
+        fireCd: 0,
+        aimX: p.x,
+        aimZ: p.z,
+        ammo,
+        heHeld: false,
+        jumpHeld: false,
+      };
       this.extras.set(id, ex);
     }
     return ex;
@@ -1062,6 +1101,7 @@ export class GameRoom extends Room<MatchState> {
         aimZ: p.z,
         ammo,
         heHeld: false,
+        jumpHeld: false,
       });
       bots += 1;
     }

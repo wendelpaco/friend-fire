@@ -30,10 +30,22 @@ export interface RenderSnapshot {
   players: ReadonlyArray<
     Pick<
       PlayerState,
-      "id" | "name" | "team" | "isBot" | "x" | "z" | "rot" | "alive" | "color"
+      | "id"
+      | "name"
+      | "team"
+      | "isBot"
+      | "x"
+      | "z"
+      | "rot"
+      | "alive"
+      | "color"
     > & {
       weaponSlot?: number;
       weaponId?: string;
+      /** Jump height (default 0). */
+      y?: number;
+      crouching?: boolean;
+      onGround?: boolean;
     }
   >;
   bullets: ReadonlyArray<Pick<BulletState, "id" | "x" | "z">>;
@@ -268,12 +280,18 @@ export class ThreeRenderer {
       this.lastPos.set(p.id, { x: p.x, z: p.z, t: now });
 
       const shooting = this.shootFlags.has(p.id);
+      const rootY = p.y ?? 0;
+      const crouching = Boolean(p.crouching);
+      const airborne = p.onGround === false;
       // CharacterController: body faces velocity when moving, aim when idle.
-      // Do NOT set rotation.y = p.rot here — that was the moonwalk bug.
+      // Yaw uses horizontal move only (moveX/moveZ) — jump Y never enters facing.
       handle.update(dt, {
         moveX,
         moveZ,
         aimYaw: p.rot,
+        rootY,
+        crouching,
+        airborne,
         shooting,
         weaponCategory: cat,
       });
@@ -290,7 +308,7 @@ export class ThreeRenderer {
         inVision = dist <= FOG_VISION_RADIUS;
       }
       handle.group.visible = p.alive && inVision;
-      handle.group.position.set(p.x, 0, p.z);
+      handle.group.position.set(p.x, rootY, p.z);
       // visual yaw applied inside handle.update via CharacterController
     }
     this.shootFlags.clear();

@@ -79,6 +79,8 @@ export const DEFUSE_RADIUS = 2.5;
 
 export const CONTROLS_HELP = [
   { keys: "WASD", action: "Mover" },
+  { keys: "Space", action: "Pular" },
+  { keys: "Ctrl", action: "Agachar (segurar)" },
   { keys: "Mouse", action: "Mirar" },
   { keys: "Clique", action: "Atirar" },
   { keys: "R", action: "Recarregar" },

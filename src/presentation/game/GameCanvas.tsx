@@ -133,7 +133,13 @@ export function GameCanvas({
         engine.setBuySender((itemId) => client.sendBuy(itemId));
         engine.applyNetworkState({
           sessionId: snap.sessionId,
-          players: snap.players,
+          players: snap.players.map((pl) => ({
+            ...pl,
+            y: pl.y,
+            vy: pl.vy,
+            crouching: pl.crouching,
+            onGround: pl.onGround,
+          })),
           phase: snap.phase,
           round: snap.round,
           scoreTR: snap.scoreTR,
@@ -194,6 +200,8 @@ export function GameCanvas({
         slot,
         plant: engine.input.isDown("KeyF"),
         he: engine.input.isDown("KeyG"),
+        jump: engine.input.isDown("Space"),
+        crouch: engine.input.isCrouchDown(),
       });
     }, INPUT_MS);
 

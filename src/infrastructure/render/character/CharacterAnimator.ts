@@ -20,6 +20,10 @@ export type AnimatorInput = {
   weights?: LocomotionWeights;
   /** Upper-body Y twist toward aim (radians). */
   torsoTwist?: number;
+  /** Hold crouch (CTRL) — lowers hips / bends legs. */
+  crouching?: boolean;
+  /** Airborne (jump) — tuck pose, less walk amp. */
+  airborne?: boolean;
   /** True on the frame(s) a shot is fired — triggers recoil overlay. */
   shooting?: boolean;
   weaponCategory?: WeaponCategory;
@@ -170,6 +174,32 @@ export class CharacterAnimator {
       armRX = armRX * (1 - k) + (0.5 + c * 0.12) * k;
       armLZ += -0.15 * k;
       armRZ += 0.2 * k;
+    }
+
+    // ── Crouch overlay (hold CTRL) ─────────────────────────────
+    // Lower hips, fold legs, slight torso tuck — works with walk blend.
+    if (input.crouching) {
+      hipsY -= 0.28;
+      torsoX += 0.22;
+      legLX += 0.85;
+      legRX += 0.85;
+      armLX += 0.15;
+      armRX += 0.2;
+      headX += 0.12;
+      // damp walk amp visually while crouched
+      legLZ *= 0.55;
+      legRZ *= 0.55;
+    }
+
+    // ── Jump / airborne overlay ─────────────────────────────────
+    if (input.airborne) {
+      hipsY += 0.06;
+      torsoX -= 0.12;
+      // tuck legs slightly (doesn't fight crouch badly)
+      legLX = legLX * 0.4 + 0.55;
+      legRX = legRX * 0.4 + 0.55;
+      armLX -= 0.25;
+      armRX -= 0.2;
     }
 
     hips.position.y = hipsY;

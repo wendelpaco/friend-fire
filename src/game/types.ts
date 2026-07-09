@@ -23,6 +23,14 @@ export interface PlayerState {
   isBot: boolean;
   x: number;
   z: number;
+  /** Vertical position (0 = floor). Jump/crouch motor. */
+  y: number;
+  /** Vertical velocity. */
+  vy: number;
+  /** Hold-CTRL crouch. */
+  crouching: boolean;
+  /** True when feet on floor (can jump). */
+  onGround: boolean;
   rot: number;
   hp: number;
   armor: number;

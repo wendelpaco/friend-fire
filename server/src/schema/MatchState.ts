@@ -6,6 +6,14 @@ export class PlayerState extends Schema {
   @type("string") team: string = "TR";
   @type("number") x: number = 0;
   @type("number") z: number = 0;
+  /** Vertical position (jump). */
+  @type("number") y: number = 0;
+  /** Vertical velocity. */
+  @type("number") vy: number = 0;
+  /** Hold crouch. */
+  @type("boolean") crouching: boolean = false;
+  /** Feet on floor. */
+  @type("boolean") onGround: boolean = true;
   @type("number") rot: number = 0;
   @type("number") hp: number = 100;
   @type("number") armor: number = 0;
@@ -83,6 +91,10 @@ export interface InputMessage {
   plant: boolean;
   /** Edge: throw HE if heCount > 0. */
   he: boolean;
+  /** Edge: jump (Space) when on ground. */
+  jump: boolean;
+  /** Hold: crouch (Ctrl). */
+  crouch: boolean;
 }
 
 /** Client → server buy message */

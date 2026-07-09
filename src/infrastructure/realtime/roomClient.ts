@@ -128,6 +128,10 @@ export type NetworkPlayer = {
   alive: boolean;
   x: number;
   z: number;
+  y: number;
+  vy: number;
+  crouching: boolean;
+  onGround: boolean;
   rot: number;
   hp: number;
   armor: number;
@@ -157,6 +161,10 @@ export type InputPayload = {
   plant: boolean;
   /** Hold/edge G — throw HE (server rising-edge). */
   he: boolean;
+  /** Edge: Space jump. */
+  jump: boolean;
+  /** Hold: Ctrl crouch. */
+  crouch: boolean;
 };
 
 interface LocalRoomRecord {
@@ -231,6 +239,10 @@ function playersFromState(state: unknown): NetworkPlayer[] {
       alive: o.alive !== false,
       x: Number(o.x) || 0,
       z: Number(o.z) || 0,
+      y: Number(o.y) || 0,
+      vy: Number(o.vy) || 0,
+      crouching: Boolean(o.crouching),
+      onGround: o.onGround !== false,
       rot: Number(o.rot) || 0,
       hp: Number(o.hp) || 0,
       armor: Number(o.armor) || 0,
