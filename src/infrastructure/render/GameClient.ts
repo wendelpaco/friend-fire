@@ -277,7 +277,7 @@ export class GameClient {
   private mapImpressionsRecorded = false;
   private freeCamX = 0;
   private freeCamZ = 0;
-  private footCooldown = 0;
+
   private buyMessage: string | null = null;
   private buyMessageUntil = 0;
   /** Fire `recordMatchResult` once per match_over transition. */
@@ -882,6 +882,44 @@ export class GameClient {
     }
   }
 
+  /**
+   * Multiplayer gunshot cosmetics from server `fx_shot`.
+   * Local player already predicted muzzle/impact — skip duplicate self FX.
+   */
+  applyNetworkShotFx(event: {
+    ownerId: string;
+    x: number;
+    z: number;
+    rot: number;
+    impact: {
+      x: number;
+      y: number;
+      z: number;
+      nx: number;
+      ny: number;
+      nz: number;
+      surface: "wall" | "ground" | "prop";
+    } | null;
+  }) {
+    if (!this.networked) return;
+    const localId = this.networkSessionId ?? this.state.localPlayerId;
+    if (event.ownerId === localId) return; // already predicted client-side
+
+    this.three.spawnMuzzle(event.x, event.z, event.rot);
+    this.three.notifyShoot(event.ownerId);
+    if (event.impact) {
+      this.three.spawnImpact(
+        event.impact.x,
+        event.impact.y,
+        event.impact.z,
+        event.impact.nx,
+        event.impact.ny,
+        event.impact.nz,
+        event.impact.surface,
+      );
+    }
+  }
+
   start() {
     if (this.running) return;
     this.running = true;
@@ -1283,6 +1321,7 @@ export class GameClient {
         y: p.y ?? 0,
         crouching: p.crouching ?? false,
         onGround: p.onGround ?? true,
+        reloading: p.reloadingUntil > performance.now(),
         rot: p.rot,
         alive: p.alive,
         color: p.color,
@@ -1686,18 +1725,9 @@ export class GameClient {
       p.onGround = next.onGround;
     }
 
-    if (
-      p.onGround &&
-      !opts.freeCamPan &&
-      (wishX !== 0 || wishZ !== 0) &&
-      !p.crouching
-    ) {
-      this.footCooldown -= dt;
-      if (this.footCooldown <= 0) {
-        Sfx.play("foot");
-        this.footCooldown = 0.32;
-      }
-    }
+    // Foot SFX is driven by CharacterAnimator foot-plant phase in ThreeRenderer
+    // (finer sync than a fixed cooldown timer).
+    void dt;
   }
 
   private updateLocalPlayer(dt: number) {

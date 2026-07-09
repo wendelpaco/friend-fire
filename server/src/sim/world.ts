@@ -5,6 +5,8 @@ export interface WallRect {
   z: number;
   w: number;
   d: number;
+  /** Optional height for impact Y placement. */
+  h?: number;
 }
 
 export const WALLS: WallRect[] = [
@@ -146,22 +148,74 @@ export function segmentBlockedByWalls(
   z1: number,
   walls: WallRect[] = WALLS,
 ): boolean {
-  const dx = x1 - x0;
-  const dz = z1 - z0;
-  const dist = Math.hypot(dx, dz);
-  if (!(dist > 0.05)) return false;
-  const steps = Math.max(2, Math.ceil(dist / 0.35));
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const x = x0 + dx * t;
-    const z = z0 + dz * t;
+  return firstWallImpactAlongRay(x0, z0, x1 - x0, z1 - z0, Math.hypot(x1 - x0, z1 - z0), walls) != null;
+}
+
+/** Cosmetic wall impact for multiplayer FX broadcast. */
+export type WallImpactFx = {
+  x: number;
+  y: number;
+  z: number;
+  nx: number;
+  ny: number;
+  nz: number;
+  surface: "wall";
+};
+
+/**
+ * Walk ray along dir until first wall face — for impact particles.
+ * dir need not be unit; uses maxDist.
+ */
+export function firstWallImpactAlongRay(
+  ox: number,
+  oz: number,
+  dirX: number,
+  dirZ: number,
+  maxDist: number,
+  walls: WallRect[] = WALLS,
+): WallImpactFx | null {
+  const len = Math.hypot(dirX, dirZ);
+  if (!(len > 1e-6) || !(maxDist > 0)) return null;
+  const dx = dirX / len;
+  const dz = dirZ / len;
+  const steps = Math.max(4, Math.ceil(maxDist / 0.35));
+  const step = maxDist / steps;
+  let px = ox;
+  let pz = oz;
+  for (let i = 0; i < steps; i++) {
+    const nx = px + dx * step;
+    const nz = pz + dz * step;
     for (const w of walls) {
       const halfW = w.w / 2;
       const halfD = w.d / 2;
-      if (Math.abs(x - w.x) <= halfW && Math.abs(z - w.z) <= halfD) {
-        return true;
+      const inside =
+        Math.abs(nx - w.x) <= halfW && Math.abs(nz - w.z) <= halfD;
+      const wasInside =
+        Math.abs(px - w.x) <= halfW && Math.abs(pz - w.z) <= halfD;
+      if (inside && !wasInside) {
+        // Face normal from entry side
+        const toCx = nx - w.x;
+        const toCz = nz - w.z;
+        const oxAbs = halfW - Math.abs(toCx);
+        const ozAbs = halfD - Math.abs(toCz);
+        let nnx = 0;
+        let nnz = 0;
+        if (oxAbs < ozAbs) nnx = toCx >= 0 ? 1 : -1;
+        else nnz = toCz >= 0 ? 1 : -1;
+        const h = Math.max(0.5, w.h ?? 2.2);
+        return {
+          x: nx - dx * 0.05,
+          y: Math.min(1.2, h * 0.45),
+          z: nz - dz * 0.05,
+          nx: nnx,
+          ny: 0,
+          nz: nnz,
+          surface: "wall",
+        };
       }
     }
+    px = nx;
+    pz = nz;
   }
-  return false;
+  return null;
 }

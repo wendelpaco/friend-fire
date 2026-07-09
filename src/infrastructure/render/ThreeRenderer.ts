@@ -7,6 +7,7 @@ import {
   getFogEnabled as readFogEnabledPref,
 } from "@/domains/prefs";
 import type { GameMap } from "@/domains/world";
+import { Sfx } from "@/infrastructure/audio/Sfx";
 import {
   createCharacter,
   type CharacterHandle,
@@ -46,6 +47,8 @@ export interface RenderSnapshot {
       y?: number;
       crouching?: boolean;
       onGround?: boolean;
+      /** Mag reload timer active — reload arm pose. */
+      reloading?: boolean;
     }
   >;
   bullets: ReadonlyArray<Pick<BulletState, "id" | "x" | "z">>;
@@ -285,16 +288,22 @@ export class ThreeRenderer {
       const airborne = p.onGround === false;
       // CharacterController: body faces velocity when moving, aim when idle.
       // Yaw uses horizontal move only (moveX/moveZ) — jump Y never enters facing.
-      handle.update(dt, {
+      const foot = handle.update(dt, {
         moveX,
         moveZ,
         aimYaw: p.rot,
         rootY,
         crouching,
         airborne,
+        reloading: Boolean(p.reloading),
         shooting,
         weaponCategory: cat,
       });
+
+      // Foot SFX synced to walk-cycle plant (local player only — avoid spam).
+      if (foot && p.id === snapshot.localPlayerId && p.alive) {
+        Sfx.play("foot");
+      }
 
       // Fog of war: local + same team always visible (if alive); enemies only within radius when on.
       let inVision = true;

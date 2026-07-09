@@ -24,10 +24,15 @@ export type AnimatorInput = {
   crouching?: boolean;
   /** Airborne (jump) — tuck pose, less walk amp. */
   airborne?: boolean;
+  /** True while mag reload timer active — mag-swap arm pose. */
+  reloading?: boolean;
   /** True on the frame(s) a shot is fired — triggers recoil overlay. */
   shooting?: boolean;
   weaponCategory?: WeaponCategory;
 };
+
+/** Foot plant event for SFX sync (one per ground contact). */
+export type FootPlant = "left" | "right" | null;
 
 const RUN_AMP = 0.55;
 const ARM_AMP = 0.4;
@@ -56,8 +61,11 @@ const ZERO_WEIGHTS: LocomotionWeights = {
 export class CharacterAnimator {
   private readonly bones: CharacterBones;
   private phase = 0;
+  private lastSin = 0;
   private recoilT = 0;
   private state: LocomotionState = "idle";
+  /** Set during update when a foot plants — consume via {@link takeFootPlant}. */
+  private pendingFoot: FootPlant = null;
 
   constructor(bones: CharacterBones) {
     this.bones = bones;
@@ -65,6 +73,13 @@ export class CharacterAnimator {
 
   get locomotion(): LocomotionState {
     return this.state;
+  }
+
+  /** Consume one foot-plant event for SFX (call once per frame after update). */
+  takeFootPlant(): FootPlant {
+    const f = this.pendingFoot;
+    this.pendingFoot = null;
+    return f;
   }
 
   /**
@@ -84,11 +99,20 @@ export class CharacterAnimator {
     this.state = dominantState(w);
 
     const moving = 1 - w.idle;
+    const airborne = Boolean(input.airborne);
     const cadence = moving > 0.01 ? 8 + Math.min(speed, 8) * 0.6 : 2.2;
     this.phase += dt * cadence;
 
     const s = Math.sin(this.phase);
     const c = Math.cos(this.phase);
+
+    // Foot plant when sin crosses zero while walking on ground (sync SFX).
+    this.pendingFoot = null;
+    if (moving > 0.2 && !airborne && !input.crouching) {
+      if (this.lastSin >= 0 && s < 0) this.pendingFoot = "left";
+      else if (this.lastSin < 0 && s >= 0) this.pendingFoot = "right";
+    }
+    this.lastSin = s;
 
     const { legL, legR, armL, armR, torso, hips, head } = this.bones;
     const knife = input.weaponCategory === "knife";
@@ -202,6 +226,16 @@ export class CharacterAnimator {
       armRX -= 0.2;
     }
 
+    // ── Reload pose (mag pull) — overrides arm swing while timer active ──
+    if (input.reloading && !knife) {
+      armRX = 1.15 + Math.sin(this.phase * 3) * 0.08;
+      armRZ = -0.35;
+      armLX = 0.95 + Math.sin(this.phase * 3 + 1) * 0.06;
+      armLZ = 0.25;
+      torsoX += 0.12;
+      headX += 0.15;
+    }
+
     hips.position.y = hipsY;
     hips.rotation.set(0, 0, 0);
     torso.rotation.x = torsoX;
@@ -234,6 +268,8 @@ export class CharacterAnimator {
   /** Force rest pose (e.g. when pooling). */
   reset(): void {
     this.phase = 0;
+    this.lastSin = 0;
+    this.pendingFoot = null;
     this.recoilT = 0;
     this.state = "idle";
     const { legL, legR, armL, armR, torso, hips, head } = this.bones;

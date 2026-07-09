@@ -78,6 +78,23 @@ export type HeFxEvent =
   | { type: "throw"; id: string; ownerId: string; x: number; z: number; fuse: number }
   | { type: "explode"; id: string; x: number; z: number };
 
+/** Gunshot cosmetic: muzzle + optional wall impact (multiplayer). */
+export type ShotFxEvent = {
+  ownerId: string;
+  x: number;
+  z: number;
+  rot: number;
+  impact: {
+    x: number;
+    y: number;
+    z: number;
+    nx: number;
+    ny: number;
+    nz: number;
+    surface: "wall" | "ground" | "prop";
+  } | null;
+};
+
 export interface RoomClient {
   create(opts?: CreateRoomOptions): Promise<{ code: string }>;
   join(code: string): Promise<void>;
@@ -520,6 +537,7 @@ export class ColyseusRoomClient implements RoomClient {
   private error: string | null = null;
   private readonly listeners = new Set<(state: unknown) => void>();
   private readonly heFxListeners = new Set<(event: HeFxEvent) => void>();
+  private readonly shotFxListeners = new Set<(event: ShotFxEvent) => void>();
   private unbindRoom: (() => void) | null = null;
 
   async create(opts?: CreateRoomOptions): Promise<{ code: string }> {
@@ -798,6 +816,14 @@ export class ColyseusRoomClient implements RoomClient {
     };
   }
 
+  /** Cosmetic gunshot / wall impact (multiplayer). */
+  onShotFx(cb: (event: ShotFxEvent) => void): () => void {
+    this.shotFxListeners.add(cb);
+    return () => {
+      this.shotFxListeners.delete(cb);
+    };
+  }
+
   private bindRoom(room: Room) {
     this.unbindRoom?.();
     this.room = room;
@@ -828,8 +854,31 @@ export class ColyseusRoomClient implements RoomClient {
       };
       for (const cb of this.heFxListeners) cb(event);
     };
+    const onFxShot = (data: unknown) => {
+      const o = data as Record<string, unknown>;
+      const imp = o?.impact as Record<string, unknown> | null | undefined;
+      const event: ShotFxEvent = {
+        ownerId: String(o?.ownerId ?? ""),
+        x: Number(o?.x) || 0,
+        z: Number(o?.z) || 0,
+        rot: Number(o?.rot) || 0,
+        impact: imp
+          ? {
+              x: Number(imp.x) || 0,
+              y: Number(imp.y) || 1,
+              z: Number(imp.z) || 0,
+              nx: Number(imp.nx) || 0,
+              ny: Number(imp.ny) || 0,
+              nz: Number(imp.nz) || 0,
+              surface: "wall",
+            }
+          : null,
+      };
+      for (const cb of this.shotFxListeners) cb(event);
+    };
     room.onMessage("he_throw", onHeThrow);
     room.onMessage("he_explode", onHeExplode);
+    room.onMessage("fx_shot", onFxShot);
 
     room.onError((code, message) => {
       this.mode = "error";

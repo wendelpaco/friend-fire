@@ -171,6 +171,14 @@ export function GameCanvas({
           })
         : () => {};
 
+    const unsubShot =
+      typeof client.onShotFx === "function"
+        ? client.onShotFx((event) => {
+            if (cancelled) return;
+            engineRef.current?.applyNetworkShotFx(event);
+          })
+        : () => {};
+
     const connect = async () => {
       try {
         await client.connect(roomCode, { host: isHost });
@@ -209,6 +217,7 @@ export function GameCanvas({
       cancelled = true;
       unsub();
       unsubHe();
+      unsubShot();
       window.clearInterval(inputTimer);
       engineRef.current?.setNetworked(false, null);
       engineRef.current?.setBuySender(null);

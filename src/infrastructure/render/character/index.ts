@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { CharacterRig } from "./CharacterRig";
-import { CharacterAnimator, type AnimatorInput } from "./CharacterAnimator";
+import {
+  CharacterAnimator,
+  type AnimatorInput,
+  type FootPlant,
+} from "./CharacterAnimator";
 import {
   CharacterController,
   type CharacterControllerInput,
@@ -10,7 +14,11 @@ import { WeaponAttach, type WeaponCategory } from "./WeaponAttach";
 export { CharacterRig, WEAPON_SLOT_NAME } from "./CharacterRig";
 export type { CharacterBones } from "./CharacterRig";
 export { CharacterAnimator } from "./CharacterAnimator";
-export type { AnimatorInput, LocomotionState } from "./CharacterAnimator";
+export type {
+  AnimatorInput,
+  FootPlant,
+  LocomotionState,
+} from "./CharacterAnimator";
 export { CharacterController } from "./CharacterController";
 export type {
   CharacterControllerInput,
@@ -26,7 +34,7 @@ export type CharacterHandle = {
   setWeapon: (category: WeaponCategory) => void;
   /**
    * Full frame update: orientation (velocity vs aim) + procedural anim.
-   * Prefer this over raw `animator.update`.
+   * Returns foot plant for SFX sync (null if none this frame).
    */
   update: (
     dt: number,
@@ -39,10 +47,11 @@ export type CharacterHandle = {
       rootY?: number;
       crouching?: boolean;
       airborne?: boolean;
+      reloading?: boolean;
       shooting?: boolean;
       weaponCategory?: WeaponCategory;
     },
-  ) => void;
+  ) => FootPlant;
   /** Seed body yaw on spawn/respawn. */
   resetFacing: (aimYaw: number) => void;
   dispose: () => void;
@@ -98,6 +107,7 @@ export function createCharacter(teamColor: number): CharacterHandle {
         torsoTwist: state.torsoTwist,
         crouching: input.crouching,
         airborne: input.airborne,
+        reloading: input.reloading,
         shooting: input.shooting,
         weaponCategory,
       };
@@ -107,6 +117,8 @@ export function createCharacter(teamColor: number): CharacterHandle {
       if (input.rootY != null && Number.isFinite(input.rootY)) {
         rig.group.position.y = input.rootY;
       }
+
+      return animator.takeFootPlant();
     },
     dispose() {
       weapons.dispose();

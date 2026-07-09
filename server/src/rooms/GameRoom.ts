@@ -66,10 +66,12 @@ import {
   HIT_RADIUS,
   PLAYER_RADIUS,
   PLAYER_SPEED,
+  firstWallImpactAlongRay,
   resolveCircleWalls,
   segmentBlockedByWalls,
   spawnsForTeam,
   wallsForMap,
+  type WallImpactFx,
   type WallRect,
 } from "../sim/world";
 
@@ -602,7 +604,7 @@ export class GameRoom extends Room<MatchState> {
 
     if (w.isMelee) {
       ex.fireCd = cooldownSec(w);
-      this.hitscan(p, w.damage, w.range);
+      this.hitscan(p, w.damage, w.range, true);
       return;
     }
 
@@ -615,10 +617,19 @@ export class GameRoom extends Room<MatchState> {
     p.mag -= 1;
     ex.ammo[w.id] = { mag: p.mag, reserve: p.reserve };
     ex.fireCd = cooldownSec(w);
-    this.hitscan(p, w.damage, w.range);
+    this.hitscan(p, w.damage, w.range, false);
   }
 
-  private hitscan(shooter: PlayerState, damage: number, maxRange: number) {
+  /**
+   * Hitscan + cosmetic `fx_shot` broadcast so all clients see muzzle/impact.
+   * @param melee — skip wall impact spray for knife
+   */
+  private hitscan(
+    shooter: PlayerState,
+    damage: number,
+    maxRange: number,
+    melee = false,
+  ) {
     // Bots never deal damage in warmup (belt + suspenders with tickBots).
     if (shooter.isBot && this.phase.phase !== "live") return;
 
@@ -653,6 +664,37 @@ export class GameRoom extends Room<MatchState> {
         bestT = t;
         hit = other;
       }
+    });
+
+    // Wall impact for FX (first surface along ray, or before player hit)
+    let impact: WallImpactFx | null = null;
+    if (!melee) {
+      const wallHit = firstWallImpactAlongRay(
+        shooter.x,
+        shooter.z,
+        dirX,
+        dirZ,
+        hit ? bestT : maxRange,
+        this.walls,
+      );
+      // Only use wall if it is closer than player (or no player)
+      if (wallHit) {
+        const wallDist = Math.hypot(wallHit.x - shooter.x, wallHit.z - shooter.z);
+        if (!hit || wallDist < bestT - 0.05) {
+          impact = wallHit;
+          // Wall blocks player hit if closer
+          if (hit && wallDist < bestT) hit = undefined;
+        }
+      }
+    }
+
+    // Cosmetic for every client (including shooter — client may skip self)
+    this.broadcast("fx_shot", {
+      ownerId: shooter.id,
+      x: shooter.x,
+      z: shooter.z,
+      rot: shooter.rot,
+      impact,
     });
 
     if (!hit) return;
