@@ -7,6 +7,7 @@ import {
   getRoomClient,
   type RoomListItem,
 } from "@/infrastructure/realtime/roomClient";
+import { measurePing } from "@/infrastructure/realtime/ping";
 
 function roomDisplayName(room: RoomListItem): string {
   if (room.roomName?.trim()) return room.roomName.trim();
@@ -16,6 +17,11 @@ function roomDisplayName(room: RoomListItem): string {
 function playersLabel(room: RoomListItem): string {
   const max = room.maxClients > 0 ? room.maxClients : 10;
   return `${room.clients}/${max}`;
+}
+
+function formatPingLabel(pingMs: number | null | undefined): string {
+  if (pingMs == null) return "Offline";
+  return `Ping ~${pingMs}ms`;
 }
 
 interface ServerBrowserProps {
@@ -29,11 +35,21 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
   const [loading, setLoading] = useState(true);
   const [joiningCode, setJoiningCode] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  /** null = offline / unknown; number = RTT ms; undefined = not measured yet */
+  const [pingMs, setPingMs] = useState<number | null | undefined>(undefined);
   const mounted = useRef(true);
 
   const fetchRooms = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
+    // Probe host RTT once per refresh (spec §2.6); soft-fail → Offline.
+    void measurePing()
+      .then((ms) => {
+        if (mounted.current) setPingMs(ms);
+      })
+      .catch(() => {
+        if (mounted.current) setPingMs(null);
+      });
     try {
       const list = await getRoomClient().listRooms();
       if (!mounted.current) return;
@@ -54,7 +70,6 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
       if (mounted.current && !silent) setLoading(false);
     }
   }, []);
-
   useEffect(() => {
     mounted.current = true;
     void fetchRooms(false);
@@ -119,6 +134,16 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
             >
               Procurar salas
             </h2>
+            <p
+              className={
+                pingMs == null
+                  ? "mt-1 text-xs tabular-nums text-white/35"
+                  : "mt-1 text-xs tabular-nums text-emerald-400/80"
+              }
+              aria-live="polite"
+            >
+              {pingMs === undefined ? "Ping …" : formatPingLabel(pingMs)}
+            </p>
           </div>
           <button
             type="button"

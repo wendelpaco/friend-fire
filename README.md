@@ -10,6 +10,7 @@ Shooter tático **top-down** no navegador, inspirado no vibe do [RUSH B](https:/
 - Implementation plan: [`docs/superpowers/plans/2026-07-09-friend-fire-v1-implementation.md`](docs/superpowers/plans/2026-07-09-friend-fire-v1-implementation.md)
 - Maps: [`docs/maps.md`](docs/maps.md)
 - Sponsor one-pager: [`docs/sponsors.md`](docs/sponsors.md)
+- Wave 3 features: [`docs/superpowers/specs/2026-07-09-wave3-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave3-product-features-design.md) · short runbook [`docs/wave3.md`](docs/wave3.md)
 
 ## Scripts
 
@@ -113,7 +114,9 @@ friend-fire/
 
 ## Multiplayer (dev)
 
-Private rooms use Colyseus (`server/`, room name `game`).
+Rooms use Colyseus (`server/`, room name `game`). **Public** rooms appear in the server browser; **private** rooms are invite/code-only (not listed by default).
+
+Full wave 3 product notes: [`docs/wave3.md`](docs/wave3.md) · design: [`docs/superpowers/specs/2026-07-09-wave3-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave3-product-features-design.md).
 
 ```bash
 # terminal A — Next.js
@@ -124,9 +127,24 @@ npm run dev:server
 # or: cd server && npm run dev
 ```
 
-1. Lobby → **Criar sala** (server must be up) → share the 6-char code **or** use **Copiar link do convite**  
-2. Second browser / profile → **Entrar por código**, open the invite URL, or **Procurar salas**  
+1. Lobby → **Criar sala** (server must be up) → toggle **Sala pública** (default on) or keep private → share the 6-char code **or** **Copiar link do convite**  
+2. Second browser / profile → **Entrar por código**, open the invite URL, **Procurar salas**, or **Jogo rápido online** (Quick Match)  
 3. Both play with `/play?mode=room&code=XXXXXX&host=0` · HUD shows **SALA XXXXXX** + copy-link chip  
+
+### Public / private rooms
+
+| Visibility | Browser list | Join |
+|------------|--------------|------|
+| `public` (default) | Shown when listing | Code, invite link, browser, Quick Match |
+| `private` | Hidden from default list | Code or invite link only |
+
+Create passes `visibility` into Colyseus room options/metadata. Private rooms avoid spam in the public browser.
+
+### Quick Match & filters
+
+- **Jogo rápido online:** `listRooms({ hasSlots: true, visibility: "public" })` → prefer last map (`ff_last_map`) → else fullest public room with slots → if none, `create({ mapId, visibility: "public" })` as host.  
+- **Procurar salas** filters: map dropdown (all + each map), checkbox **Só com vaga** (`hasSlots`), refresh. Optional ping RTT in browser header when the Colyseus HTTP host is reachable.  
+- Offline **Jogo rápido** (solo) still runs full local sim without the server.
 
 ### Invite link
 
@@ -148,36 +166,52 @@ Built by `buildInviteUrl` / `CopyInviteLink` (`src/domains/session/invite.ts`). 
 - Last pick stored in `localStorage` key **`ff_last_map`** via `getLastMapId` / `setLastMapId`  
 - Solo: `/play?map=dust|favela|yard` · rooms carry `mapId` from create / server state  
 
-### Server browser & `/rooms`
+### Server browser & `GET /rooms`
 
-- **Lobby UI:** **Procurar salas** → live list (nome, mapa, jogadores, fase, código, entrar) with refresh.  
+- **Lobby UI:** **Procurar salas** → live list (nome, mapa, jogadores, fase, código, visibility, entrar) with filters + refresh.  
 - **HTTP API** (Colyseus process, default `http://localhost:2567`):
 
 ```http
-GET /rooms
+GET /rooms?mapId=&hasSlots=1&visibility=public
 ```
+
+| Query | Effect |
+|-------|--------|
+| *(none)* / `visibility=public` | Default: **public** rooms only |
+| `visibility=private` | Private rooms (if ever needed for tooling) |
+| `mapId=dust\|favela\|yard` | Exact map match |
+| `hasSlots=1` | `clients < maxClients` only |
 
 Example payload (open `game` rooms):
 
 ```json
 [
   {
+    "roomId": "…",
     "code": "ABC234",
     "mapId": "dust",
     "mapName": "Dust FF",
-    "players": 3,
-    "maxPlayers": 10,
-    "humans": 2,
-    "bots": 1,
+    "roomName": "",
+    "clients": 3,
+    "maxClients": 10,
     "phase": "warmup",
-    "locked": false
+    "visibility": "public"
   }
 ]
 ```
 
-Create accepts optional `mapId` + room label; room metadata exposes the same fields for the browser.
+Create accepts optional `mapId`, room label, and `visibility`; room metadata exposes the same fields for the browser.
 
-**Authoritative combat (room mode):** when Colyseus is connected, movement, hitscan fire, bots, and round wipes run on the server. The client predicts local motion and plays SFX; HP/positions reconcile from state. Offline **Jogo rápido** still runs full local sim. If the server is down, room create fails with a clear message.
+**Authoritative combat (room mode):** when Colyseus is connected, movement, hitscan fire, bots, and round wipes run on the server. The client predicts local motion and plays SFX; HP/positions reconcile from state. If the server is down, room create / Quick Match fails with a clear message.
+
+### Match stats & daily leaderboard (local)
+
+- **Match end:** on `match_over`, stats card for local player (kills, deaths, K/D, money, win/loss/draw, map) before/alongside the end-match ad break. History: `localStorage` **`ff_match_history`** (last ~20).  
+- **Ranking do dia:** lobby top 5 by kills (tie-break wins), key **`ff_leaderboard_v1`**, resets when `dayKey` (`YYYY-MM-DD`) changes. No accounts — pure client storage.
+
+### Fog of war (client-only)
+
+Local vision radius (~14 world units): distant enemies hidden / area dimmed. **Presentation only** — does not change server authority or hitscan. Toggle/settings may default ON in solo and room mode. See wave 3 design §2.5.
 
 ## Controles
 
