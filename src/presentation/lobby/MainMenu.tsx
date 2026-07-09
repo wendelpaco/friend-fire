@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { GAME_NAME, GAME_TAGLINE } from "@/game/constants";
 import {
@@ -55,6 +55,8 @@ export function MainMenu() {
   const [lastMap, setLastMap] = useState(() => getLastMapId("dust"));
   const [quickMatchBusy, setQuickMatchBusy] = useState(false);
   const [quickMatchError, setQuickMatchError] = useState<string | null>(null);
+  /** Bumped on cancel / new search so stale results leave and do not navigate. */
+  const quickMatchGen = useRef(0);
 
   useEffect(() => {
     setMissions(getMissionsWithProgress());
@@ -64,13 +66,29 @@ export function MainMenu() {
 
   const quickPlayHref = `/play?mode=local&map=${encodeURIComponent(lastMap || "dust")}`;
 
+  const cancelQuickMatch = () => {
+    quickMatchGen.current += 1;
+    setQuickMatchBusy(false);
+  };
+
   const handleQuickMatchOnline = async () => {
+    const gen = ++quickMatchGen.current;
     setQuickMatchError(null);
     setQuickMatchBusy(true);
+    const minDisplay = new Promise<void>((r) => setTimeout(r, 500));
+    const client = getRoomClient();
     try {
       const mapId = lastMap || getLastMapId("dust") || "dust";
-      const client = getRoomClient();
-      const { code, host } = await client.quickMatch({ mapId });
+      const [result] = await Promise.all([
+        client.quickMatch({ mapId }),
+        minDisplay,
+      ]);
+      const { code, host } = result;
+      if (gen !== quickMatchGen.current) {
+        // Drop seat only if we still own this room (not a newer search).
+        if (client.getCode() === code) await client.leave();
+        return;
+      }
       const snap = client.snapshot();
       const map = snap.mapId || mapId;
       setLastMapId(map);
@@ -83,6 +101,7 @@ export function MainMenu() {
       if (host) qs.set("host", "1");
       router.push(`/play?${qs.toString()}`);
     } catch (e) {
+      if (gen !== quickMatchGen.current) return;
       const msg =
         e instanceof Error
           ? e.message
@@ -95,7 +114,7 @@ export function MainMenu() {
           : msg,
       );
     } finally {
-      setQuickMatchBusy(false);
+      if (gen === quickMatchGen.current) setQuickMatchBusy(false);
     }
   };
 
@@ -221,7 +240,7 @@ export function MainMenu() {
               onClick={() => void handleQuickMatchOnline()}
               className="rounded-xl border border-sky-400/40 bg-gradient-to-r from-sky-700 to-sky-600 px-5 py-3.5 text-center text-sm font-black tracking-[0.14em] text-white shadow-lg shadow-sky-950/40 transition hover:from-sky-600 hover:to-sky-500 disabled:cursor-not-allowed disabled:opacity-55"
             >
-              {quickMatchBusy ? "PROCURANDO…" : "JOGO RÁPIDO ONLINE"}
+              JOGO RÁPIDO ONLINE
             </button>
             {quickMatchError && (
               <p
@@ -408,6 +427,38 @@ export function MainMenu() {
       )}
       {serverBrowserOpen && (
         <ServerBrowser onClose={() => setServerBrowserOpen(false)} />
+      )}
+      {quickMatchBusy && (
+        <div
+          className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="quick-match-title"
+          aria-busy="true"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-sky-400/25 bg-[#0e1118] p-8 text-center shadow-2xl shadow-sky-950/40">
+            <div
+              className="mx-auto mb-5 h-10 w-10 animate-spin rounded-full border-2 border-sky-500/30 border-t-sky-400"
+              aria-hidden
+            />
+            <h2
+              id="quick-match-title"
+              className="text-lg font-bold tracking-wide text-white"
+            >
+              Procurando partida…
+            </h2>
+            <p className="mt-2 text-xs text-white/40">
+              Matchmaking em salas públicas
+            </p>
+            <button
+              type="button"
+              onClick={cancelQuickMatch}
+              className="mt-6 w-full rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-white/75 transition hover:bg-white/10 hover:text-white"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
