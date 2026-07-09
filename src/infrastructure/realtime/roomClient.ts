@@ -15,9 +15,30 @@ export const HTTP_URL = COLYSEUS_URL.replace(/^ws/i, "http");
 
 export const GAME_ROOM_NAME = "game";
 
+export type RoomVisibility = "public" | "private";
+
 export type CreateRoomOptions = {
   mapId?: string;
   roomName?: string;
+  /** Browser listing visibility; server default is typically public. */
+  visibility?: RoomVisibility;
+};
+
+/** Query params for GET /rooms (server browser filters). */
+export type ListRoomsOptions = {
+  mapId?: string;
+  hasSlots?: boolean;
+  visibility?: RoomVisibility;
+};
+
+export type QuickMatchOptions = {
+  mapId?: string;
+};
+
+export type QuickMatchResult = {
+  code: string;
+  /** True when no public room had a slot and a new room was created. */
+  host: boolean;
 };
 
 /** Open room row from GET /rooms (server browser). */
@@ -30,6 +51,7 @@ export type RoomListItem = {
   clients: number;
   maxClients: number;
   phase?: string;
+  visibility?: RoomVisibility;
 };
 
 export interface RoomClient {
@@ -38,7 +60,8 @@ export interface RoomClient {
   leave(): Promise<void>;
   onState(cb: (state: unknown) => void): () => void;
   sendInput(input: unknown): void;
-  listRooms(): Promise<RoomListItem[]>;
+  listRooms(opts?: ListRoomsOptions): Promise<RoomListItem[]>;
+  quickMatch(opts?: QuickMatchOptions): Promise<QuickMatchResult>;
 }
 
 /** Snapshot exposed to UI / GameCanvas. */
@@ -207,6 +230,11 @@ function stringFieldFromState(
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function normalizeVisibility(raw: unknown): RoomVisibility | undefined {
+  if (raw === "public" || raw === "private") return raw;
+  return undefined;
+}
+
 function normalizeRoomListItem(raw: unknown): RoomListItem | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -222,12 +250,47 @@ function normalizeRoomListItem(raw: unknown): RoomListItem | null {
     clients: Number(o.clients ?? o.players ?? 0) || 0,
     maxClients: Number(o.maxClients ?? o.maxPlayers ?? 0) || 0,
     phase: typeof o.phase === "string" ? o.phase : undefined,
+    visibility: normalizeVisibility(o.visibility),
   };
 }
 
+/** Build `?mapId=&hasSlots=1&visibility=` for GET /rooms. */
+export function buildRoomsQuery(opts?: ListRoomsOptions): string {
+  const params = new URLSearchParams();
+  if (opts?.mapId) params.set("mapId", opts.mapId);
+  if (opts?.hasSlots) params.set("hasSlots", "1");
+  if (opts?.visibility) params.set("visibility", opts.visibility);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+/**
+ * Pick fullest public room (prefer mapId match). Used by quickMatch.
+ * Returns null when the list is empty.
+ */
+export function pickQuickMatchRoom(
+  rooms: RoomListItem[],
+  mapId?: string,
+): RoomListItem | null {
+  if (rooms.length === 0) return null;
+  const byMap =
+    mapId && mapId.length > 0
+      ? rooms.filter((r) => r.mapId === mapId)
+      : [];
+  const pool = byMap.length > 0 ? byMap : rooms;
+  let best = pool[0]!;
+  for (let i = 1; i < pool.length; i++) {
+    const r = pool[i]!;
+    if (r.clients > best.clients) best = r;
+  }
+  return best;
+}
+
 /** Fetch open game rooms from the Colyseus HTTP API. */
-export async function fetchRoomList(): Promise<RoomListItem[]> {
-  const res = await fetch(`${HTTP_URL}/rooms`);
+export async function fetchRoomList(
+  opts?: ListRoomsOptions,
+): Promise<RoomListItem[]> {
+  const res = await fetch(`${HTTP_URL}/rooms${buildRoomsQuery(opts)}`);
   if (!res.ok) {
     throw new Error(`Failed to list rooms (${res.status})`);
   }
@@ -284,8 +347,25 @@ export class LocalRoomClient implements RoomClient {
     return { code };
   }
 
-  async listRooms(): Promise<RoomListItem[]> {
+  async listRooms(_opts?: ListRoomsOptions): Promise<RoomListItem[]> {
     return [];
+  }
+
+  async quickMatch(opts?: QuickMatchOptions): Promise<QuickMatchResult> {
+    const rooms = await this.listRooms({
+      hasSlots: true,
+      visibility: "public",
+    });
+    const best = pickQuickMatchRoom(rooms, opts?.mapId);
+    if (best?.code) {
+      await this.join(best.code);
+      return { code: best.code, host: false };
+    }
+    const { code } = await this.create({
+      mapId: opts?.mapId,
+      visibility: "public",
+    });
+    return { code, host: true };
   }
 
   async join(code: string): Promise<void> {
@@ -384,6 +464,7 @@ export class ColyseusRoomClient implements RoomClient {
         name: getNickname(),
         mapId: opts?.mapId,
         roomName: opts?.roomName,
+        visibility: opts?.visibility,
       });
       this.bindRoom(room);
       const code = await waitForCode(room);
@@ -400,8 +481,39 @@ export class ColyseusRoomClient implements RoomClient {
     }
   }
 
-  async listRooms(): Promise<RoomListItem[]> {
-    return fetchRoomList();
+  async listRooms(opts?: ListRoomsOptions): Promise<RoomListItem[]> {
+    return fetchRoomList(opts);
+  }
+
+  /**
+   * Join fullest public room with slots (prefer mapId), else create public.
+   * Returns host=true when a new room was created.
+   */
+  async quickMatch(opts?: QuickMatchOptions): Promise<QuickMatchResult> {
+    try {
+      const rooms = await this.listRooms({
+        hasSlots: true,
+        visibility: "public",
+      });
+      const best = pickQuickMatchRoom(rooms, opts?.mapId);
+      if (best?.code) {
+        await this.join(best.code);
+        return { code: best.code, host: false };
+      }
+      const { code } = await this.create({
+        mapId: opts?.mapId,
+        visibility: "public",
+      });
+      return { code, host: true };
+    } catch (e) {
+      // create/join already set mode/error; rethrow normalized message if not.
+      if (this.error) throw new Error(this.error);
+      const msg = friendlyConnectError(e);
+      this.mode = "error";
+      this.error = msg;
+      this.emit();
+      throw new Error(msg);
+    }
   }
 
   async join(code: string): Promise<void> {
@@ -472,6 +584,7 @@ export class ColyseusRoomClient implements RoomClient {
           name: getNickname(),
           mapId: options.mapId,
           roomName: options.roomName,
+          visibility: options.visibility,
         });
         this.bindRoom(room);
         const serverCode = await waitForCode(room).catch(() => normalized);
