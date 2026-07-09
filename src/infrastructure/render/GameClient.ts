@@ -79,6 +79,7 @@ import {
   type GameMap,
   type WallRect,
 } from "@/domains/world";
+import { RapierWorld } from "@/infrastructure/physics/RapierWorld";
 import { Input } from "./input";
 import { ThreeRenderer } from "./ThreeRenderer";
 
@@ -302,10 +303,14 @@ export class GameClient {
   private heSlotSeq = 0;
   private matchConfig = {
     warmupTime: WARMUP_TIME,
+    buyTime: DEFAULT_MATCH.buyTime,
     roundTime: ROUND_TIME,
     endPause: DEFAULT_MATCH.endPause,
     roundsToWin: ROUNDS_TO_WIN,
   };
+  /** Client-side Rapier map (async init). Server still uses AABB motor. */
+  private physics: RapierWorld | null = null;
+  private physicsInit: Promise<void> | null = null;
   /** Round banner toast until performance.now() (§2.2). */
   private roundBannerUntil = 0;
   private roundBannerKind: RoundBannerKind | null = null;
@@ -558,6 +563,24 @@ export class GameClient {
     }
     // Seed meshes from initial players
     this.syncRender();
+    void this.ensurePhysics();
+  }
+
+  /** Lazy Rapier init (WASM). Falls back to AABB motor until ready. */
+  private async ensurePhysics(): Promise<void> {
+    if (this.physics || this.physicsInit) return this.physicsInit ?? undefined;
+    this.physicsInit = (async () => {
+      try {
+        this.physics = await RapierWorld.create(this.map);
+        for (const p of this.state.players) {
+          this.physics.ensureCharacter(p.id, p.x, p.z, p.y ?? 0);
+        }
+      } catch (err) {
+        console.warn("[physics] Rapier init failed, using AABB motor", err);
+        this.physics = null;
+      }
+    })();
+    return this.physicsInit;
   }
 
   private onPrefsEvent = (ev: Event) => {
@@ -674,7 +697,13 @@ export class GameClient {
     const prevScoreTR = this.state.scoreTR;
     const prevScoreCT = this.state.scoreCT;
 
-    if (net.phase === "warmup" || net.phase === "live" || net.phase === "ended" || net.phase === "match_over") {
+    if (
+      net.phase === "warmup" ||
+      net.phase === "buy" ||
+      net.phase === "live" ||
+      net.phase === "ended" ||
+      net.phase === "match_over"
+    ) {
       this.state.phase = net.phase;
     }
     this.state.round = net.round;
@@ -878,6 +907,8 @@ export class GameClient {
     if (typeof window !== "undefined") {
       window.removeEventListener(PREFS_EVENT, this.onPrefsEvent);
     }
+    this.physics?.dispose();
+    this.physics = null;
     this.three.dispose();
   }
 
@@ -1074,7 +1105,7 @@ export class GameClient {
         this.state.showBuyMenu = !this.state.showBuyMenu;
         Sfx.play("ui");
       } else if (!canOpenBuyMenu(this.state.phase)) {
-        this.flashBuyMessage("Loja só no aquecimento ou entre rounds");
+        this.flashBuyMessage("Loja só no aquecimento ou na fase de compra");
         Sfx.play("deny");
       }
     }
@@ -1286,13 +1317,17 @@ export class GameClient {
       this.applyRoundEndEffects("CT", "ct_win");
     }
 
-    if (
-      next.phase === "live" &&
-      (prev.phase === "warmup" || prev.phase === "ended")
-    ) {
+    // Warmup → buy (first round) or ended → buy (next rounds)
+    if (next.phase === "buy" && prev.phase !== "buy") {
       if (prev.phase === "warmup") {
         this.recordMapAdImpressions();
       }
+      this.beginBuyPhaseEffects();
+    }
+
+    // Buy freezetime over → live combat
+    if (next.phase === "live" && prev.phase === "buy") {
+      this.state.showBuyMenu = false;
       this.beginLiveRoundEffects();
     }
 
@@ -1376,13 +1411,31 @@ export class GameClient {
     }
   }
 
+  /** Start of buy freezetime: spawn, money already on players, shop unlocked. */
+  private beginBuyPhaseEffects() {
+    this.state.bullets = [];
+    this.heProjectiles = [];
+    this.clearSpectator();
+    this.addChat(
+      "SYSTEM",
+      `COMPRA · round ${this.state.round} · ${Math.ceil(this.state.timeLeft)}s · tecla B`,
+      "system",
+    );
+    for (const p of this.state.players) this.respawnPlayer(p);
+    this.assignBombCarrier();
+    // Nudge local into shop once
+    if (!this.networked && canOpenBuyMenu("buy")) {
+      this.state.showBuyMenu = true;
+    }
+  }
+
+  /** Buy ended → combat starts (no re-buy until next buy phase). */
   private beginLiveRoundEffects() {
     this.state.bullets = [];
     this.heProjectiles = [];
     this.clearSpectator();
-    this.addChat("SYSTEM", `ROUND ${this.state.round} — boa sorte`, "system");
-    for (const p of this.state.players) this.respawnPlayer(p);
-    this.assignBombCarrier();
+    this.state.showBuyMenu = false;
+    this.addChat("SYSTEM", `ROUND ${this.state.round} — combate!`, "system");
   }
 
   private applyRoundEndEffects(winner: Team, reason?: RoundBannerKind) {
@@ -1554,11 +1607,13 @@ export class GameClient {
       if (!ammo) continue;
       p.ammo[wid as WeaponId] = completeReload(ammo, wid as WeaponId);
     }
+    this.physics?.ensureCharacter(p.id, p.x, p.z, 0);
   }
 
   /**
-   * CS-like horizontal + jump/crouch motor.
-   * Free cam pans view; body still aims/shoots and can jump in place.
+   * CS-like horizontal + jump/crouch.
+   * Prefers Rapier CharacterController when WASM ready; else AABB motor.
+   * Crouch is **toggle** (Control edge). Free cam pans view only.
    */
   private applyPlayerMotor(
     p: PlayerState,
@@ -1572,43 +1627,70 @@ export class GameClient {
       this.freeCamZ += move.z * pan;
     }
 
+    // Toggle crouch on Control press (not hold)
+    if (
+      this.input.wasPressed("ControlLeft") ||
+      this.input.wasPressed("ControlRight")
+    ) {
+      p.crouching = !p.crouching;
+    }
+
     const wishX = opts.freeCamPan ? 0 : move.x;
     const wishZ = opts.freeCamPan ? 0 : move.z;
-    // Space = jump when alive (spectator Space is handled elsewhere).
     const jump = this.input.wasJumpPressed();
-    const crouch = this.input.isCrouchDown();
 
-    const next = tickMotor(
-      {
-        x: p.x,
-        z: p.z,
-        y: p.y ?? 0,
-        vy: p.vy ?? 0,
-        crouching: p.crouching ?? false,
-        onGround: p.onGround ?? true,
-      },
-      {
+    void this.ensurePhysics();
+    if (this.physics) {
+      this.physics.ensureCharacter(p.id, p.x, p.z, p.y ?? 0);
+      const pose = this.physics.stepCharacter(p.id, {
         wishX,
         wishZ,
         jump,
-        crouch,
+        crouching: p.crouching ?? false,
         dt,
         standSpeed: PLAYER_SPEED,
-        walls: this.collisionWalls,
-      },
-    );
-    p.x = next.x;
-    p.z = next.z;
-    p.y = next.y;
-    p.vy = next.vy;
-    p.crouching = next.crouching;
-    p.onGround = next.onGround;
+      });
+      if (pose) {
+        p.x = pose.x;
+        p.z = pose.z;
+        p.y = pose.y;
+        p.vy = pose.vy;
+        p.crouching = pose.crouching;
+        p.onGround = pose.onGround;
+      }
+    } else {
+      const next = tickMotor(
+        {
+          x: p.x,
+          z: p.z,
+          y: p.y ?? 0,
+          vy: p.vy ?? 0,
+          crouching: p.crouching ?? false,
+          onGround: p.onGround ?? true,
+        },
+        {
+          wishX,
+          wishZ,
+          jump,
+          crouch: p.crouching ?? false,
+          dt,
+          standSpeed: PLAYER_SPEED,
+          walls: this.collisionWalls,
+        },
+      );
+      p.x = next.x;
+      p.z = next.z;
+      p.y = next.y;
+      p.vy = next.vy;
+      p.crouching = next.crouching;
+      p.onGround = next.onGround;
+    }
 
     if (
-      next.onGround &&
+      p.onGround &&
       !opts.freeCamPan &&
       (wishX !== 0 || wishZ !== 0) &&
-      !next.crouching
+      !p.crouching
     ) {
       this.footCooldown -= dt;
       if (this.footCooldown <= 0) {
@@ -1627,7 +1709,10 @@ export class GameClient {
     }
 
     if (!p.alive) {
-      if (this.state.phase === "warmup" && this.input.wasPressed("KeyF")) {
+      if (
+        (this.state.phase === "warmup" || this.state.phase === "buy") &&
+        this.input.wasPressed("KeyF")
+      ) {
         this.respawnPlayer(p);
       }
       return;
@@ -1656,7 +1741,12 @@ export class GameClient {
       this.tryThrowHE(p);
     }
 
-    if (this.input.isMouseDown(0) && p.reloadingUntil <= 0) {
+    // Combat only warmup + live (not buy freezetime / ended)
+    if (
+      this.input.isMouseDown(0) &&
+      p.reloadingUntil <= 0 &&
+      (this.state.phase === "live" || this.state.phase === "warmup")
+    ) {
       this.tryShoot(p);
     }
   }

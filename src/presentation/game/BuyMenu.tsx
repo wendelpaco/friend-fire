@@ -53,8 +53,9 @@ export function BuyMenu({
           </div>
         </div>
         <p className="mb-4 text-xs text-white/45">
-          Aquecimento ou entre rounds · <kbd className="text-amber-300">B</kbd>{" "}
-          ou <kbd className="text-amber-300">Esc</kbd> fecha · colete: {armor}
+          Aquecimento ou fase de compra (~18s) ·{" "}
+          <kbd className="text-amber-300">B</kbd> /{" "}
+          <kbd className="text-amber-300">Esc</kbd> fecha · colete: {armor}
         </p>
 
         {ORDER.map((cat) => {

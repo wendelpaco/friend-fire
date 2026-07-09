@@ -33,10 +33,15 @@ export const SHOP_CATALOG: ShopCatalogItem[] = [
   { id: "he", name: "GRANADA HE", price: 300, category: "gear", heAmount: 1 },
 ];
 
-export type RoundPhase = "warmup" | "live" | "ended" | "match_over";
+export type RoundPhase =
+  | "warmup"
+  | "buy"
+  | "live"
+  | "ended"
+  | "match_over";
 
 export function canBuyInPhase(phase: string): boolean {
-  return phase === "warmup" || phase === "ended";
+  return phase === "warmup" || phase === "buy";
 }
 
 export type BuyResult =

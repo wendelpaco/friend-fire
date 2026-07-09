@@ -1,10 +1,15 @@
 /**
  * Keep in sync with src/domains/match/phases.ts + types.ts
- * Minimal pure phase timer for server tick (no full combat sim).
+ * Minimal pure phase timer for server tick.
  */
 
 export type Team = "TR" | "CT";
-export type RoundPhase = "warmup" | "live" | "ended" | "match_over";
+export type RoundPhase =
+  | "warmup"
+  | "buy"
+  | "live"
+  | "ended"
+  | "match_over";
 
 export interface MatchPhaseState {
   phase: RoundPhase;
@@ -13,6 +18,7 @@ export interface MatchPhaseState {
   scoreTR: number;
   scoreCT: number;
   warmupTime: number;
+  buyTime: number;
   roundTime: number;
   endPause: number;
   roundsToWin: number;
@@ -20,15 +26,23 @@ export interface MatchPhaseState {
 
 export const DEFAULT_MATCH = {
   warmup: 20,
+  buyTime: 18,
   round: 90,
   roundsToWin: 8,
-  endPause: 5,
+  endPause: 4,
   endMatchPause: 8,
 } as const;
 
 export function createMatchPhase(
   opts?: Partial<
-    Pick<MatchPhaseState, "warmupTime" | "roundTime" | "endPause" | "roundsToWin">
+    Pick<
+      MatchPhaseState,
+      | "warmupTime"
+      | "buyTime"
+      | "roundTime"
+      | "endPause"
+      | "roundsToWin"
+    >
   >,
 ): MatchPhaseState {
   const warmupTime = opts?.warmupTime ?? DEFAULT_MATCH.warmup;
@@ -39,9 +53,22 @@ export function createMatchPhase(
     scoreTR: 0,
     scoreCT: 0,
     warmupTime,
+    buyTime: opts?.buyTime ?? DEFAULT_MATCH.buyTime,
     roundTime: opts?.roundTime ?? DEFAULT_MATCH.round,
     endPause: opts?.endPause ?? DEFAULT_MATCH.endPause,
     roundsToWin: opts?.roundsToWin ?? DEFAULT_MATCH.roundsToWin,
+  };
+}
+
+export function enterBuyPhase(
+  m: MatchPhaseState,
+  nextRound: number,
+): MatchPhaseState {
+  return {
+    ...m,
+    phase: "buy",
+    round: nextRound,
+    timeLeft: m.buyTime,
   };
 }
 
@@ -72,24 +99,20 @@ export function tickPhase(m: MatchPhaseState, dt: number): MatchPhaseState {
   if (timeLeft > 0) return { ...m, timeLeft };
 
   if (m.phase === "warmup") {
+    return enterBuyPhase(m, 1);
+  }
+  if (m.phase === "buy") {
     return {
       ...m,
       phase: "live",
-      round: m.round + 1,
       timeLeft: m.roundTime,
     };
   }
   if (m.phase === "live") {
-    // timer expired → CT wins (defuse default)
     return onRoundWin({ ...m, timeLeft: 0 }, "CT");
   }
   if (m.phase === "ended") {
-    return {
-      ...m,
-      phase: "live",
-      round: m.round + 1,
-      timeLeft: m.roundTime,
-    };
+    return enterBuyPhase(m, m.round + 1);
   }
   return m;
 }

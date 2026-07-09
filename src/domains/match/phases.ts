@@ -5,7 +5,14 @@ export type { RoundPhase, MatchPhaseState } from "./types";
 
 export function createMatchPhase(
   opts?: Partial<
-    Pick<MatchPhaseState, "warmupTime" | "roundTime" | "endPause" | "roundsToWin">
+    Pick<
+      MatchPhaseState,
+      | "warmupTime"
+      | "buyTime"
+      | "roundTime"
+      | "endPause"
+      | "roundsToWin"
+    >
   >,
 ): MatchPhaseState {
   const warmupTime = opts?.warmupTime ?? DEFAULT_MATCH.warmup;
@@ -16,9 +23,25 @@ export function createMatchPhase(
     scoreTR: 0,
     scoreCT: 0,
     warmupTime,
+    buyTime: opts?.buyTime ?? DEFAULT_MATCH.buyTime,
     roundTime: opts?.roundTime ?? DEFAULT_MATCH.round,
     endPause: opts?.endPause ?? DEFAULT_MATCH.endPause,
     roundsToWin: opts?.roundsToWin ?? DEFAULT_MATCH.roundsToWin,
+  };
+}
+
+/**
+ * Enter buy phase for the next round number (assigns money outside).
+ */
+export function enterBuyPhase(
+  m: MatchPhaseState,
+  nextRound: number,
+): MatchPhaseState {
+  return {
+    ...m,
+    phase: "buy",
+    round: nextRound,
+    timeLeft: m.buyTime,
   };
 }
 
@@ -28,10 +51,13 @@ export function tickPhase(m: MatchPhaseState, dt: number): MatchPhaseState {
   if (timeLeft > 0) return { ...m, timeLeft };
 
   if (m.phase === "warmup") {
+    // Warmup done → first buy window then live combat
+    return enterBuyPhase(m, 1);
+  }
+  if (m.phase === "buy") {
     return {
       ...m,
       phase: "live",
-      round: m.round + 1,
       timeLeft: m.roundTime,
     };
   }
@@ -40,12 +66,8 @@ export function tickPhase(m: MatchPhaseState, dt: number): MatchPhaseState {
     return onRoundWin({ ...m, timeLeft: 0 }, "CT");
   }
   if (m.phase === "ended") {
-    return {
-      ...m,
-      phase: "live",
-      round: m.round + 1,
-      timeLeft: m.roundTime,
-    };
+    // Banner done → buy for next round
+    return enterBuyPhase(m, m.round + 1);
   }
   return m;
 }

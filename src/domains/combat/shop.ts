@@ -93,8 +93,12 @@ export const SHOP_CATALOG: ShopCatalogItem[] = [
   },
 ];
 
+/**
+ * Shop is open during warmup (practice) and dedicated buy freezetime.
+ * Locked during live combat, round-end banner, and match over.
+ */
 export function canOpenBuyMenu(phase: RoundPhase): boolean {
-  return phase === "warmup" || phase === "ended";
+  return phase === "warmup" || phase === "buy";
 }
 
 export type BuyResult =

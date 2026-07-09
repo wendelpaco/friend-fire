@@ -365,12 +365,16 @@ export class GameRoom extends Room<MatchState> {
       this.syncBombToState();
     }
 
-    if (
-      this.phase.phase === "live" &&
-      (prev === "warmup" || prev === "ended")
-    ) {
+    // Enter buy freezetime → spawn + bomb carrier
+    if (this.phase.phase === "buy" && prev !== "buy") {
       this.respawnAll();
       this.assignBombCarrier();
+      this.heProjectiles = [];
+    }
+
+    // Buy → live combat (no re-buy)
+    if (this.phase.phase === "live" && prev === "buy") {
+      this.heProjectiles = [];
     }
 
     if (this.phase.phase === "match_over") {
@@ -385,7 +389,14 @@ export class GameRoom extends Room<MatchState> {
     // Humans
     this.state.players.forEach((p, key) => {
       if (p.isBot || !p.alive) return;
-      if (this.phase.phase !== "live" && this.phase.phase !== "warmup") return;
+      // Move during warmup / buy / live; combat inputs still gated in tryFire
+      if (
+        this.phase.phase !== "live" &&
+        this.phase.phase !== "warmup" &&
+        this.phase.phase !== "buy"
+      ) {
+        return;
+      }
       const input = this.inputs.get(key);
       const ex = this.ensureExtra(key, p);
       if (!input) return;
@@ -584,6 +595,8 @@ export class GameRoom extends Room<MatchState> {
   }
 
   private tryFire(p: PlayerState, ex: RuntimeExtra) {
+    // No combat during buy freezetime (shop only)
+    if (this.phase.phase === "buy" || this.phase.phase === "ended") return;
     const w = activeWeaponStats(p.primaryId, p.secondaryId, p.activeSlot);
     if (!w) return;
 

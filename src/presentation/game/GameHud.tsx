@@ -29,6 +29,7 @@ function formatBombTimer(seconds: number) {
 
 function phaseLabel(hud: HudSnapshot) {
   if (hud.phase === "warmup") return `AQUECIMENTO ${Math.ceil(hud.timeLeft)}`;
+  if (hud.phase === "buy") return `COMPRA ${Math.ceil(hud.timeLeft)}`;
   if (hud.phase === "ended") return "FIM DO ROUND";
   if (hud.phase === "match_over") return "FIM DA PARTIDA";
   return formatTime(hud.timeLeft);
@@ -179,9 +180,14 @@ export function GameHud({
             <span className="text-lg font-bold tabular-nums tracking-wide text-amber-50">
               {phaseLabel(hud)}
             </span>
-            {hud.phase === "live" && (
+            {(hud.phase === "live" || hud.phase === "buy") && (
               <span className="text-[9px] tracking-[0.25em] text-white/40">
-                ROUND {hud.round}
+                {hud.phase === "buy" ? "COMPRA" : "ROUND"} {hud.round}
+              </span>
+            )}
+            {hud.canBuy && !hud.showBuyMenu && hud.phase === "buy" && (
+              <span className="mt-0.5 text-[9px] font-semibold tracking-wide text-amber-300/90">
+                B · LOJA ABERTA
               </span>
             )}
           </div>
@@ -452,8 +458,8 @@ export function GameHud({
               VOCÊ MORREU
             </div>
             <div className="mt-2 text-sm text-white/55">
-              {hud.phase === "warmup"
-                ? "Respawn automático no aquecimento…"
+              {hud.phase === "warmup" || hud.phase === "buy"
+                ? "Respawn automático… (F no aquecimento/compra)"
                 : hud.phase === "match_over"
                   ? "Partida encerrada · aguarde o resultado"
                   : "Aguarde o próximo round"}

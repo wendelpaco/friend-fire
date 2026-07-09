@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { canOpenBuyMenu, tryBuy } from "./shop";
 
 describe("canOpenBuyMenu", () => {
-  it("allows warmup and ended only", () => {
+  it("allows warmup and buy only", () => {
     expect(canOpenBuyMenu("warmup")).toBe(true);
-    expect(canOpenBuyMenu("ended")).toBe(true);
+    expect(canOpenBuyMenu("buy")).toBe(true);
+    expect(canOpenBuyMenu("ended")).toBe(false);
     expect(canOpenBuyMenu("live")).toBe(false);
     expect(canOpenBuyMenu("match_over")).toBe(false);
   });
