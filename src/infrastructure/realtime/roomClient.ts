@@ -73,6 +73,11 @@ export type RoomListItem = {
   region?: RoomRegion;
 };
 
+/** HE grenade FX broadcast from GameRoom (cosmetic). */
+export type HeFxEvent =
+  | { type: "throw"; id: string; ownerId: string; x: number; z: number; fuse: number }
+  | { type: "explode"; id: string; x: number; z: number };
+
 export interface RoomClient {
   create(opts?: CreateRoomOptions): Promise<{ code: string }>;
   join(code: string): Promise<void>;
@@ -103,6 +108,16 @@ export type NetworkRoomState = {
    * When false, combat runs on the Colyseus GameRoom.
    */
   hybridLocalCombat: boolean;
+  /** C4 FSM from MatchState (Wave 5). Empty when inactive. */
+  bombState: string;
+  bombX: number;
+  bombZ: number;
+  bombTimer: number;
+  bombCarrierId: string;
+  plantProgress: number;
+  defuseProgress: number;
+  /** elimination | time | bomb_exploded | bomb_defused | "" */
+  roundEndReason: string;
 };
 
 export type NetworkPlayer = {
@@ -126,6 +141,8 @@ export type NetworkPlayer = {
   activeSlot: number;
   mag: number;
   reserve: number;
+  /** HE grenades carried (0–2) */
+  heCount: number;
 };
 
 export type InputPayload = {
@@ -136,6 +153,10 @@ export type InputPayload = {
   fire: boolean;
   reload: boolean;
   slot: number;
+  /** Hold F — plant (TR) or defuse (CT). */
+  plant: boolean;
+  /** Hold/edge G — throw HE (server rising-edge). */
+  he: boolean;
 };
 
 interface LocalRoomRecord {
@@ -221,6 +242,7 @@ function playersFromState(state: unknown): NetworkPlayer[] {
       activeSlot: Number(o.activeSlot) || 2,
       mag: Number(o.mag) || 0,
       reserve: Number(o.reserve) || 0,
+      heCount: Number(o.heCount) || 0,
     });
   };
 
@@ -485,6 +507,7 @@ export class ColyseusRoomClient implements RoomClient {
   private mode: NetworkRoomState["mode"] = "idle";
   private error: string | null = null;
   private readonly listeners = new Set<(state: unknown) => void>();
+  private readonly heFxListeners = new Set<(event: HeFxEvent) => void>();
   private unbindRoom: (() => void) | null = null;
 
   async create(opts?: CreateRoomOptions): Promise<{ code: string }> {
@@ -742,6 +765,24 @@ export class ColyseusRoomClient implements RoomClient {
       error: this.error,
       // Server combat authority: not hybrid when connected + authoritative
       hybridLocalCombat: !(this.isConnected() && authoritative),
+      bombState: typeof state?.bombState === "string" ? state.bombState : "",
+      bombX: Number(state?.bombX) || 0,
+      bombZ: Number(state?.bombZ) || 0,
+      bombTimer: Number(state?.bombTimer) || 0,
+      bombCarrierId:
+        typeof state?.bombCarrierId === "string" ? state.bombCarrierId : "",
+      plantProgress: Number(state?.plantProgress) || 0,
+      defuseProgress: Number(state?.defuseProgress) || 0,
+      roundEndReason:
+        typeof state?.roundEndReason === "string" ? state.roundEndReason : "",
+    };
+  }
+
+  /** Cosmetic HE FX from server broadcasts. */
+  onHeFx(cb: (event: HeFxEvent) => void): () => void {
+    this.heFxListeners.add(cb);
+    return () => {
+      this.heFxListeners.delete(cb);
     };
   }
 
@@ -752,6 +793,32 @@ export class ColyseusRoomClient implements RoomClient {
 
     const onChange = () => this.emit();
     room.onStateChange(onChange);
+
+    const onHeThrow = (data: unknown) => {
+      const o = data as Record<string, unknown>;
+      const event: HeFxEvent = {
+        type: "throw",
+        id: String(o?.id ?? ""),
+        ownerId: String(o?.ownerId ?? ""),
+        x: Number(o?.x) || 0,
+        z: Number(o?.z) || 0,
+        fuse: Number(o?.fuse) || 1.8,
+      };
+      for (const cb of this.heFxListeners) cb(event);
+    };
+    const onHeExplode = (data: unknown) => {
+      const o = data as Record<string, unknown>;
+      const event: HeFxEvent = {
+        type: "explode",
+        id: String(o?.id ?? ""),
+        x: Number(o?.x) || 0,
+        z: Number(o?.z) || 0,
+      };
+      for (const cb of this.heFxListeners) cb(event);
+    };
+    room.onMessage("he_throw", onHeThrow);
+    room.onMessage("he_explode", onHeExplode);
+
     room.onError((code, message) => {
       this.mode = "error";
       this.error = message || `Room error ${code}`;

@@ -647,16 +647,27 @@ export class GameClient {
       activeSlot?: number;
       mag?: number;
       reserve?: number;
+      heCount?: number;
     }>;
     phase: string | null;
     round: number;
     scoreTR: number;
     scoreCT: number;
     timeLeft: number;
+    bombState?: string;
+    bombX?: number;
+    bombZ?: number;
+    bombTimer?: number;
+    bombCarrierId?: string;
+    plantProgress?: number;
+    defuseProgress?: number;
+    roundEndReason?: string;
   }) {
     if (!this.networked) return;
     this.networkSessionId = net.sessionId;
     const prevPhase = this.state.phase;
+    const prevScoreTR = this.state.scoreTR;
+    const prevScoreCT = this.state.scoreCT;
 
     if (net.phase === "warmup" || net.phase === "live" || net.phase === "ended" || net.phase === "match_over") {
       this.state.phase = net.phase;
@@ -665,6 +676,49 @@ export class GameClient {
     this.state.scoreTR = net.scoreTR;
     this.state.scoreCT = net.scoreCT;
     this.state.timeLeft = net.timeLeft;
+
+    // C4 mirror from server
+    const bs = net.bombState ?? "";
+    if (
+      bs === "carried" ||
+      bs === "planting" ||
+      bs === "planted" ||
+      bs === "defusing" ||
+      bs === "exploded" ||
+      bs === "defused"
+    ) {
+      this.state.bombState = bs;
+    } else if (!bs) {
+      this.state.bombState = "carried";
+    }
+    this.state.bombX = net.bombX ?? 0;
+    this.state.bombZ = net.bombZ ?? 0;
+    this.state.bombTimer = net.bombTimer ?? 0;
+    this.state.bombCarrierId = net.bombCarrierId || null;
+    this.state.plantProgress = net.plantProgress ?? 0;
+    this.state.defuseProgress = net.defuseProgress ?? 0;
+    this.syncBombVisual();
+
+    // Round banner on live → ended (or score bump mid-sync)
+    if (
+      prevPhase === "live" &&
+      (this.state.phase === "ended" || this.state.phase === "match_over")
+    ) {
+      const reason = net.roundEndReason ?? "";
+      if (reason === "bomb_exploded") {
+        this.showRoundBanner("bomb_exploded");
+      } else if (reason === "bomb_defused") {
+        this.showRoundBanner("bomb_defused");
+      } else if (net.scoreTR > prevScoreTR) {
+        this.showRoundBanner("tr_win");
+      } else if (net.scoreCT > prevScoreCT) {
+        this.showRoundBanner("ct_win");
+      }
+    }
+    if (this.state.phase === "live" && prevPhase !== "live") {
+      this.clearSpectator();
+      this.heProjectiles = [];
+    }
 
     const localId = net.sessionId ?? this.state.localPlayerId;
     // Keep localPlayerId as session id for HUD
@@ -689,6 +743,35 @@ export class GameClient {
 
       const loadout = loadoutFromNetwork(np, existing, team);
 
+      // Floating damage numbers when enemy HP drops soon after local shot
+      if (
+        existing &&
+        np.hp < existing.hp &&
+        !isLocal &&
+        existing.team !==
+          (this.state.players.find((p) => p.id === localId)?.team ?? existing.team)
+      ) {
+        const localP = this.state.players.find((p) => p.id === localId);
+        const dealt = Math.round(existing.hp - np.hp);
+        if (
+          dealt > 0 &&
+          localP &&
+          performance.now() - localP.lastShotAt < 250
+        ) {
+          this.three.spawnDamageNumber(np.x, 1.4, np.z, `-${dealt}`);
+        }
+      }
+
+      // Enter spectator when local dies mid-live
+      if (
+        isLocal &&
+        existing?.alive &&
+        !np.alive &&
+        this.state.phase === "live"
+      ) {
+        this.enterSpectator(null);
+      }
+
       nextPlayers.push({
         id: np.id,
         name: np.name,
@@ -709,7 +792,7 @@ export class GameClient {
         assists: existing?.assists ?? 0,
         lastShotAt: existing?.lastShotAt ?? 0,
         reloadingUntil: existing?.reloadingUntil ?? 0,
-        heCount: existing?.heCount ?? 0,
+        heCount: np.heCount ?? existing?.heCount ?? 0,
         color: TEAM_COLORS[team],
       });
     }
@@ -723,6 +806,29 @@ export class GameClient {
       this.maybeRecordMissionResult();
     } else if (this.state.phase !== "match_over") {
       this.missionMatchRecorded = false;
+    }
+  }
+
+  /** Cosmetic HE from server `he_throw` / `he_explode` broadcasts. */
+  applyNetworkHeFx(event: {
+    type: "throw" | "explode";
+    id: string;
+    x: number;
+    z: number;
+    fuse?: number;
+    ownerId?: string;
+  }) {
+    if (!this.networked) return;
+    // Map string ids to small slot pool for mesh reuse
+    let slot = 0;
+    for (let i = 0; i < event.id.length; i++) {
+      slot = (slot + event.id.charCodeAt(i)) % 8;
+    }
+    if (event.type === "throw") {
+      this.three.spawnHE(event.x, 1.2, event.z, false, slot);
+      Sfx.play("ui");
+    } else {
+      this.three.spawnHE(event.x, 0.2, event.z, true, slot);
     }
   }
 
@@ -1792,6 +1898,13 @@ export class GameClient {
     if (killer.id === this.state.localPlayerId) {
       this.state.hitMarkerUntil = performance.now() + 120;
       Sfx.play("hit");
+      // Floating damage numbers for local damage dealt (Wave 5 §2.8)
+      this.three.spawnDamageNumber(
+        victim.x,
+        1.4,
+        victim.z,
+        `-${Math.round(damage)}`,
+      );
     }
 
     if (isDead(victim.hp)) {

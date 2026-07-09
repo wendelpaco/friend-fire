@@ -139,6 +139,14 @@ export function GameCanvas({
           scoreTR: snap.scoreTR,
           scoreCT: snap.scoreCT,
           timeLeft: snap.timeLeft,
+          bombState: snap.bombState,
+          bombX: snap.bombX,
+          bombZ: snap.bombZ,
+          bombTimer: snap.bombTimer,
+          bombCarrierId: snap.bombCarrierId,
+          plantProgress: snap.plantProgress,
+          defuseProgress: snap.defuseProgress,
+          roundEndReason: snap.roundEndReason,
         });
       } else if (!snap.connected) {
         engine.setNetworked(false, null);
@@ -148,6 +156,14 @@ export function GameCanvas({
         engine.setBuySender(null);
       }
     });
+
+    const unsubHe =
+      typeof client.onHeFx === "function"
+        ? client.onHeFx((event) => {
+            if (cancelled) return;
+            engineRef.current?.applyNetworkHeFx(event);
+          })
+        : () => {};
 
     const connect = async () => {
       try {
@@ -176,12 +192,15 @@ export function GameCanvas({
         fire: engine.input.isMouseDown(0),
         reload: engine.input.isDown("KeyR"),
         slot,
+        plant: engine.input.isDown("KeyF"),
+        he: engine.input.isDown("KeyG"),
       });
     }, INPUT_MS);
 
     return () => {
       cancelled = true;
       unsub();
+      unsubHe();
       window.clearInterval(inputTimer);
       engineRef.current?.setNetworked(false, null);
       engineRef.current?.setBuySender(null);
