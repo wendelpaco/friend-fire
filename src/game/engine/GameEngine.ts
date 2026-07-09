@@ -7,18 +7,24 @@ import {
   WEAPONS,
 } from "@/domains/combat";
 import {
+  createMatchPhase,
+  moneyAfterRound,
+  onRoundWin,
+  tickPhase,
+  type MatchPhaseState,
+} from "@/domains/match";
+import {
   BOT_LINES,
   BOT_NAMES,
   BOT_SPEED,
   BULLET_RADIUS,
   CAMERA_HEIGHT,
   CAMERA_OFFSET,
+  DEFAULT_MATCH,
   KILL_REWARD,
   PLAYER_RADIUS,
   PLAYER_SPEED,
-  ROUND_LOSS_REWARD,
   ROUND_TIME,
-  ROUND_WIN_REWARD,
   START_MONEY,
   TEAM_COLORS,
   WARMUP_TIME,
@@ -82,6 +88,13 @@ export class GameEngine {
   private collisionWalls = mapCollisionWalls(MAP_DUST);
   private dustParticles!: THREE.Points;
   private helpSeenKey = "ff_help_seen";
+  /** Config fields for pure match phase machine (not exposed on MatchState). */
+  private matchConfig = {
+    warmupTime: WARMUP_TIME,
+    roundTime: ROUND_TIME,
+    endPause: 5,
+    roundsToWin: DEFAULT_MATCH.roundsToWin,
+  };
 
   constructor(canvas: HTMLCanvasElement) {
     const w = canvas.clientWidth || window.innerWidth;
@@ -200,12 +213,14 @@ export class GameEngine {
       this.makePlayer(uid("bot"), BOT_NAMES[4], "CT", true, 2),
     ];
 
+    const match = createMatchPhase(this.matchConfig);
+
     return {
-      phase: "warmup",
-      round: 0,
-      timeLeft: WARMUP_TIME,
-      scoreTR: 0,
-      scoreCT: 0,
+      phase: match.phase,
+      round: match.round,
+      timeLeft: match.timeLeft,
+      scoreTR: match.scoreTR,
+      scoreCT: match.scoreCT,
       players,
       bullets: [],
       killFeed: [],
@@ -226,6 +241,25 @@ export class GameEngine {
       damageFlashUntil: 0,
       lastDamageAmount: 0,
     };
+  }
+
+  private toPhaseState(): MatchPhaseState {
+    return {
+      phase: this.state.phase,
+      round: this.state.round,
+      timeLeft: this.state.timeLeft,
+      scoreTR: this.state.scoreTR,
+      scoreCT: this.state.scoreCT,
+      ...this.matchConfig,
+    };
+  }
+
+  private applyPhaseState(m: MatchPhaseState) {
+    this.state.phase = m.phase;
+    this.state.round = m.round;
+    this.state.timeLeft = m.timeLeft;
+    this.state.scoreTR = m.scoreTR;
+    this.state.scoreCT = m.scoreCT;
   }
 
   private makePlayer(
@@ -724,6 +758,13 @@ export class GameEngine {
       return;
     }
 
+    // Match finished — freeze gameplay; end-match break UI is Task 5.
+    if (this.state.phase === "match_over") {
+      this.pushHud();
+      this.input.endFrame();
+      return;
+    }
+
     this.updateAim();
     this.updateTimer(dt);
     this.updateLocalPlayer(dt);
@@ -761,37 +802,46 @@ export class GameEngine {
   }
 
   private updateTimer(dt: number) {
-    this.state.timeLeft -= dt;
-    if (this.state.timeLeft > 0) return;
+    const prev = this.toPhaseState();
+    const next = tickPhase(prev, dt);
+    this.applyPhaseState(next);
 
-    if (this.state.phase === "warmup") {
-      this.startLiveRound();
-    } else if (this.state.phase === "live") {
-      this.endRound("CT");
-    } else if (this.state.phase === "ended") {
-      this.startLiveRound();
+    // live timer expired → domain awards CT; apply economy + chat
+    if (
+      prev.phase === "live" &&
+      (next.phase === "ended" || next.phase === "match_over")
+    ) {
+      this.applyRoundEndEffects("CT");
+    }
+
+    // warmup / intermission → next live round
+    if (
+      next.phase === "live" &&
+      (prev.phase === "warmup" || prev.phase === "ended")
+    ) {
+      this.beginLiveRoundEffects();
     }
   }
 
-  private startLiveRound() {
-    this.state.phase = "live";
-    this.state.round += 1;
-    this.state.timeLeft = ROUND_TIME;
+  private beginLiveRoundEffects() {
     this.state.bullets = [];
     this.clearBulletMeshes();
     this.addChat("SYSTEM", `ROUND ${this.state.round} — boa sorte`, "system");
     for (const p of this.state.players) this.respawnPlayer(p);
   }
 
-  private endRound(winner: Team) {
-    this.state.phase = "ended";
-    this.state.timeLeft = 5;
-    if (winner === "TR") this.state.scoreTR += 1;
-    else this.state.scoreCT += 1;
+  private applyRoundEndEffects(winner: Team) {
     this.addChat("SYSTEM", `${winner} venceu o round!`, "system");
     for (const p of this.state.players) {
-      p.money += p.team === winner ? ROUND_WIN_REWARD : ROUND_LOSS_REWARD;
+      p.money = moneyAfterRound(p.team, winner, p.money);
     }
+  }
+
+  private endRound(winner: Team) {
+    if (this.state.phase !== "live") return;
+    const next = onRoundWin(this.toPhaseState(), winner);
+    this.applyPhaseState(next);
+    this.applyRoundEndEffects(winner);
   }
 
   private respawnPlayer(p: PlayerState) {

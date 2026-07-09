@@ -1,9 +1,11 @@
 export type { Team } from "@/shared/types/team";
 export type { WeaponId, WeaponDef } from "@/domains/combat";
 export type { Vec2 } from "@/domains/world";
+export type { RoundPhase } from "@/domains/match";
 
 import type { Team } from "@/shared/types/team";
 import type { WeaponId } from "@/domains/combat";
+import type { RoundPhase } from "@/domains/match";
 
 export interface PlayerState {
   id: string;
@@ -56,8 +58,6 @@ export interface ChatEntry {
   kind: "radio" | "all" | "system";
   at: number;
 }
-
-export type RoundPhase = "warmup" | "live" | "ended";
 
 export interface MatchState {
   phase: RoundPhase;

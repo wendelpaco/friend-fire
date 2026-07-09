@@ -15,6 +15,7 @@ function formatTime(seconds: number) {
 function phaseLabel(hud: HudSnapshot) {
   if (hud.phase === "warmup") return `AQUECIMENTO ${Math.ceil(hud.timeLeft)}`;
   if (hud.phase === "ended") return "FIM DO ROUND";
+  if (hud.phase === "match_over") return "FIM DA PARTIDA";
   return formatTime(hud.timeLeft);
 }
 

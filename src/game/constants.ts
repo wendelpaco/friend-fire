@@ -1,4 +1,11 @@
 export { WEAPONS } from "@/domains/combat";
+export {
+  DEFAULT_MATCH,
+  KILL_REWARD,
+  ROUND_WIN_REWARD,
+  ROUND_LOSS_REWARD,
+} from "@/domains/match";
+import { DEFAULT_MATCH } from "@/domains/match";
 
 export const GAME_NAME = "Friend Fire";
 export const GAME_TAGLINE = "TÁTICO // TOP-DOWN // MULTIPLAYER";
@@ -9,12 +16,9 @@ export const BOT_SPEED = 4.2;
 export const BULLET_RADIUS = 0.08;
 export const CAMERA_HEIGHT = 22;
 export const CAMERA_OFFSET = 16;
-export const ROUND_TIME = 90;
-export const WARMUP_TIME = 20;
+export const ROUND_TIME = DEFAULT_MATCH.round;
+export const WARMUP_TIME = DEFAULT_MATCH.warmup;
 export const START_MONEY = 800;
-export const KILL_REWARD = 300;
-export const ROUND_WIN_REWARD = 3250;
-export const ROUND_LOSS_REWARD = 1400;
 
 export const TEAM_COLORS = {
   TR: 0xc45c26,
