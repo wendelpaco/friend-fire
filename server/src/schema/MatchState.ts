@@ -13,6 +13,17 @@ export class PlayerState extends Schema {
   @type("boolean") isBot: boolean = false;
   @type("number") kills: number = 0;
   @type("number") deaths: number = 0;
+  /** Economy */
+  @type("number") money: number = 800;
+  /** Primary weapon id (slot 1), empty if none */
+  @type("string") primaryId: string = "";
+  /** Secondary weapon id (slot 2) */
+  @type("string") secondaryId: string = "";
+  /** Active slot: 1 primary | 2 secondary | 4 knife */
+  @type("number") activeSlot: number = 2;
+  /** Mag/reserve for currently active firearm (knife: unused) */
+  @type("number") mag: number = 0;
+  @type("number") reserve: number = 0;
 }
 
 export class MatchState extends Schema {
@@ -36,4 +47,9 @@ export interface InputMessage {
   fire: boolean;
   reload: boolean;
   slot: number;
+}
+
+/** Client → server buy message */
+export interface BuyMessage {
+  itemId: string;
 }
