@@ -229,19 +229,22 @@ Local vision radius (~14 world units): distant enemies hidden / area dimmed. **P
 | H | Ajuda (controles) |
 | F | Respawn manual (só no aquecimento, se morto) |
 
-## O que já tem (v1 + wave 2A/B)
+## O que já tem (v1 + wave 2 + wave 3)
 
 - Câmera isométrica / top-down (Three.js) + polish visual Dust FF
 - Buy menu, SFX procedural, câmera livre
 - Ads in-game + lobby/pausa + end-match break + rewarded XP stub
-- Solo local com bots **e** salas privadas com **combate no server**
+- Solo local com bots **e** salas **públicas/privadas** com **combate no server**
+- Server browser (filtros, ping) · Quick Match · invite link · multi-map
+- Match-end stats + ranking local do dia · fog of war (client vision)
 - Rounds: aquecimento → live → fim → **match_over**
 - HUD completo · lobby · domínios com `npm test`
+- Wave 3 runbook: [`docs/wave3.md`](docs/wave3.md)
 
 ## Roadmap
 
 1. Lag compensation / reconciliation mais fina · armas no server  
-2. Public matchmaking + Redis multi-node  
+2. Redis multi-node / ranked matchmaking  
 3. Real ad network SDK  
 4. C4 plant/defuse · missões diárias de verdade  
 5. Mais mapas · cosmetics store  
