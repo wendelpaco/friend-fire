@@ -30,6 +30,8 @@ export interface PlayerState {
   weaponSlot: number;
   weapons: Partial<Record<number, WeaponId>>;
   ammo: Partial<Record<WeaponId, { mag: number; reserve: number }>>;
+  /** Owned HE grenades (shop `he`). Wave 5 §2.4. */
+  heCount: number;
   alive: boolean;
   kills: number;
   deaths: number;

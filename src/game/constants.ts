@@ -74,11 +74,16 @@ export const BOT_LINES = {
   ],
 } as const;
 
+/** CT defuse reach from planted bomb (Wave 5 §2.1). */
+export const DEFUSE_RADIUS = 2.5;
+
 export const CONTROLS_HELP = [
   { keys: "WASD", action: "Mover" },
   { keys: "Mouse", action: "Mirar" },
   { keys: "Clique", action: "Atirar" },
   { keys: "R", action: "Recarregar" },
+  { keys: "F", action: "Plantar / desarmar C4" },
+  { keys: "G", action: "Arremessar HE" },
   { keys: "B", action: "Loja (aquecimento / entre rounds)" },
   { keys: "C", action: "Câmera travada / livre" },
   { keys: "1–4", action: "Trocar arma" },

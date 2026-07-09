@@ -5,7 +5,11 @@ import {
   beginReload,
   canOpenBuyMenu,
   completeReload,
+  explodeAt,
+  HE_FUSE,
+  HE_GRAVITY,
   isDead,
+  throwGrenade,
   tryBuy,
   WEAPONS,
 } from "@/domains/combat";
@@ -17,10 +21,20 @@ import {
 } from "@/domains/identity";
 import {
   canDefuse,
+  canPlant,
+  createBombState,
   createMatchPhase,
+  explode as explodeBomb,
+  isInsideSite,
   moneyAfterRound,
+  onDefuseComplete,
+  onPlantComplete,
   onRoundWin,
+  tickBombTimer,
+  tickDefuse,
   tickPhase,
+  tickPlant,
+  type BombMatchState,
   type MatchPhaseState,
 } from "@/domains/match";
 import {
@@ -35,6 +49,7 @@ import {
   BOT_SPEED,
   BULLET_RADIUS,
   DEFAULT_MATCH,
+  DEFUSE_RADIUS,
   KILL_REWARD,
   PLAYER_RADIUS,
   PLAYER_SPEED,
@@ -270,6 +285,20 @@ export class GameClient {
   private networkSessionId: string | null = null;
   /** When set (room mode), purchases go to the server instead of local tryBuy. */
   private buySender: ((itemId: string) => void) | null = null;
+  /** Active HE projectiles (local solo). */
+  private heProjectiles: Array<{
+    slot: number;
+    ownerId: string;
+    x: number;
+    y: number;
+    z: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    age: number;
+    fuse: number;
+  }> = [];
+  private heSlotSeq = 0;
   private matchConfig = {
     warmupTime: WARMUP_TIME,
     roundTime: ROUND_TIME,
@@ -283,8 +312,228 @@ export class GameClient {
   private spectateTargetId: string | null = null;
   /** true = follow target, false = free pan (Space toggles). */
   private spectatorFollow = true;
-  /** Defuse interaction radius (spec §2.1). */
-  private static readonly DEFUSE_RADIUS = 2.5;
+
+  private readBomb(): BombMatchState {
+    return {
+      bombState: this.state.bombState,
+      bombCarrierId: this.state.bombCarrierId,
+      bombX: this.state.bombX,
+      bombZ: this.state.bombZ,
+      plantProgress: this.state.plantProgress,
+      defuseProgress: this.state.defuseProgress,
+      bombTimer: this.state.bombTimer,
+    };
+  }
+
+  private writeBomb(b: BombMatchState) {
+    this.state.bombState = b.bombState;
+    this.state.bombCarrierId = b.bombCarrierId;
+    this.state.bombX = b.bombX;
+    this.state.bombZ = b.bombZ;
+    this.state.plantProgress = b.plantProgress;
+    this.state.defuseProgress = b.defuseProgress;
+    this.state.bombTimer = b.bombTimer;
+  }
+
+  /** Assign C4 to a random TR at live-round start. */
+  private assignBombCarrier() {
+    const trs = this.state.players.filter((p) => p.team === "TR");
+    const carrier =
+      trs.length > 0
+        ? trs[Math.floor(Math.random() * trs.length)]!
+        : null;
+    this.writeBomb(createBombState(carrier?.id ?? null));
+    this.syncBombVisual();
+    if (carrier) {
+      this.addChat("SYSTEM", `${carrier.name} carrega a C4`, "system");
+    }
+  }
+
+  private siteUnderPlayer(x: number, z: number) {
+    for (const s of this.map.bombSites) {
+      if (isInsideSite(x, z, s)) return s;
+    }
+    return null;
+  }
+
+  private bombIsDown(): boolean {
+    const s = this.state.bombState;
+    return s === "planted" || s === "defusing";
+  }
+
+  private syncBombVisual() {
+    if (this.bombIsDown()) {
+      this.three.setBombVisual({ x: this.state.bombX, z: this.state.bombZ });
+    } else {
+      this.three.setBombVisual(null);
+    }
+  }
+
+  /** Local solo plant / defuse / explode using domains/match/bomb. */
+  private updateBomb(dt: number) {
+    if (this.networked || this.state.phase !== "live") {
+      this.syncBombVisual();
+      return;
+    }
+
+    let bomb = this.readBomb();
+
+    if (bomb.bombState === "planted" || bomb.bombState === "defusing") {
+      bomb = tickBombTimer(bomb, dt);
+      if (bomb.bombTimer <= 0) {
+        bomb = explodeBomb(bomb);
+        this.writeBomb(bomb);
+        this.syncBombVisual();
+        this.endRound("TR", "bomb_exploded");
+        return;
+      }
+      this.writeBomb(bomb);
+    }
+
+    const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
+    if (!p || !p.alive) {
+      this.syncBombVisual();
+      return;
+    }
+
+    const holdingF = this.input.isDown("KeyF");
+    const move = this.input.moveVector();
+    // Free cam pans without moving body → still counts as stationary for plant.
+    const stationary =
+      this.state.cameraMode === "free" || (move.x === 0 && move.z === 0);
+    const site = this.siteUnderPlayer(p.x, p.z);
+
+    const plantOk = canPlant({
+      bomb,
+      playerId: p.id,
+      team: p.team,
+      alive: p.alive,
+      x: p.x,
+      z: p.z,
+      stationary,
+      site,
+    });
+    const defuseOk = canDefuse({
+      bomb,
+      team: p.team,
+      alive: p.alive,
+      x: p.x,
+      z: p.z,
+      radius: DEFUSE_RADIUS,
+    });
+
+    if (plantOk || bomb.bombState === "planting") {
+      bomb = tickPlant(bomb, dt, holdingF, plantOk);
+      if (bomb.plantProgress >= 1 && bomb.bombState === "planting") {
+        bomb = onPlantComplete(bomb, p.x, p.z);
+        this.writeBomb(bomb);
+        this.syncBombVisual();
+        this.addChat("SYSTEM", "C4 plantada!", "system");
+        Sfx.play("ui");
+        return;
+      }
+      this.writeBomb(bomb);
+    } else if (defuseOk || bomb.bombState === "defusing") {
+      bomb = tickDefuse(bomb, dt, holdingF, defuseOk);
+      if (bomb.defuseProgress >= 1 && bomb.bombState === "defusing") {
+        bomb = onDefuseComplete(bomb);
+        this.writeBomb(bomb);
+        this.syncBombVisual();
+        this.endRound("CT", "bomb_defused");
+        return;
+      }
+      this.writeBomb(bomb);
+    }
+
+    this.syncBombVisual();
+  }
+
+  private tryThrowHE(p: PlayerState) {
+    if (this.networked) return;
+    if (!p.alive || (p.heCount ?? 0) <= 0) return;
+    if (this.state.phase !== "live" && this.state.phase !== "warmup") return;
+
+    p.heCount = Math.max(0, (p.heCount ?? 0) - 1);
+    const dirX = Math.sin(p.rot);
+    const dirZ = Math.cos(p.rot);
+    const thrown = throwGrenade(
+      { x: p.x + dirX * 0.6, z: p.z + dirZ * 0.6 },
+      { x: dirX, z: dirZ },
+      1,
+    );
+    const slot = this.heSlotSeq++ % 8;
+    this.heProjectiles.push({
+      slot,
+      ownerId: p.id,
+      x: thrown.origin.x,
+      y: thrown.origin.y,
+      z: thrown.origin.z,
+      vx: thrown.velocity.vx,
+      vy: thrown.velocity.vy,
+      vz: thrown.velocity.vz,
+      age: 0,
+      fuse: thrown.fuse || HE_FUSE,
+    });
+    this.three.spawnHE(
+      thrown.origin.x,
+      thrown.origin.y,
+      thrown.origin.z,
+      false,
+      slot,
+    );
+    Sfx.play("ui");
+  }
+
+  private updateHE(dt: number) {
+    if (this.networked || this.heProjectiles.length === 0) return;
+    const next: typeof this.heProjectiles = [];
+    for (const g of this.heProjectiles) {
+      g.age += dt;
+      g.vy -= HE_GRAVITY * dt;
+      g.x += g.vx * dt;
+      g.y += g.vy * dt;
+      g.z += g.vz * dt;
+
+      let explodeNow = false;
+      if (g.y <= 0) {
+        g.y = 0;
+        explodeNow = true;
+      }
+      if (g.age >= g.fuse) explodeNow = true;
+
+      if (explodeNow) {
+        this.three.spawnHE(g.x, g.y, g.z, true, g.slot);
+        const owner = this.state.players.find((pl) => pl.id === g.ownerId);
+        const hits = explodeAt(
+          g.x,
+          g.z,
+          this.state.players.map((pl) => ({
+            id: pl.id,
+            x: pl.x,
+            z: pl.z,
+            alive: pl.alive,
+          })),
+        );
+        for (const hit of hits) {
+          const victim = this.state.players.find((pl) => pl.id === hit.id);
+          if (!victim || !victim.alive) continue;
+          const killer = owner ?? victim;
+          this.applyDamage(victim, killer, hit.damage, "HE");
+          this.three.spawnDamageNumber(
+            victim.x,
+            1.4,
+            victim.z,
+            `-${Math.round(hit.damage)}`,
+          );
+        }
+        continue;
+      }
+
+      this.three.spawnHE(g.x, g.y, g.z, false, g.slot);
+      next.push(g);
+    }
+    this.heProjectiles = next;
+  }
 
   /**
    * @param canvas WebGL host
@@ -460,6 +709,7 @@ export class GameClient {
         assists: existing?.assists ?? 0,
         lastShotAt: existing?.lastShotAt ?? 0,
         reloadingUntil: existing?.reloadingUntil ?? 0,
+        heCount: existing?.heCount ?? 0,
         color: TEAM_COLORS[team],
       });
     }
@@ -642,6 +892,7 @@ export class GameClient {
       weaponSlot: 2,
       weapons,
       ammo,
+      heCount: 0,
       alive: true,
       kills: 0,
       deaths: 0,
@@ -755,6 +1006,8 @@ export class GameClient {
     this.updateLocalPlayer(dt);
     this.updateBots(dt);
     this.updateBullets(dt);
+    this.updateBomb(dt);
+    this.updateHE(dt);
     this.three.animateDust(dt);
     this.three.updateFx(dt);
     this.syncRender();
@@ -840,6 +1093,7 @@ export class GameClient {
         weapons: p.weapons,
         ammo: p.ammo,
         weaponSlot: p.weaponSlot,
+        heCount: p.heCount ?? 0,
       },
       itemId,
     );
@@ -853,6 +1107,7 @@ export class GameClient {
     p.weapons = result.player.weapons;
     p.ammo = result.player.ammo;
     p.weaponSlot = result.player.weaponSlot;
+    if (result.player.heCount != null) p.heCount = result.player.heCount;
     this.flashBuyMessage(result.message);
     Sfx.play("buy");
   }
@@ -1008,9 +1263,11 @@ export class GameClient {
 
   private beginLiveRoundEffects() {
     this.state.bullets = [];
+    this.heProjectiles = [];
     this.clearSpectator();
     this.addChat("SYSTEM", `ROUND ${this.state.round} — boa sorte`, "system");
     for (const p of this.state.players) this.respawnPlayer(p);
+    this.assignBombCarrier();
   }
 
   private applyRoundEndEffects(winner: Team, reason?: RoundBannerKind) {
@@ -1020,6 +1277,9 @@ export class GameClient {
     for (const p of this.state.players) {
       p.money = moneyAfterRound(p.team, winner, p.money);
     }
+    // Freeze bomb/HE visuals until next live assign
+    this.heProjectiles = [];
+    this.three.setBombVisual(null);
   }
 
   /** Full-width toast for 2.5s (spec §2.2). */
@@ -1154,7 +1414,7 @@ export class GameClient {
         alive: local.alive,
         x: local.x,
         z: local.z,
-        radius: GameClient.DEFUSE_RADIUS,
+        radius: DEFUSE_RADIUS,
       })
     ) {
       return "Segure F para desarmar";
@@ -1229,6 +1489,10 @@ export class GameClient {
 
     if (this.input.wasPressed("KeyR")) {
       this.startReload(p);
+    }
+
+    if (this.input.wasPressed("KeyG")) {
+      this.tryThrowHE(p);
     }
 
     if (this.input.isMouseDown(0) && p.reloadingUntil <= 0) {
@@ -1566,7 +1830,8 @@ export class GameClient {
         const ctAlive = this.state.players.some(
           (p) => p.team === "CT" && p.alive,
         );
-        if (!trAlive) this.endRound("CT");
+        // Bomb planted: CT must defuse even if all TR dead.
+        if (!trAlive && !this.bombIsDown()) this.endRound("CT");
         else if (!ctAlive) this.endRound("TR");
       }
 
