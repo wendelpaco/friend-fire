@@ -46,6 +46,9 @@ import {
 const MATCH_SIZE = 6;
 const TICK_MS = 50; // 20 Hz
 const BOT_NAMES = ["Lucão", "Pedrão", "Enzo", "Davi", "Theo", "Rafa"];
+const KILL_REWARD = 300;
+const ROUND_WIN_REWARD = 3250;
+const ROUND_LOSS_REWARD = 1400;
 
 export type GameRoomOptions = {
   code?: string;
@@ -208,6 +211,14 @@ export class GameRoom extends Room<MatchState> {
     const prev = this.phase.phase;
     this.phase = tickPhase(this.phase, dt);
     this.applyPhaseToState();
+
+    // Timer expired live → CT win (tickPhase); pay round money once
+    if (
+      prev === "live" &&
+      (this.phase.phase === "ended" || this.phase.phase === "match_over")
+    ) {
+      this.payoutRound("CT");
+    }
 
     if (
       this.phase.phase === "live" &&
@@ -413,6 +424,9 @@ export class GameRoom extends Room<MatchState> {
       hit.alive = false;
       hit.deaths += 1;
       shooter.kills += 1;
+      if (this.phase.phase === "live") {
+        shooter.money += KILL_REWARD;
+      }
 
       if (this.phase.phase === "warmup") {
         const id = hit.id;
@@ -437,10 +451,18 @@ export class GameRoom extends Room<MatchState> {
     if (tr === 0 && ct > 0) {
       this.phase = onRoundWin(this.phase, "CT");
       this.applyPhaseToState();
+      this.payoutRound("CT");
     } else if (ct === 0 && tr > 0) {
       this.phase = onRoundWin(this.phase, "TR");
       this.applyPhaseToState();
+      this.payoutRound("TR");
     }
+  }
+
+  private payoutRound(winner: Team) {
+    this.state.players.forEach((p) => {
+      p.money += p.team === winner ? ROUND_WIN_REWARD : ROUND_LOSS_REWARD;
+    });
   }
 
   private respawnAll() {
