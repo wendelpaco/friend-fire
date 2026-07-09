@@ -14,11 +14,16 @@
  *
  * ## Fix (this controller)
  *
+ * - Move vector is EMA-smoothed, then gated through **hysteresis**
+ *   (enter high, exit low) so noisy snapshot deltas near the threshold
+ *   don't flicker the facing target frame to frame.
  * - While moving: **body yaw → velocity direction** (chest follows feet).
  * - While idle: **body yaw → aim** (ready stance on crosshair).
+ * - Body yaw turns are **rate-capped** — a 180° reversal pivots visibly
+ *   instead of snapping instantly.
  * - **Torso twist** (clamped) toward aim so the gun still tracks the mouse.
  * - Locomotion blend from angle between move and body facing
- *   (forward / back / strafe L / R).
+ *   (forward / back / strafe L / R), smoothed per channel to kill pops.
  *
  * ## Yaw math (Three.js Y-up, model faces **+Z**)
  *
@@ -34,11 +39,12 @@
  */
 
 import {
-  DEFAULT_RUN_THRESHOLD,
   MODEL_YAW_OFFSET_PROCEDURAL,
-  bodyYawTarget,
+  bodyYawTargetMoving,
   deltaAngle,
   locomotionWeights,
+  movingHysteresis,
+  smoothWeights,
   smoothYaw,
   type LocomotionWeights,
 } from "@/domains/fx";
@@ -68,9 +74,23 @@ export type CharacterControllerState = {
 /** Max upper-body twist toward aim while hips follow velocity. */
 const MAX_TORSO_TWIST = 1.15; // ~66°
 /** How fast body yaw catches velocity / aim. */
-const TURN_LAMBDA = 14;
+const TURN_LAMBDA = 9;
+/** Hard cap on body turn speed — 180° reversals pivot, never snap. */
+const MAX_TURN_RATE = 12.5; // rad/s ≈ 720°/s
 /** How fast torso twist eases. */
 const TWIST_LAMBDA = 16;
+/** EMA on the raw move vector — snapshot deltas are noisy frame to frame. */
+const VEL_LAMBDA = 20;
+/** Locomotion blend settle ≈120 ms. */
+const WEIGHT_LAMBDA = 14;
+
+const IDLE_WEIGHTS: LocomotionWeights = {
+  idle: 1,
+  forward: 0,
+  backward: 0,
+  strafeLeft: 0,
+  strafeRight: 0,
+};
 
 export class CharacterController {
   /**
@@ -82,6 +102,10 @@ export class CharacterController {
   private bodyYaw = 0;
   private torsoTwist = 0;
   private initialized = false;
+  private smoothX = 0;
+  private smoothZ = 0;
+  private moving = false;
+  private weights: LocomotionWeights = { ...IDLE_WEIGHTS };
 
   constructor(modelYawOffset: number = MODEL_YAW_OFFSET_PROCEDURAL) {
     this.modelYawOffset = modelYawOffset;
@@ -91,6 +115,10 @@ export class CharacterController {
   reset(aimYaw: number): void {
     this.bodyYaw = aimYaw;
     this.torsoTwist = 0;
+    this.smoothX = 0;
+    this.smoothZ = 0;
+    this.moving = false;
+    this.weights = { ...IDLE_WEIGHTS };
     this.initialized = true;
   }
 
@@ -100,21 +128,30 @@ export class CharacterController {
    */
   update(input: CharacterControllerInput): CharacterControllerState {
     const { moveX, moveZ, aimYaw, dt } = input;
-    const speed = Math.hypot(moveX, moveZ);
 
     if (!this.initialized) {
       this.bodyYaw = aimYaw;
       this.initialized = true;
     }
 
-    // 1) Target body yaw: velocity when walking, aim when idle
-    const target = bodyYawTarget(
-      moveX,
-      moveZ,
+    // 0) EMA the move vector — raw snapshot deltas jitter around thresholds
+    const velAlpha = 1 - Math.exp(-VEL_LAMBDA * Math.max(0, dt));
+    const mx = Number.isFinite(moveX) ? moveX : 0;
+    const mz = Number.isFinite(moveZ) ? moveZ : 0;
+    this.smoothX += (mx - this.smoothX) * velAlpha;
+    this.smoothZ += (mz - this.smoothZ) * velAlpha;
+    const speed = Math.hypot(this.smoothX, this.smoothZ);
+
+    // 1) Move/idle with hysteresis, then body yaw: velocity when moving,
+    //    aim when idle — rate-capped so reversals pivot instead of snapping
+    this.moving = movingHysteresis(this.moving, speed);
+    const target = bodyYawTargetMoving(
+      this.moving,
+      this.smoothX,
+      this.smoothZ,
       aimYaw,
-      DEFAULT_RUN_THRESHOLD,
     );
-    this.bodyYaw = smoothYaw(this.bodyYaw, target, dt, TURN_LAMBDA);
+    this.bodyYaw = smoothYaw(this.bodyYaw, target, dt, TURN_LAMBDA, MAX_TURN_RATE);
 
     // 2) Torso twists toward aim (gun tracks mouse without moonwalking hips)
     const desiredTwist = clamp(
@@ -125,19 +162,17 @@ export class CharacterController {
     const twistAlpha = 1 - Math.exp(-TWIST_LAMBDA * Math.max(0, dt));
     this.torsoTwist += (desiredTwist - this.torsoTwist) * twistAlpha;
 
-    // 3) Locomotion weights in **body** space (after hips face move → mostly forward)
-    const weights = locomotionWeights(
-      moveX,
-      moveZ,
-      this.bodyYaw,
-      DEFAULT_RUN_THRESHOLD,
-    );
+    // 3) Locomotion weights in body space, smoothed per channel (kills pops)
+    const rawWeights = this.moving
+      ? locomotionWeights(this.smoothX, this.smoothZ, this.bodyYaw, 1e-4)
+      : IDLE_WEIGHTS;
+    this.weights = smoothWeights(this.weights, rawWeights, dt, WEIGHT_LAMBDA);
 
     return {
       bodyYaw: this.bodyYaw,
       visualYaw: this.bodyYaw + this.modelYawOffset,
       torsoTwist: this.torsoTwist,
-      weights,
+      weights: this.weights,
       speed,
     };
   }
