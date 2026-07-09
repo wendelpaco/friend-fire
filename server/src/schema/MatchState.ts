@@ -24,6 +24,8 @@ export class PlayerState extends Schema {
   /** Mag/reserve for currently active firearm (knife: unused) */
   @type("number") mag: number = 0;
   @type("number") reserve: number = 0;
+  /** HE grenades carried (0–2) */
+  @type("number") heCount: number = 0;
 }
 
 export class MatchState extends Schema {
@@ -45,6 +47,26 @@ export class MatchState extends Schema {
   @type("string") region: string = "BR";
   /** Server combat authority active */
   @type("boolean") authoritative: boolean = true;
+
+  /**
+   * C4: carried | planting | planted | defusing | exploded | defused
+   * Empty string when inactive (pre-round).
+   */
+  @type("string") bombState: string = "";
+  @type("number") bombX: number = 0;
+  @type("number") bombZ: number = 0;
+  /** Seconds to explode when planted (default 40). */
+  @type("number") bombTimer: number = 40;
+  /** TR session id holding C4 (empty if planted / none). */
+  @type("string") bombCarrierId: string = "";
+  @type("number") plantProgress: number = 0;
+  @type("number") defuseProgress: number = 0;
+  /**
+   * Last round end reason for banners:
+   * elimination | time | bomb_exploded | bomb_defused | ""
+   */
+  @type("string") roundEndReason: string = "";
+
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
 }
 
@@ -57,6 +79,10 @@ export interface InputMessage {
   fire: boolean;
   reload: boolean;
   slot: number;
+  /** Hold F — plant (TR+carrier) or defuse (CT near bomb). */
+  plant: boolean;
+  /** Edge: throw HE if heCount > 0. */
+  he: boolean;
 }
 
 /** Client → server buy message */

@@ -6,10 +6,36 @@ import {
   type InputMessage,
 } from "../schema/MatchState";
 import {
+  canDefuse,
+  canPlant,
+  createBombState,
+  DEFUSE_RADIUS,
+  explode,
+  findSiteAt,
+  getBombSites,
+  isBombPlantedActive,
+  onDefuseComplete,
+  onPlantComplete,
+  pickBombCarrier,
+  resetBombForRound,
+  tickBombTimer,
+  tickDefuse,
+  tickPlant,
+  type BombSimState,
+  type RoundEndReason,
+} from "../sim/bomb";
+import {
   generateRoomCode,
   isValidRoomCode,
   normalizeRoomCode,
 } from "../sim/codes";
+import {
+  createHeProjectile,
+  heDamageAtDistance,
+  heImpactPoint,
+  tickHeProjectile,
+  type HeProjectile,
+} from "../sim/he";
 import {
   createMatchPhase,
   onRoundWin,
@@ -103,10 +129,13 @@ type RuntimeExtra = {
   aimZ: number;
   /** Per-weapon ammo (primary/secondary ids). */
   ammo: AmmoMap;
+  /** Edge-detect HE throw (hold G). */
+  heHeld: boolean;
 };
 
 /**
- * Authoritative private match: movement, hitscan fire, bots, rounds, shop.
+ * Authoritative private match: movement, hitscan fire, bots, rounds, shop,
+ * C4 plant/defuse, simplified HE.
  * `maxClients` (= MATCH_SIZE) is enforced by Colyseus; we also reject in
  * onAuth/onJoin with "Sala cheia" for a clear client-facing message.
  */
@@ -117,6 +146,10 @@ export class GameRoom extends Room<MatchState> {
   private botSeq = 0;
   private inputs = new Map<string, InputMessage>();
   private extras = new Map<string, RuntimeExtra>();
+  private bomb: BombSimState = createBombState();
+  private heProjectiles: HeProjectile[] = [];
+  private heSeq = 0;
+
   async onCreate(options: GameRoomOptions = {}) {
     this.setState(new MatchState());
     this.state.authoritative = true;
@@ -153,6 +186,7 @@ export class GameRoom extends Room<MatchState> {
     } satisfies GameRoomMetadata);
 
     this.applyPhaseToState();
+    this.syncBombToState();
     this.syncBots();
 
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs / 1000), TICK_MS);
@@ -169,6 +203,8 @@ export class GameRoom extends Room<MatchState> {
         fire: Boolean(message?.fire),
         reload: Boolean(message?.reload),
         slot: Number(message?.slot) || 0,
+        plant: Boolean(message?.plant),
+        he: Boolean(message?.he),
       });
     });
 
@@ -235,6 +271,7 @@ export class GameRoom extends Room<MatchState> {
       aimX: player.x,
       aimZ: player.z,
       ammo,
+      heHeld: false,
     });
     this.syncBots();
 
@@ -271,6 +308,7 @@ export class GameRoom extends Room<MatchState> {
         activeSlot: p.activeSlot,
         mag: p.mag,
         reserve: p.reserve,
+        heCount: p.heCount,
       },
       itemId,
       ex.ammo,
@@ -285,20 +323,32 @@ export class GameRoom extends Room<MatchState> {
     p.activeSlot = result.player.activeSlot;
     p.mag = result.player.mag;
     p.reserve = result.player.reserve;
+    p.heCount = result.player.heCount;
     if (result.ammo) ex.ammo = result.ammo;
   }
 
   private tick(dt: number) {
     const prev = this.phase.phase;
-    this.phase = tickPhase(this.phase, dt);
+    const bombActive = isBombPlantedActive(this.bomb);
+
+    // While bomb is planted, round clock does not CT-win on expiry (CS style).
+    if (this.phase.phase === "live" && bombActive) {
+      const tl = this.phase.timeLeft - dt;
+      this.phase = { ...this.phase, timeLeft: Math.max(0, tl) };
+    } else {
+      this.phase = tickPhase(this.phase, dt);
+    }
     this.applyPhaseToState();
 
-    // Timer expired live → CT win (tickPhase); pay round money once
+    // Timer expired live → CT win (tickPhase already advanced phase)
     if (
       prev === "live" &&
       (this.phase.phase === "ended" || this.phase.phase === "match_over")
     ) {
+      this.state.roundEndReason = "time";
       this.payoutRound("CT");
+      this.heProjectiles = [];
+      this.syncBombToState();
     }
 
     if (
@@ -306,6 +356,7 @@ export class GameRoom extends Room<MatchState> {
       (prev === "warmup" || prev === "ended")
     ) {
       this.respawnAll();
+      this.assignBombCarrier();
     }
 
     if (this.phase.phase === "match_over") {
@@ -352,11 +403,27 @@ export class GameRoom extends Room<MatchState> {
       if (input.fire && ex.fireCd <= 0) {
         this.tryFire(p, ex);
       }
+
+      // HE throw (edge on he:true)
+      if (input.he && !ex.heHeld) {
+        this.tryThrowHe(p, ex);
+      }
+      ex.heHeld = input.he;
     });
 
     // Bots
     if (this.phase.phase === "live" || this.phase.phase === "warmup") {
       this.tickBots(dt);
+    }
+
+    // HE fuse + blast
+    if (this.phase.phase === "live" || this.phase.phase === "warmup") {
+      this.tickHe(dt);
+    }
+
+    // C4 plant / defuse / explode (live only)
+    if (this.phase.phase === "live") {
+      this.tickBombSim(dt);
     }
 
     // Round wipe check (live only)
@@ -522,6 +589,13 @@ export class GameRoom extends Room<MatchState> {
   }
 
   private checkWipe() {
+    // Bomb already resolved this round
+    if (
+      this.bomb.bombState === "exploded" ||
+      this.bomb.bombState === "defused"
+    ) {
+      return;
+    }
     let tr = 0;
     let ct = 0;
     this.state.players.forEach((p) => {
@@ -529,21 +603,258 @@ export class GameRoom extends Room<MatchState> {
       if (p.team === "TR") tr += 1;
       else ct += 1;
     });
+    // If bomb is planted and all CT dead → TR win (wipe); all TR dead → CT win
+    // even while bomb planted (classic: CTs can still defuse if TRs dead — actually
+    // in CS if all TRs die and bomb is planted, CTs must defuse). Spec: wipe still
+    // works; if bomb planted and all CT dead → TR win.
     if (tr === 0 && ct > 0) {
-      this.phase = onRoundWin(this.phase, "CT");
-      this.applyPhaseToState();
-      this.payoutRound("CT");
+      if (isBombPlantedActive(this.bomb)) {
+        // CTs remain to defuse — do not end yet
+        return;
+      }
+      this.finishRound("CT", "elimination");
     } else if (ct === 0 && tr > 0) {
-      this.phase = onRoundWin(this.phase, "TR");
-      this.applyPhaseToState();
-      this.payoutRound("TR");
+      this.finishRound("TR", "elimination");
     }
+  }
+
+  /** End live round with reason (idempotent if already ended). */
+  private finishRound(winner: Team, reason: RoundEndReason) {
+    if (this.phase.phase !== "live") return;
+    this.state.roundEndReason = reason;
+    this.phase = onRoundWin(this.phase, winner);
+    this.applyPhaseToState();
+    this.payoutRound(winner);
+    this.heProjectiles = [];
+    this.syncBombToState();
   }
 
   private payoutRound(winner: Team) {
     this.state.players.forEach((p) => {
       p.money += p.team === winner ? ROUND_WIN_REWARD : ROUND_LOSS_REWARD;
     });
+  }
+
+  private assignBombCarrier() {
+    const trIds: string[] = [];
+    this.state.players.forEach((p) => {
+      if (p.team === "TR" && p.alive) trIds.push(p.id);
+    });
+    const carrierId = pickBombCarrier(trIds);
+    this.bomb = resetBombForRound(carrierId);
+    this.state.roundEndReason = "";
+    this.heProjectiles = [];
+    this.syncBombToState();
+  }
+
+  private tickBombSim(dt: number) {
+    if (
+      this.bomb.bombState === "exploded" ||
+      this.bomb.bombState === "defused"
+    ) {
+      return;
+    }
+
+    const sites = getBombSites(this.state.mapId);
+    let bomb = this.bomb;
+
+    // Carrier died while holding → reassign to living TR
+    if (
+      (bomb.bombState === "carried" || bomb.bombState === "planting") &&
+      bomb.bombCarrierId
+    ) {
+      const carrier = this.state.players.get(bomb.bombCarrierId);
+      if (!carrier || !carrier.alive || carrier.team !== "TR") {
+        const trIds: string[] = [];
+        this.state.players.forEach((p) => {
+          if (p.team === "TR" && p.alive) trIds.push(p.id);
+        });
+        const next = pickBombCarrier(trIds);
+        bomb = {
+          ...bomb,
+          bombState: "carried",
+          bombCarrierId: next || null,
+          plantProgress: 0,
+        };
+      }
+    }
+
+    // --- Plant ---
+    if (bomb.bombState === "carried" || bomb.bombState === "planting") {
+      const carrierId = bomb.bombCarrierId;
+      const carrier = carrierId
+        ? this.state.players.get(carrierId)
+        : undefined;
+      const input = carrierId ? this.inputs.get(carrierId) : undefined;
+      const holding = Boolean(input?.plant);
+      const stationary = !(
+        input &&
+        (Math.abs(input.dx) > 0.01 || Math.abs(input.dz) > 0.01)
+      );
+      const site =
+        carrier != null
+          ? findSiteAt(carrier.x, carrier.z, sites)
+          : null;
+      const plantOk =
+        carrier != null &&
+        canPlant({
+          bomb,
+          playerId: carrier.id,
+          team: "TR",
+          alive: carrier.alive,
+          x: carrier.x,
+          z: carrier.z,
+          stationary,
+          site,
+        });
+
+      bomb = tickPlant(bomb, dt, holding, plantOk);
+      if (bomb.plantProgress >= 1 && bomb.bombState === "planting" && carrier) {
+        bomb = onPlantComplete(bomb, carrier.x, carrier.z);
+      }
+      this.bomb = bomb;
+      this.syncBombToState();
+      return;
+    }
+
+    // --- Fuse ---
+    bomb = tickBombTimer(bomb, dt);
+    if (bomb.bombTimer <= 0) {
+      bomb = explode(bomb);
+      this.bomb = bomb;
+      this.syncBombToState();
+      this.finishRound("TR", "bomb_exploded");
+      return;
+    }
+
+    // --- Defuse (CT humans + bots near bomb) ---
+    let defuseHolding = false;
+    let defuseOk = false;
+    this.state.players.forEach((p) => {
+      if (!p.alive || p.team !== "CT") return;
+      if (
+        !canDefuse({
+          bomb,
+          team: "CT",
+          alive: true,
+          x: p.x,
+          z: p.z,
+          radius: DEFUSE_RADIUS,
+        })
+      ) {
+        return;
+      }
+      if (p.isBot) {
+        defuseHolding = true;
+        defuseOk = true;
+        return;
+      }
+      const input = this.inputs.get(p.id);
+      if (input?.plant) {
+        defuseHolding = true;
+        defuseOk = true;
+      }
+    });
+
+    bomb = tickDefuse(bomb, dt, defuseHolding, defuseOk);
+    if (bomb.defuseProgress >= 1 && bomb.bombState === "defusing") {
+      bomb = onDefuseComplete(bomb);
+      this.bomb = bomb;
+      this.syncBombToState();
+      this.finishRound("CT", "bomb_defused");
+      return;
+    }
+
+    this.bomb = bomb;
+    this.syncBombToState();
+  }
+
+  private tryThrowHe(p: PlayerState, ex: RuntimeExtra) {
+    if (p.heCount <= 0) return;
+    if (this.phase.phase !== "live" && this.phase.phase !== "warmup") return;
+
+    p.heCount -= 1;
+    const impact = heImpactPoint(p.x, p.z, ex.aimX, ex.aimZ, p.rot);
+    this.heSeq += 1;
+    const proj = createHeProjectile(
+      `he_${this.heSeq}`,
+      p.id,
+      p.team,
+      impact.x,
+      impact.z,
+    );
+    this.heProjectiles.push(proj);
+    // Optional client FX hook
+    this.broadcast("he_throw", {
+      id: proj.id,
+      ownerId: p.id,
+      x: proj.x,
+      z: proj.z,
+      fuse: proj.fuseLeft,
+    });
+  }
+
+  private tickHe(dt: number) {
+    if (this.heProjectiles.length === 0) return;
+    const next: HeProjectile[] = [];
+    for (const proj of this.heProjectiles) {
+      const { proj: updated, exploded } = tickHeProjectile(proj, dt);
+      if (!exploded) {
+        next.push(updated);
+        continue;
+      }
+      this.applyHeBlast(updated);
+    }
+    this.heProjectiles = next;
+  }
+
+  private applyHeBlast(proj: HeProjectile) {
+    this.broadcast("he_explode", { id: proj.id, x: proj.x, z: proj.z });
+    const victims: PlayerState[] = [];
+    this.state.players.forEach((other) => {
+      if (!other.alive || other.id === proj.ownerId) return;
+      // Friendly fire off
+      if (other.team === proj.team) return;
+      const dist = Math.hypot(other.x - proj.x, other.z - proj.z);
+      const raw = heDamageAtDistance(dist);
+      if (raw <= 0) return;
+      const dmg = applyDamage(other.hp, other.armor, raw);
+      other.hp = dmg.hp;
+      other.armor = dmg.armor;
+      if (other.hp <= 0) {
+        other.hp = 0;
+        other.alive = false;
+        other.deaths += 1;
+        const killer = this.state.players.get(proj.ownerId);
+        if (killer) {
+          killer.kills += 1;
+          if (this.phase.phase === "live") {
+            killer.money += KILL_REWARD;
+          }
+        }
+        victims.push(other);
+        if (this.phase.phase === "warmup") {
+          const id = other.id;
+          setTimeout(() => {
+            const p = this.state.players.get(id);
+            if (p && this.phase.phase === "warmup" && !p.alive) {
+              this.respawnOne(p);
+            }
+          }, 2000);
+        }
+      }
+    });
+    void victims;
+  }
+
+  private syncBombToState() {
+    this.state.bombState = this.bomb.bombState;
+    this.state.bombX = this.bomb.bombX;
+    this.state.bombZ = this.bomb.bombZ;
+    this.state.bombTimer = this.bomb.bombTimer;
+    this.state.bombCarrierId = this.bomb.bombCarrierId ?? "";
+    this.state.plantProgress = this.bomb.plantProgress;
+    this.state.defuseProgress = this.bomb.defuseProgress;
   }
 
   private respawnAll() {
@@ -556,6 +867,7 @@ export class GameRoom extends Room<MatchState> {
     this.applySpawn(p);
     const ex = this.ensureExtra(p.id, p);
     ex.fireCd = 0;
+    ex.heHeld = false;
   }
 
   private applyHumanLoadout(p: PlayerState): AmmoMap {
@@ -569,6 +881,7 @@ export class GameRoom extends Room<MatchState> {
     p.mag = pack.mag;
     p.reserve = pack.reserve;
     p.armor = 0;
+    p.heCount = 0;
     return { [secondary]: { ...pack } };
   }
 
@@ -586,6 +899,7 @@ export class GameRoom extends Room<MatchState> {
     p.mag = secPack.mag;
     p.reserve = secPack.reserve;
     p.armor = p.team === "CT" ? 50 : 0;
+    p.heCount = 0;
     return {
       [secondary]: { ...secPack },
       [primary]: { ...priPack },
@@ -623,7 +937,7 @@ export class GameRoom extends Room<MatchState> {
         const w = getWeapon(p.primaryId);
         if (w) ammo[p.primaryId] = fullAmmo(w);
       }
-      ex = { fireCd: 0, aimX: p.x, aimZ: p.z, ammo };
+      ex = { fireCd: 0, aimX: p.x, aimZ: p.z, ammo, heHeld: false };
       this.extras.set(id, ex);
     }
     return ex;
@@ -672,7 +986,13 @@ export class GameRoom extends Room<MatchState> {
       this.applySpawn(p);
       const ammo = this.applyBotLoadout(p);
       this.state.players.set(id, p);
-      this.extras.set(id, { fireCd: 0, aimX: p.x, aimZ: p.z, ammo });
+      this.extras.set(id, {
+        fireCd: 0,
+        aimX: p.x,
+        aimZ: p.z,
+        ammo,
+        heHeld: false,
+      });
       bots += 1;
     }
 

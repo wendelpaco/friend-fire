@@ -17,6 +17,7 @@ export interface ShopCatalogItem {
   category: ShopCategory;
   weaponId?: WeaponId;
   armorAmount?: number;
+  heAmount?: number;
 }
 
 export const SHOP_CATALOG: ShopCatalogItem[] = [
@@ -28,6 +29,8 @@ export const SHOP_CATALOG: ShopCatalogItem[] = [
   { id: "ak47", name: "AK-47", price: 2700, category: "rifle", weaponId: "ak47" },
   { id: "awp", name: "AWP", price: 4750, category: "sniper", weaponId: "awp" },
   { id: "armor", name: "COLETE", price: 650, category: "gear", armorAmount: 100 },
+  /** HE grenade — grants +1 heCount (max 2). */
+  { id: "he", name: "GRANADA HE", price: 300, category: "gear", heAmount: 1 },
 ];
 
 export type RoundPhase = "warmup" | "live" | "ended" | "match_over";
@@ -49,9 +52,12 @@ export interface BuyLoadout {
   activeSlot: number;
   mag: number;
   reserve: number;
+  heCount: number;
 }
 
 export type AmmoMap = Record<string, { mag: number; reserve: number }>;
+
+const HE_MAX = 2;
 
 export function tryBuy(
   player: BuyLoadout,
@@ -72,8 +78,23 @@ export function tryBuy(
     activeSlot: player.activeSlot,
     mag: player.mag,
     reserve: player.reserve,
+    heCount: player.heCount,
   };
   const nextAmmo: AmmoMap = { ...ammo };
+
+  if (item.id === "he") {
+    if (player.heCount >= HE_MAX) {
+      return { ok: false, reason: "Máximo de HE" };
+    }
+    next.heCount = player.heCount + 1;
+    return {
+      ok: true,
+      money: next.money,
+      message: `Comprou ${item.name}`,
+      player: next,
+      ammo: nextAmmo,
+    };
+  }
 
   if (item.armorAmount != null) {
     if (player.armor >= item.armorAmount) {
