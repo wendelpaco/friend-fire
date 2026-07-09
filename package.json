@@ -4,12 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:server": "npm run dev --prefix server",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest"
   },
+
   "dependencies": {
     "next": "16.2.10",
     "react": "19.2.4",
