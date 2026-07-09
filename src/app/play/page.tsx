@@ -53,7 +53,14 @@ function PlayContent() {
 
 export default function PlayPage() {
   return (
-    <div className="relative h-dvh w-screen overflow-hidden bg-black">
+    <div className="relative h-dvh w-screen overflow-hidden bg-[#0a1520]">
+      {/* Soft tropical frame — RUSH-B style presentation chrome */}
+      <div
+        className="pointer-events-none absolute inset-0 z-30 shadow-[inset_0_0_80px_rgba(0,20,40,0.55)]"
+        aria-hidden
+      />
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 h-8 bg-gradient-to-b from-sky-900/40 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-10 bg-gradient-to-t from-amber-950/35 to-transparent" />
       <Suspense fallback={<PlayLoading />}>
         <PlayContent />
       </Suspense>

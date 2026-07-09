@@ -22,7 +22,7 @@ export interface PropBox {
   d: number;
   h: number;
   color: number;
-  kind?: "crate" | "barrel" | "car" | "dumpster";
+  kind?: "crate" | "barrel" | "car" | "dumpster" | "container" | "debris" | "pole";
 }
 
 export interface SpawnPoint {
