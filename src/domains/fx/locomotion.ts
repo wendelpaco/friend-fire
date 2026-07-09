@@ -265,6 +265,41 @@ export function locomotionWeights(
 }
 
 /**
+ * Exponentially smooth locomotion weights per channel, then renormalize so
+ * all five channels sum to 1. Raw `locomotionWeights()` output jumps 0→1
+ * when direction flips — smoothing (~120 ms at λ=14) is what removes the
+ * visible animation "pop" between idle/forward/backward/strafe states.
+ * Pure: returns a new object, never mutates inputs.
+ */
+export function smoothWeights(
+  current: LocomotionWeights,
+  target: LocomotionWeights,
+  dt: number,
+  lambda = 14,
+): LocomotionWeights {
+  if (!(dt > 0) || !Number.isFinite(dt)) return { ...current };
+  const a = 1 - Math.exp(-lambda * dt);
+  const mix = (c: number, t: number) => c + (t - c) * a;
+  const w: LocomotionWeights = {
+    idle: mix(current.idle, target.idle),
+    forward: mix(current.forward, target.forward),
+    backward: mix(current.backward, target.backward),
+    strafeLeft: mix(current.strafeLeft, target.strafeLeft),
+    strafeRight: mix(current.strafeRight, target.strafeRight),
+  };
+  const sum = w.idle + w.forward + w.backward + w.strafeLeft + w.strafeRight;
+  if (!(sum > 1e-6)) {
+    return { idle: 1, forward: 0, backward: 0, strafeLeft: 0, strafeRight: 0 };
+  }
+  w.idle /= sum;
+  w.forward /= sum;
+  w.backward /= sum;
+  w.strafeLeft /= sum;
+  w.strafeRight /= sum;
+  return w;
+}
+
+/**
  * Procedural rig faces +Z. GLTF humanoids often face −Z → use `Math.PI`.
  */
 export const MODEL_YAW_OFFSET_PROCEDURAL = 0;

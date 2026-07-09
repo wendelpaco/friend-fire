@@ -13,8 +13,10 @@ import {
   movingHysteresis,
   MOVE_ENTER_SPEED,
   MOVE_EXIT_SPEED,
+  smoothWeights,
   smoothYaw,
   yawFromDirection,
+  type LocomotionWeights,
 } from "./locomotion";
 
 describe("locomotionFromSpeed", () => {
@@ -203,5 +205,47 @@ describe("bodyYawTargetMoving", () => {
 
   it("falls back to aim on zero vector even while moving", () => {
     expect(bodyYawTargetMoving(true, 0, 0, 1.2)).toBeCloseTo(1.2);
+  });
+});
+
+describe("smoothWeights", () => {
+  const idle: LocomotionWeights = {
+    idle: 1,
+    forward: 0,
+    backward: 0,
+    strafeLeft: 0,
+    strafeRight: 0,
+  };
+  const fwd: LocomotionWeights = {
+    idle: 0,
+    forward: 1,
+    backward: 0,
+    strafeLeft: 0,
+    strafeRight: 0,
+  };
+
+  it("converges to target and stays normalized every frame", () => {
+    let w = { ...idle };
+    const dt = 1 / 60;
+    for (let i = 0; i < 60; i++) {
+      w = smoothWeights(w, fwd, dt);
+      const sum =
+        w.idle + w.forward + w.backward + w.strafeLeft + w.strafeRight;
+      expect(sum).toBeCloseTo(1, 5);
+    }
+    expect(w.forward).toBeGreaterThan(0.99);
+  });
+
+  it("does not jump: first frame moves only a fraction toward target", () => {
+    const w = smoothWeights({ ...idle }, fwd, 1 / 60);
+    expect(w.forward).toBeGreaterThan(0);
+    expect(w.forward).toBeLessThan(0.4); // λ=14 @60fps ≈ 0.21 per frame
+  });
+
+  it("returns current unchanged for non-positive dt and never mutates inputs", () => {
+    const cur = { ...idle };
+    const out = smoothWeights(cur, fwd, 0);
+    expect(out).toEqual(idle);
+    expect(cur).toEqual(idle);
   });
 });
