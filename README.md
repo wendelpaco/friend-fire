@@ -12,6 +12,7 @@ Shooter tático **top-down** no navegador, inspirado no vibe do [RUSH B](https:/
 - Sponsor one-pager: [`docs/sponsors.md`](docs/sponsors.md)
 - Wave 3 features: [`docs/superpowers/specs/2026-07-09-wave3-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave3-product-features-design.md) · short runbook [`docs/wave3.md`](docs/wave3.md)
 - Wave 4 features: [`docs/superpowers/specs/2026-07-09-wave4-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave4-product-features-design.md) · short runbook [`docs/wave4.md`](docs/wave4.md)
+- Wave 5 features: [`docs/superpowers/specs/2026-07-09-wave5-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave5-product-features-design.md) · short runbook [`docs/wave5.md`](docs/wave5.md)
 
 ## Scripts
 
@@ -118,7 +119,8 @@ friend-fire/
 Rooms use Colyseus (`server/`, room name `game`). **Public** rooms appear in the server browser; **private** rooms are invite/code-only (not listed by default).
 
 Full wave 3 product notes: [`docs/wave3.md`](docs/wave3.md) · design: [`docs/superpowers/specs/2026-07-09-wave3-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave3-product-features-design.md).  
-Wave 4 (prefs, region filter, reconnect, queue UI): [`docs/wave4.md`](docs/wave4.md) · design: [`docs/superpowers/specs/2026-07-09-wave4-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave4-product-features-design.md).
+Wave 4 (prefs, region filter, reconnect, queue UI): [`docs/wave4.md`](docs/wave4.md) · design: [`docs/superpowers/specs/2026-07-09-wave4-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave4-product-features-design.md).  
+Wave 5 (C4, HE, spectator, ranks, banners): [`docs/wave5.md`](docs/wave5.md) · design: [`docs/superpowers/specs/2026-07-09-wave5-product-features-design.md`](docs/superpowers/specs/2026-07-09-wave5-product-features-design.md).
 
 ```bash
 # terminal A — Next.js
@@ -229,6 +231,19 @@ Local vision radius (~14 world units): distant enemies hidden / area dimmed. **P
 
 Runbook: [`docs/wave4.md`](docs/wave4.md).
 
+### Wave 5 combat loop & retention
+
+| Feature | Notes |
+|---------|--------|
+| C4 | Plant/defuse/explode on bomb sites; **F** hold; 40s timer; HUD marker + timer |
+| Round banners | Toast: TR/CT win, bomb exploded / defused |
+| Spectator | Death → follow killer / free cam (Space) |
+| HE grenade | Shop $300; throw **G**; AoE damage |
+| Soft ranks | Local XP tiers (Recruta→Lenda) on profile |
+| Scoreboard | TAB K/D + MVP; hit damage numbers |
+
+Runbook: [`docs/wave5.md`](docs/wave5.md).
+
 ## Controles
 
 | Tecla | Ação |
@@ -240,12 +255,14 @@ Runbook: [`docs/wave4.md`](docs/wave4.md).
 | B | Loja (aquecimento / entre rounds) |
 | C | Câmera travada / livre |
 | 1–4 | Trocar arma |
+| G | Arremessar HE (se comprada) |
 | Tab | Placar |
 | Esc | Pausar / fechar loja |
 | H | Ajuda (controles) |
-| F | Respawn manual (só no aquecimento, se morto) |
+| F | Plantar / desarmar C4 (live no site) · respawn manual (só aquecimento, se morto) |
+| Espaço | Spectator: soltar câmera (free follow) quando morto |
 
-## O que já tem (v1 + wave 2 + wave 3 + wave 4)
+## O que já tem (v1 + wave 2 + wave 3 + wave 4 + wave 5)
 
 - Câmera isométrica / top-down (Three.js) + polish visual Dust FF
 - Buy menu, SFX procedural, câmera livre
@@ -254,16 +271,17 @@ Runbook: [`docs/wave4.md`](docs/wave4.md).
 - Server browser (filtros map/slots/region, ping, map chips) · Quick Match queue UI · invite · multi-map
 - Match-end stats + ranking local do dia · fog toggle + Settings (volume, camera)
 - Rejoin última sala · room full UX · kill feed polish
+- **C4** plant/defuse/explode · **HE** · **spectator** · round **banners** · soft **ranks**
 - Rounds: aquecimento → live → fim → **match_over**
 - HUD completo · lobby · domínios com `npm test`
-- Wave 3: [`docs/wave3.md`](docs/wave3.md) · Wave 4: [`docs/wave4.md`](docs/wave4.md)
+- Wave 3: [`docs/wave3.md`](docs/wave3.md) · Wave 4: [`docs/wave4.md`](docs/wave4.md) · Wave 5: [`docs/wave5.md`](docs/wave5.md)
 
 ## Roadmap
 
 1. Lag compensation / reconciliation mais fina · armas no server  
-2. Redis multi-node / ranked matchmaking  
+2. Redis multi-node / ranked matchmaking (ELO server)  
 3. Real ad network SDK  
-4. C4 plant/defuse · missões diárias de verdade  
+4. Full utility set · missões diárias de verdade  
 5. Mais mapas · cosmetics store  
 6. Mobile touch controls  
 
