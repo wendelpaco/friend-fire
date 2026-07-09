@@ -10,14 +10,35 @@ import {
 export const COLYSEUS_URL =
   process.env.NEXT_PUBLIC_COLYSEUS_URL || "ws://localhost:2567";
 
+/** HTTP base derived from COLYSEUS_URL (ws:// → http://, wss:// → https://). */
+export const HTTP_URL = COLYSEUS_URL.replace(/^ws/i, "http");
+
 export const GAME_ROOM_NAME = "game";
 
+export type CreateRoomOptions = {
+  mapId?: string;
+  roomName?: string;
+};
+
+/** Open room row from GET /rooms (server browser). */
+export type RoomListItem = {
+  roomId: string;
+  code: string;
+  mapId: string;
+  mapName: string;
+  roomName: string;
+  clients: number;
+  maxClients: number;
+  phase?: string;
+};
+
 export interface RoomClient {
-  create(): Promise<{ code: string }>;
+  create(opts?: CreateRoomOptions): Promise<{ code: string }>;
   join(code: string): Promise<void>;
   leave(): Promise<void>;
   onState(cb: (state: unknown) => void): () => void;
   sendInput(input: unknown): void;
+  listRooms(): Promise<RoomListItem[]>;
 }
 
 /** Snapshot exposed to UI / GameCanvas. */
@@ -28,6 +49,8 @@ export type NetworkRoomState = {
   sessionId: string | null;
   connected: boolean;
   phase: string | null;
+  mapId: string | null;
+  mapName: string | null;
   round: number;
   scoreTR: number;
   scoreCT: number;
@@ -175,6 +198,50 @@ function phaseFromState(state: unknown): string | null {
   return typeof phase === "string" ? phase : null;
 }
 
+function stringFieldFromState(
+  state: unknown,
+  key: "mapId" | "mapName",
+): string | null {
+  if (!state || typeof state !== "object") return null;
+  const value = (state as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function normalizeRoomListItem(raw: unknown): RoomListItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const roomId = String(o.roomId ?? o.room_id ?? "");
+  const code = String(o.code ?? "");
+  if (!roomId && !code) return null;
+  return {
+    roomId: roomId || code,
+    code,
+    mapId: String(o.mapId ?? o.map_id ?? ""),
+    mapName: String(o.mapName ?? o.map_name ?? ""),
+    roomName: String(o.roomName ?? o.room_name ?? o.roomLabel ?? ""),
+    clients: Number(o.clients ?? o.players ?? 0) || 0,
+    maxClients: Number(o.maxClients ?? o.maxPlayers ?? 0) || 0,
+    phase: typeof o.phase === "string" ? o.phase : undefined,
+  };
+}
+
+/** Fetch open game rooms from the Colyseus HTTP API. */
+export async function fetchRoomList(): Promise<RoomListItem[]> {
+  const res = await fetch(`${HTTP_URL}/rooms`);
+  if (!res.ok) {
+    throw new Error(`Failed to list rooms (${res.status})`);
+  }
+  const data: unknown = await res.json();
+  const rows = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { rooms?: unknown })?.rooms)
+      ? ((data as { rooms: unknown[] }).rooms)
+      : [];
+  return rows
+    .map(normalizeRoomListItem)
+    .filter((item): item is RoomListItem => item !== null);
+}
+
 async function waitForCode(room: Room, timeoutMs = 4000): Promise<string> {
   const immediate = readCode(room.state);
   if (immediate) return immediate;
@@ -206,7 +273,7 @@ export class LocalRoomClient implements RoomClient {
   private readonly listeners = new Set<(state: unknown) => void>();
   private lastInput: unknown = null;
 
-  async create(): Promise<{ code: string }> {
+  async create(_opts?: CreateRoomOptions): Promise<{ code: string }> {
     let code = generateRoomCode();
     for (let i = 0; i < 8 && localRooms.has(code); i++) {
       code = generateRoomCode();
@@ -215,6 +282,10 @@ export class LocalRoomClient implements RoomClient {
     this.code = code;
     this.emit();
     return { code };
+  }
+
+  async listRooms(): Promise<RoomListItem[]> {
+    return [];
   }
 
   async join(code: string): Promise<void> {
@@ -300,7 +371,7 @@ export class ColyseusRoomClient implements RoomClient {
   private readonly listeners = new Set<(state: unknown) => void>();
   private unbindRoom: (() => void) | null = null;
 
-  async create(): Promise<{ code: string }> {
+  async create(opts?: CreateRoomOptions): Promise<{ code: string }> {
     this.mode = "connecting";
     this.error = null;
     this.emit();
@@ -311,6 +382,8 @@ export class ColyseusRoomClient implements RoomClient {
       // until the host opens /play (or leaves). Guests use join-only.
       const room = await client.create(GAME_ROOM_NAME, {
         name: getNickname(),
+        mapId: opts?.mapId,
+        roomName: opts?.roomName,
       });
       this.bindRoom(room);
       const code = await waitForCode(room);
@@ -325,6 +398,10 @@ export class ColyseusRoomClient implements RoomClient {
       this.emit();
       throw new Error(this.error);
     }
+  }
+
+  async listRooms(): Promise<RoomListItem[]> {
+    return fetchRoomList();
   }
 
   async join(code: string): Promise<void> {
@@ -361,10 +438,11 @@ export class ColyseusRoomClient implements RoomClient {
   /**
    * Live session for the play page.
    * Host may create-or-join; guests must join an existing room only.
+   * Host path can pass mapId/roomName when creating a new room.
    */
   async connect(
     code: string,
-    options: { host?: boolean } = {},
+    options: { host?: boolean } & CreateRoomOptions = {},
   ): Promise<void> {
     const normalized = normalizeRoomCode(code);
     if (!isValidRoomCode(normalized)) {
@@ -392,6 +470,8 @@ export class ColyseusRoomClient implements RoomClient {
         const room = await client.joinOrCreate(GAME_ROOM_NAME, {
           code: normalized,
           name: getNickname(),
+          mapId: options.mapId,
+          roomName: options.roomName,
         });
         this.bindRoom(room);
         const serverCode = await waitForCode(room).catch(() => normalized);
@@ -484,6 +564,8 @@ export class ColyseusRoomClient implements RoomClient {
       sessionId: this.sessionId,
       connected: this.isConnected(),
       phase: phaseFromState(state),
+      mapId: stringFieldFromState(state, "mapId"),
+      mapName: stringFieldFromState(state, "mapName"),
       round: Number(state?.round) || 0,
       scoreTR: Number(state?.scoreTR) || 0,
       scoreCT: Number(state?.scoreCT) || 0,
