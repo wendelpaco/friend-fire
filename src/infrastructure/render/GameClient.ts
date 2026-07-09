@@ -45,10 +45,11 @@ import type {
   WeaponId,
 } from "@/game/types";
 import {
-  MAP_DUST,
+  getMapById,
   mapCollisionWalls,
   resolveCircleWalls,
   type GameMap,
+  type WallRect,
 } from "@/game/world/maps";
 import { Input } from "./input";
 import { ThreeRenderer } from "./ThreeRenderer";
@@ -201,7 +202,7 @@ function loadoutFromNetwork(
  */
 export class GameClient {
   readonly input = new Input();
-  readonly map: GameMap = MAP_DUST;
+  readonly map: GameMap;
   /** @deprecated Prefer renderer accessors; kept for any legacy consumers. */
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
@@ -217,7 +218,7 @@ export class GameClient {
     string,
     { nextShot: number; nextChat: number }
   >();
-  private collisionWalls = mapCollisionWalls(MAP_DUST);
+  private collisionWalls: WallRect[];
   private helpSeenKey = "ff_help_seen";
   private sessionId = "server";
   private mapImpressionsRecorded = false;
@@ -240,7 +241,13 @@ export class GameClient {
     roundsToWin: ROUNDS_TO_WIN,
   };
 
-  constructor(canvas: HTMLCanvasElement) {
+  /**
+   * @param canvas WebGL host
+   * @param mapId map registry id (default `dust`); unknown ids fall back to dust
+   */
+  constructor(canvas: HTMLCanvasElement, mapId?: string) {
+    this.map = getMapById(mapId || "dust");
+    this.collisionWalls = mapCollisionWalls(this.map);
     this.three = new ThreeRenderer(canvas, this.map);
     this.scene = this.three.scene;
     this.camera = this.three.camera;

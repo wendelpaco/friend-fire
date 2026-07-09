@@ -24,19 +24,6 @@ const CREATE_MAPS = [
 
 type CreateMapId = (typeof CREATE_MAPS)[number]["id"];
 
-type LobbyCreateClient = {
-  create(opts?: {
-    mapId?: string;
-    roomName?: string;
-  }): Promise<{ code: string }>;
-  join(code: string): Promise<void>;
-  leave(): Promise<void>;
-};
-
-function asCreateClient(): LobbyCreateClient {
-  return getRoomClient() as unknown as LobbyCreateClient;
-}
-
 function resolveMapId(id: string | undefined): CreateMapId {
   if (id === "dust" || id === "favela" || id === "yard") return id;
   return "dust";
@@ -72,7 +59,7 @@ export function RoomPanel({
   const handleClose = () => {
     // Drop lobby seat if host created a room but never entered /play.
     if (mode === "create" && createdCode) {
-      void asCreateClient().leave();
+      void getRoomClient().leave();
     }
     onClose();
   };
@@ -85,7 +72,8 @@ export function RoomPanel({
     if (host) qs.set("host", "1");
     // Map fixed at /play entry (GameCanvas boots once — no mid-session swap).
     // Host uses create selection; guests prefer server map when available.
-    const map = roomMapId || (host ? mapId : undefined) || getLastMapId() || "dust";
+    const map =
+      roomMapId || (host ? mapId : undefined) || getLastMapId() || "dust";
     qs.set("map", map);
     setLastMapId(map);
     router.push(`/play?${qs.toString()}`);
@@ -95,7 +83,7 @@ export function RoomPanel({
     setError(null);
     setBusy(true);
     try {
-      const client = asCreateClient();
+      const client = getRoomClient();
       const name = roomName.trim().slice(0, 32);
       const { code } = await client.create({
         mapId,
@@ -126,15 +114,11 @@ export function RoomPanel({
     setBusy(true);
     try {
       // Join-only: missing/typo codes must not create a room or navigate.
-      const client = asCreateClient();
+      const client = getRoomClient();
       await client.join(code);
       // Prefer server mapId when present so guest loads the host's map.
-      const snap = (
-        getRoomClient() as unknown as {
-          snapshot?: () => { mapId?: string | null };
-        }
-      ).snapshot?.();
-      goToRoom(code, false, snap?.mapId || undefined);
+      const snap = client.snapshot();
+      goToRoom(code, false, snap.mapId || undefined);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Falha ao entrar na sala";
       setError(msg.includes("Sala não existe") ? "Sala não existe" : msg);
@@ -208,7 +192,7 @@ export function RoomPanel({
                   >
                     Entrar na sala
                   </button>
-                  <CopyInviteLink code={createdCode} host={false} />
+                  <CopyInviteLink code={createdCode} host={false} mapId={mapId} />
                   <button
                     type="button"
                     onClick={() => {

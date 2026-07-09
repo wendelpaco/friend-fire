@@ -41,12 +41,16 @@ function PlayContent() {
       ? normalizeRoomCode(rawCode)
       : undefined;
   const isHost = searchParams.get("host") === "1";
+  // Map fixed at entry (local ?map= or host create navigation). Room guests
+  // should receive the same ?map= from invite/host; no mid-session reload.
+  const mapId = searchParams.get("map") || undefined;
 
   return (
     <GameCanvas
       mode={mode}
       roomCode={mode === "room" ? code : undefined}
       isHost={isHost}
+      mapId={mapId}
     />
   );
 }

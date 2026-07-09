@@ -7,6 +7,8 @@ interface CopyInviteLinkProps {
   code: string;
   /** Include host=1 (default false → host=0 for guests). */
   host?: boolean;
+  /** Include ?map= so guests boot the same arena. */
+  mapId?: string;
   /** compact = HUD chip; default = full-width panel button */
   variant?: "default" | "compact";
   className?: string;
@@ -14,11 +16,12 @@ interface CopyInviteLinkProps {
 }
 
 /**
- * Copies `${origin}/play?mode=room&code=XXXX&host=0|1` to the clipboard.
+ * Copies `${origin}/play?mode=room&code=XXXX&host=0|1&map=…` to the clipboard.
  */
 export function CopyInviteLink({
   code,
   host = false,
+  mapId,
   variant = "default",
   className = "",
   label = "Copiar link do convite",
@@ -26,7 +29,7 @@ export function CopyInviteLink({
   const [copied, setCopied] = useState(false);
 
   const onCopy = async () => {
-    const ok = await copyInviteLink(code, { host });
+    const ok = await copyInviteLink(code, { host, mapId });
     if (!ok) return;
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);

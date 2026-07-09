@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { HudSnapshot } from "@/game/types";
+import { setLastMapId } from "@/domains/world";
 import {
   getColyseusRoomClient,
   type NetworkRoomState,
@@ -16,6 +17,13 @@ interface GameCanvasProps {
   roomCode?: string;
   /** Host may create-or-join; guests join existing rooms only. */
   isHost?: boolean;
+  /**
+   * Map registry id (query `?map=`). Chosen at entry — room map is fixed at
+   * create navigation (no mid-session map reload). If net later reports a
+   * different mapId, client does not hot-swap geometry (document: pick map
+   * before /play via host create URL).
+   */
+  mapId?: string;
 }
 
 const INPUT_HZ = 20;
@@ -25,6 +33,7 @@ export function GameCanvas({
   mode = "local",
   roomCode,
   isHost = false,
+  mapId,
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,7 +70,10 @@ export function GameCanvas({
         );
         if (disposed) return;
 
-        const engine = new GameClient(canvas);
+        const resolvedMapId = mapId || "dust";
+        setLastMapId(resolvedMapId);
+
+        const engine = new GameClient(canvas, resolvedMapId);
         engineRef.current = engine;
         engine.setHudListener((snapshot) => setHud(snapshot));
 
@@ -96,7 +108,7 @@ export function GameCanvas({
       engineRef.current?.dispose();
       engineRef.current = null;
     };
-  }, []);
+  }, [mapId]);
 
   // Colyseus session when mode=room (reuse lobby singleton seat when present)
   useEffect(() => {

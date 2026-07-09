@@ -10,10 +10,12 @@ import {
   getXp,
   type DailyMission,
 } from "@/domains/identity";
+import { getLastMapId } from "@/domains/world";
 import {
   RoomPanel,
   type RoomPanelMode,
 } from "@/presentation/lobby/RoomPanel";
+import { ServerBrowser } from "@/presentation/lobby/ServerBrowser";
 
 function readStorage<T>(key: string, fallback: T, parse?: (v: string) => T): T {
   if (typeof window === "undefined") return fallback;
@@ -43,13 +45,18 @@ export function MainMenu() {
   );
   const [editingName, setEditingName] = useState(false);
   const [roomPanel, setRoomPanel] = useState<RoomPanelMode | null>(null);
+  const [serverBrowserOpen, setServerBrowserOpen] = useState(false);
   const [missions, setMissions] = useState<DailyMission[]>([]);
   const [xpTotal, setXpTotal] = useState(0);
+  const [lastMap, setLastMap] = useState(() => getLastMapId("dust"));
 
   useEffect(() => {
     setMissions(getMissionsWithProgress());
     setXpTotal(getXp());
+    setLastMap(getLastMapId("dust"));
   }, []);
+
+  const quickPlayHref = `/play?mode=local&map=${encodeURIComponent(lastMap || "dust")}`;
 
   const saveNickname = (name: string) => {
     const clean = name.trim().slice(0, 16) || "Operador";
@@ -162,7 +169,7 @@ export function MainMenu() {
 
           <nav className="flex flex-col gap-2">
             <Link
-              href="/play?mode=local"
+              href={quickPlayHref}
               className="rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-600 to-amber-500 px-5 py-3.5 text-center text-sm font-black tracking-[0.2em] text-black shadow-lg shadow-amber-900/35 transition hover:from-amber-500 hover:to-amber-400 hover:shadow-amber-700/40"
             >
               JOGO RÁPIDO
@@ -173,12 +180,15 @@ export function MainMenu() {
             <MenuButton onClick={() => setRoomPanel("join")}>
               ENTRAR POR CÓDIGO
             </MenuButton>
+            <MenuButton onClick={() => setServerBrowserOpen(true)}>
+              PROCURAR SALAS
+            </MenuButton>
             <div className="grid grid-cols-2 gap-2">
               <MenuButton disabled title="Em breve">
                 COSMÉTICOS
               </MenuButton>
               <Link
-                href="/play?mode=local"
+                href={quickPlayHref}
                 className="rounded-xl border border-white/10 bg-black/45 px-4 py-3 text-center text-xs font-semibold tracking-widest text-white/75 transition hover:border-white/20 hover:bg-black/60 hover:text-white"
               >
                 TREINO
@@ -297,7 +307,7 @@ export function MainMenu() {
               </li>
             </ul>
             <Link
-              href="/play?mode=local"
+              href={quickPlayHref}
               className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 py-3 text-xs font-bold tracking-[0.18em] text-white/85 transition hover:bg-white/10 hover:text-white"
             >
               ENTRAR NO AQUECIMENTO
@@ -329,7 +339,14 @@ export function MainMenu() {
       </div>
 
       {roomPanel && (
-        <RoomPanel mode={roomPanel} onClose={() => setRoomPanel(null)} />
+        <RoomPanel
+          mode={roomPanel}
+          mapId={lastMap || "dust"}
+          onClose={() => setRoomPanel(null)}
+        />
+      )}
+      {serverBrowserOpen && (
+        <ServerBrowser onClose={() => setServerBrowserOpen(false)} />
       )}
     </div>
   );

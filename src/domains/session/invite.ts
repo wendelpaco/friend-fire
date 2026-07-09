@@ -6,7 +6,7 @@ import { normalizeRoomCode } from "./codes";
  */
 export function buildInviteUrl(
   code: string,
-  options: { host?: boolean; origin?: string } = {},
+  options: { host?: boolean; origin?: string; mapId?: string } = {},
 ): string {
   const origin =
     options.origin ??
@@ -16,13 +16,15 @@ export function buildInviteUrl(
     code: normalizeRoomCode(code),
     host: options.host ? "1" : "0",
   });
+  // Guests load the same map at entry (no mid-session map reload).
+  if (options.mapId) qs.set("map", options.mapId);
   return `${origin}/play?${qs.toString()}`;
 }
 
 /** Copy invite link to clipboard (SSR-safe no-op when unavailable). */
 export async function copyInviteLink(
   code: string,
-  options: { host?: boolean } = {},
+  options: { host?: boolean; mapId?: string } = {},
 ): Promise<boolean> {
   if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
     return false;
