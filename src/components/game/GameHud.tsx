@@ -4,6 +4,7 @@ import Link from "next/link";
 import { CONTROLS_HELP } from "@/game/constants";
 import type { HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/components/ads/AdBanner";
+import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
 
 function formatTime(seconds: number) {
   const s = Math.max(0, Math.ceil(seconds));
@@ -24,6 +25,7 @@ interface GameHudProps {
   onResume: () => void;
   onDismissHelp: () => void;
   onOpenHelp: () => void;
+  onMatchContinue?: () => void;
 }
 
 export function GameHud({
@@ -31,6 +33,7 @@ export function GameHud({
   onResume,
   onDismissHelp,
   onOpenHelp,
+  onMatchContinue,
 }: GameHudProps) {
   return (
     <div className="pointer-events-none absolute inset-0 z-10 select-none font-sans text-white">
@@ -404,7 +407,7 @@ export function GameHud({
       )}
 
       {/* Pause menu */}
-      {hud.paused && !hud.showHelp && (
+      {hud.paused && !hud.showHelp && !hud.matchOver && (
         <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-black/75 backdrop-blur-md">
           <div className="w-full max-w-sm rounded-2xl border border-white/12 bg-[#0e1118] p-6 shadow-2xl">
             <div className="mb-1 text-center text-[10px] font-semibold tracking-[0.3em] text-white/40">
@@ -443,6 +446,15 @@ export function GameHud({
             </div>
           </div>
         </div>
+      )}
+
+      {/* End-match ad break */}
+      {(hud.matchOver || hud.phase === "match_over") && onMatchContinue && (
+        <EndMatchBreak
+          scoreTR={hud.scoreTR}
+          scoreCT={hud.scoreCT}
+          onContinue={onMatchContinue}
+        />
       )}
     </div>
   );

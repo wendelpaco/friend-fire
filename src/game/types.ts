@@ -104,6 +104,9 @@ export interface HudSnapshot {
   timeLeft: number;
   phase: RoundPhase;
   round: number;
+  /** True when phase is match_over (end-match break UI). */
+  matchOver: boolean;
+  sessionId: string;
   killFeed: KillFeedEntry[];
   chat: ChatEntry[];
   alive: boolean;

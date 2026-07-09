@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { recordImpression } from "@/domains/ads";
 import {
   applyDamage as applyDamageToVitals,
   beginReload,
@@ -6,6 +7,7 @@ import {
   isDead,
   WEAPONS,
 } from "@/domains/combat";
+import { getOrCreateSessionId } from "@/domains/identity";
 import {
   createMatchPhase,
   moneyAfterRound,
@@ -13,6 +15,7 @@ import {
   tickPhase,
   type MatchPhaseState,
 } from "@/domains/match";
+import { pushImpression } from "@/infrastructure/analytics/queue";
 import {
   BOT_LINES,
   BOT_NAMES,
@@ -25,6 +28,7 @@ import {
   PLAYER_RADIUS,
   PLAYER_SPEED,
   ROUND_TIME,
+  ROUNDS_TO_WIN,
   START_MONEY,
   TEAM_COLORS,
   WARMUP_TIME,
@@ -88,12 +92,15 @@ export class GameEngine {
   private collisionWalls = mapCollisionWalls(MAP_DUST);
   private dustParticles!: THREE.Points;
   private helpSeenKey = "ff_help_seen";
+  private sessionId = "server";
+  private mapImpressionsRecorded = false;
   /** Config fields for pure match phase machine (not exposed on MatchState). */
   private matchConfig = {
     warmupTime: WARMUP_TIME,
     roundTime: ROUND_TIME,
     endPause: DEFAULT_MATCH.endPause,
-    roundsToWin: DEFAULT_MATCH.roundsToWin,
+    /** See ROUNDS_TO_WIN / NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN in constants. */
+    roundsToWin: ROUNDS_TO_WIN,
   };
 
   constructor(canvas: HTMLCanvasElement) {
@@ -122,6 +129,7 @@ export class GameEngine {
     this.scene.fog = new THREE.Fog(this.map.fogColor, 32, 68);
     this.scene.background = new THREE.Color(this.map.skyColor);
 
+    this.sessionId = getOrCreateSessionId();
     this.state = this.createInitialState();
     this.buildWorld();
     this.spawnAllMeshes();
@@ -823,7 +831,35 @@ export class GameEngine {
       next.phase === "live" &&
       (prev.phase === "warmup" || prev.phase === "ended")
     ) {
+      // First live of the match: one impression per map billboard/poster creative slot
+      if (prev.phase === "warmup") {
+        this.recordMapAdImpressions();
+      }
       this.beginLiveRoundEffects();
+    }
+  }
+
+  /** Map placements fire once when the match leaves warmup into live. */
+  private recordMapAdImpressions() {
+    if (this.mapImpressionsRecorded) return;
+    this.mapImpressionsRecorded = true;
+    for (const slot of this.map.billboards) {
+      pushImpression(
+        recordImpression({
+          placement: "map_billboard",
+          creativeId: slot.adId,
+          sessionId: this.sessionId,
+        }),
+      );
+    }
+    for (const poster of this.map.wallPosters) {
+      pushImpression(
+        recordImpression({
+          placement: "map_poster",
+          creativeId: poster.adId,
+          sessionId: this.sessionId,
+        }),
+      );
     }
   }
 
@@ -1330,6 +1366,8 @@ export class GameEngine {
       timeLeft: Math.max(0, this.state.timeLeft),
       phase: this.state.phase,
       round: this.state.round,
+      matchOver: this.state.phase === "match_over",
+      sessionId: this.sessionId,
       killFeed: this.state.killFeed,
       chat: this.state.chat,
       alive: p.alive,

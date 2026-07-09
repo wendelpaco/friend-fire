@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { recordImpression } from "@/domains/ads";
+import { getOrCreateSessionId } from "@/domains/identity";
 import {
   pickRotatingAd,
   type AdCreative,
   type AdPlacement,
 } from "@/game/ads/catalog";
+import { pushImpression } from "@/infrastructure/analytics/queue";
 
 interface AdBannerProps {
   placement: AdPlacement;
@@ -27,6 +30,17 @@ export function AdBanner({
     const t = setInterval(() => setIndex((i) => i + 1), rotateMs);
     return () => clearInterval(t);
   }, [rotateMs]);
+
+  // Impression on mount and each creative rotation
+  useEffect(() => {
+    const sessionId = getOrCreateSessionId();
+    const imp = recordImpression({
+      placement,
+      creativeId: ad.id,
+      sessionId,
+    });
+    pushImpression(imp);
+  }, [placement, ad.id, index]);
 
   return (
     <a

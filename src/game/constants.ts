@@ -20,6 +20,20 @@ export const ROUND_TIME = DEFAULT_MATCH.round;
 export const WARMUP_TIME = DEFAULT_MATCH.warmup;
 export const START_MONEY = 800;
 
+/**
+ * QA: set NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN=1 (or any positive int) so match_over
+ * is reachable without playing a full BO15-style series. Unset in production.
+ */
+function resolveRoundsToWin(): number {
+  const raw = process.env.NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN;
+  if (raw == null || raw === "") return DEFAULT_MATCH.roundsToWin;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+  return DEFAULT_MATCH.roundsToWin;
+}
+
+export const ROUNDS_TO_WIN = resolveRoundsToWin();
+
 export const TEAM_COLORS = {
   TR: 0xc45c26,
   CT: 0x3a6ea5,

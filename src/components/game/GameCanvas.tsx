@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { HudSnapshot } from "@/game/types";
 import { GameHud } from "./GameHud";
 
@@ -10,9 +11,16 @@ export function GameCanvas() {
   const engineRef = useRef<import("@/game/engine/GameEngine").GameEngine | null>(
     null,
   );
+  const router = useRouter();
   const [hud, setHud] = useState<HudSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const onMatchContinue = useCallback(() => {
+    engineRef.current?.dispose();
+    engineRef.current = null;
+    router.push("/");
+  }, [router]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -87,6 +95,7 @@ export function GameCanvas() {
           onResume={() => engineRef.current?.setPaused(false)}
           onDismissHelp={() => engineRef.current?.dismissHelp()}
           onOpenHelp={() => engineRef.current?.openHelp()}
+          onMatchContinue={onMatchContinue}
         />
       )}
       {error && (

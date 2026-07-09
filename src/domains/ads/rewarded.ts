@@ -5,7 +5,7 @@ export interface RewardedAdPort {
 }
 
 export class StubRewardedAdPort implements RewardedAdPort {
-  async show(): Promise<RewardedResult> {
+  async show(_placement: "rewarded_xp" = "rewarded_xp"): Promise<RewardedResult> {
     return "completed";
   }
 }
