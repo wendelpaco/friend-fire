@@ -127,6 +127,48 @@ export function bodyYawTarget(
   return yawFromDirection(moveX, moveZ);
 }
 
+/** Speed (world units/s) at which the body starts following velocity. */
+export const MOVE_ENTER_SPEED = 0.6;
+/** Speed below which the body goes back to following aim. */
+export const MOVE_EXIT_SPEED = 0.3;
+
+/**
+ * Move/idle state with hysteresis. A single threshold flickers when the
+ * (noisy) snapshot-delta speed hovers around it — this is the root cause
+ * of the “shows back sometimes” bug. Enter high, exit low, hold between.
+ */
+export function movingHysteresis(
+  wasMoving: boolean,
+  speed: number,
+  enter: number = MOVE_ENTER_SPEED,
+  exit: number = MOVE_EXIT_SPEED,
+): boolean {
+  if (Number.isNaN(speed)) return false;
+  if (!Number.isFinite(speed)) return true;
+  return wasMoving ? speed > exit : speed >= enter;
+}
+
+/**
+ * Facing target from an explicit moving state (see {@link movingHysteresis})
+ * instead of a raw speed threshold. Zero vector falls back to aim.
+ */
+export function bodyYawTargetMoving(
+  moving: boolean,
+  moveX: number,
+  moveZ: number,
+  aimYaw: number,
+): number {
+  if (!moving) return aimYaw;
+  if (
+    !Number.isFinite(moveX) ||
+    !Number.isFinite(moveZ) ||
+    (moveX === 0 && moveZ === 0)
+  ) {
+    return aimYaw;
+  }
+  return yawFromDirection(moveX, moveZ);
+}
+
 /**
  * Rotate world XZ velocity into the model's local frame
  * (facing = local +Z).

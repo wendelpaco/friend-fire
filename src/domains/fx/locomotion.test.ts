@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_RUN_THRESHOLD,
   bodyYawTarget,
+  bodyYawTargetMoving,
   deltaAngle,
   horizontalSpeed,
   locomotionDirFromLocal,
@@ -9,6 +10,9 @@ import {
   locomotionFromSpeed,
   locomotionWeights,
   moveInFacingSpace,
+  movingHysteresis,
+  MOVE_ENTER_SPEED,
+  MOVE_EXIT_SPEED,
   smoothYaw,
   yawFromDirection,
 } from "./locomotion";
@@ -148,5 +152,40 @@ describe("deltaAngle / smoothYaw", () => {
     const next = smoothYaw(0, Math.PI / 2, 1 / 60, 12);
     expect(next).toBeGreaterThan(0);
     expect(next).toBeLessThan(Math.PI / 2);
+  });
+});
+
+describe("movingHysteresis", () => {
+  it("enters at ≥ enter threshold, exits at ≤ exit threshold, holds between", () => {
+    expect(movingHysteresis(false, 0.59)).toBe(false);
+    expect(movingHysteresis(false, 0.6)).toBe(true);
+    // between thresholds: keeps previous state
+    expect(movingHysteresis(true, 0.45)).toBe(true);
+    expect(movingHysteresis(false, 0.45)).toBe(false);
+    expect(movingHysteresis(true, 0.3)).toBe(false);
+  });
+
+  it("is safe on non-finite speed", () => {
+    expect(movingHysteresis(true, NaN)).toBe(false);
+    expect(movingHysteresis(false, Infinity)).toBe(true);
+  });
+
+  it("exposes spec thresholds", () => {
+    expect(MOVE_ENTER_SPEED).toBe(0.6);
+    expect(MOVE_EXIT_SPEED).toBe(0.3);
+  });
+});
+
+describe("bodyYawTargetMoving", () => {
+  it("faces aim when not moving", () => {
+    expect(bodyYawTargetMoving(false, 3, 0, 1.2)).toBeCloseTo(1.2);
+  });
+
+  it("faces velocity when moving (+X → π/2)", () => {
+    expect(bodyYawTargetMoving(true, 3, 0, 1.2)).toBeCloseTo(Math.PI / 2);
+  });
+
+  it("falls back to aim on zero vector even while moving", () => {
+    expect(bodyYawTargetMoving(true, 0, 0, 1.2)).toBeCloseTo(1.2);
   });
 });
