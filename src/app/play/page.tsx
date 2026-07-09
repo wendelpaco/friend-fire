@@ -40,11 +40,13 @@ function PlayContent() {
     rawCode && isValidRoomCode(rawCode)
       ? normalizeRoomCode(rawCode)
       : undefined;
+  const isHost = searchParams.get("host") === "1";
 
   return (
     <GameCanvas
       mode={mode}
       roomCode={mode === "room" ? code : undefined}
+      isHost={isHost}
     />
   );
 }

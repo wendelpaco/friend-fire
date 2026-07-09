@@ -22,8 +22,21 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
   const [busy, setBusy] = useState(false);
   const [createdCode, setCreatedCode] = useState<string | null>(null);
 
-  const goToRoom = (code: string) => {
-    router.push(`/play?mode=room&code=${encodeURIComponent(code)}`);
+  const handleClose = () => {
+    // Drop lobby seat if host created a room but never entered /play.
+    if (mode === "create" && createdCode) {
+      void getRoomClient().leave();
+    }
+    onClose();
+  };
+
+  const goToRoom = (code: string, host = false) => {
+    const qs = new URLSearchParams({
+      mode: "room",
+      code,
+    });
+    if (host) qs.set("host", "1");
+    router.push(`/play?${qs.toString()}`);
   };
 
   const handleCreate = async () => {
@@ -42,7 +55,8 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
 
   const handleEnterCreated = () => {
     if (!createdCode) return;
-    goToRoom(createdCode);
+    // Host already holds the room seat from create(); play reuses it.
+    goToRoom(createdCode, true);
   };
 
   const handleJoin = async () => {
@@ -54,17 +68,13 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
     }
     setBusy(true);
     try {
-      // Soft validation: try Colyseus join. If host has not entered /play yet,
-      // room may be empty — still allow navigation; play page joinOrCreates.
+      // Join-only: missing/typo codes must not create a room or navigate.
       const client = getRoomClient();
-      try {
-        await client.join(code);
-      } catch {
-        // Host may still be on the lobby code screen; play will joinOrCreate.
-      }
-      goToRoom(code);
+      await client.join(code);
+      goToRoom(code, false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Falha ao entrar na sala");
+      const msg = e instanceof Error ? e.message : "Falha ao entrar na sala";
+      setError(msg.includes("Sala não existe") ? "Sala não existe" : msg);
     } finally {
       setBusy(false);
     }
@@ -92,7 +102,7 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-lg border border-white/10 px-2.5 py-1 text-sm text-white/50 transition hover:bg-white/5 hover:text-white"
             aria-label="Fechar"
           >
@@ -159,7 +169,7 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-white/70 transition hover:bg-white/10"
                   >
                     Cancelar
@@ -217,7 +227,7 @@ export function RoomPanel({ mode, onClose }: RoomPanelProps) {
               </button>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-white/70 transition hover:bg-white/10"
               >
                 Cancelar

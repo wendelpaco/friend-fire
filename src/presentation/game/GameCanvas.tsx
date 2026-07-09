@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { HudSnapshot } from "@/game/types";
 import {
-  ColyseusRoomClient,
+  getColyseusRoomClient,
   type NetworkRoomState,
 } from "@/infrastructure/realtime/roomClient";
 import { GameHud } from "./GameHud";
@@ -14,18 +14,24 @@ export type PlayMode = "local" | "room";
 interface GameCanvasProps {
   mode?: PlayMode;
   roomCode?: string;
+  /** Host may create-or-join; guests join existing rooms only. */
+  isHost?: boolean;
 }
 
 const INPUT_HZ = 20;
 const INPUT_MS = 1000 / INPUT_HZ;
 
-export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
+export function GameCanvas({
+  mode = "local",
+  roomCode,
+  isHost = false,
+}: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<import("@/infrastructure/render/GameClient").GameClient | null>(
     null,
   );
-  const roomRef = useRef<ColyseusRoomClient | null>(null);
+  const roomRef = useRef<ReturnType<typeof getColyseusRoomClient> | null>(null);
   const router = useRouter();
   const [hud, setHud] = useState<HudSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +98,7 @@ export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
     };
   }, []);
 
-  // Colyseus session when mode=room
+  // Colyseus session when mode=room (reuse lobby singleton seat when present)
   useEffect(() => {
     if (mode !== "room" || !roomCode) {
       setNet(null);
@@ -100,7 +106,8 @@ export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
     }
 
     let cancelled = false;
-    const client = new ColyseusRoomClient();
+    // Singleton: host create() / guest join() may already hold the seat.
+    const client = getColyseusRoomClient();
     roomRef.current = client;
 
     const unsub = client.onState((state) => {
@@ -109,7 +116,7 @@ export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
 
     const connect = async () => {
       try {
-        await client.connect(roomCode);
+        await client.connect(roomCode, { host: isHost });
       } catch (e) {
         // Hybrid fallback: keep local GameClient running; surface banner via net state
         if (!cancelled) {
@@ -143,7 +150,7 @@ export function GameCanvas({ mode = "local", roomCode }: GameCanvasProps) {
       void client.leave();
       if (roomRef.current === client) roomRef.current = null;
     };
-  }, [mode, roomCode]);
+  }, [mode, roomCode, isHost]);
 
   const displayCode =
     (net?.code && net.code.length > 0 ? net.code : roomCode) ?? undefined;

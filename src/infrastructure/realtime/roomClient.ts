@@ -85,10 +85,15 @@ function friendlyConnectError(err: unknown): string {
       `(${COLYSEUS_URL}) e tente de novo.`
     );
   }
-  if (lower.includes("not found") || lower.includes("no rooms")) {
-    return "Sala não encontrada. Peça ao host para entrar na partida primeiro.";
+  if (
+    lower.includes("not found") ||
+    lower.includes("no rooms") ||
+    lower.includes("room not found") ||
+    lower.includes("não existe")
+  ) {
+    return "Sala não existe";
   }
-  if (lower.includes("invalid room code") || lower.includes("code")) {
+  if (lower.includes("invalid room code")) {
     return "Código inválido ou sala cheia.";
   }
   return raw || "Falha ao conectar na sala.";
@@ -190,10 +195,9 @@ export class LocalRoomClient implements RoomClient {
     if (!isValidRoomCode(normalized)) {
       throw new Error("Código inválido. Use 6 caracteres (A–Z, 2–9).");
     }
-    let room = localRooms.get(normalized);
+    const room = localRooms.get(normalized);
     if (!room) {
-      room = { code: normalized, players: [] };
-      localRooms.set(normalized, room);
+      throw new Error("Sala não existe");
     }
     if (!room.players.includes("local")) {
       room.players.push("local");
@@ -276,18 +280,18 @@ export class ColyseusRoomClient implements RoomClient {
     this.error = null;
     this.emit();
     try {
+      await this.leave();
       const client = makeClient();
+      // Host creates a real room and keeps the seat so the code stays joinable
+      // until the host opens /play (or leaves). Guests use join-only.
       const room = await client.create(GAME_ROOM_NAME, {
         name: getNickname(),
       });
+      this.bindRoom(room);
       const code = await waitForCode(room);
-      // Lobby only needs the code; leave so we do not hold a seat until /play.
-      // Play page re-enters via joinOrCreate with the same code.
-      await room.leave(true);
-      this.room = null;
       this.code = code;
-      this.sessionId = null;
-      this.mode = "idle";
+      this.mode = "in_room";
+      this.error = null;
       this.emit();
       return { code };
     } catch (e) {
@@ -307,19 +311,19 @@ export class ColyseusRoomClient implements RoomClient {
     this.error = null;
     this.emit();
     try {
-      // Lobby validation: prove the room exists, then release the seat.
-      // GameCanvas reconnects with joinOrCreate for the full session.
+      // Join-only: never create. Missing/typo codes must fail.
+      await this.leave();
       const client = makeClient();
       const room = await client.join(GAME_ROOM_NAME, {
         code: normalized,
         name: getNickname(),
       });
-      const serverCode = (await waitForCode(room).catch(() => normalized)) || normalized;
-      await room.leave(true);
-      this.room = null;
+      this.bindRoom(room);
+      const serverCode =
+        (await waitForCode(room).catch(() => normalized)) || normalized;
       this.code = serverCode;
-      this.sessionId = null;
-      this.mode = "idle";
+      this.mode = "in_room";
+      this.error = null;
       this.emit();
     } catch (e) {
       this.mode = "error";
@@ -330,37 +334,57 @@ export class ColyseusRoomClient implements RoomClient {
   }
 
   /**
-   * Keep a live session for the play page (create-or-join by code).
-   * Prefer this over create/join for in-match networking.
+   * Live session for the play page.
+   * Host may create-or-join; guests must join an existing room only.
    */
-  async connect(code: string): Promise<void> {
+  async connect(
+    code: string,
+    options: { host?: boolean } = {},
+  ): Promise<void> {
     const normalized = normalizeRoomCode(code);
     if (!isValidRoomCode(normalized)) {
       throw new Error("Código inválido. Use 6 caracteres (A–Z, 2–9).");
     }
-    await this.leave();
-    this.mode = "connecting";
-    this.error = null;
-    this.code = normalized;
-    this.emit();
-    try {
-      const client = makeClient();
-      const room = await client.joinOrCreate(GAME_ROOM_NAME, {
-        code: normalized,
-        name: getNickname(),
-      });
-      this.bindRoom(room);
-      const serverCode = await waitForCode(room).catch(() => normalized);
-      this.code = serverCode || normalized;
-      this.mode = "in_room";
-      this.error = null;
+
+    // Reuse lobby create/join seat when already in this room.
+    if (
+      this.isConnected() &&
+      this.code &&
+      normalizeRoomCode(this.code) === normalized
+    ) {
       this.emit();
-    } catch (e) {
-      this.mode = "error";
-      this.error = friendlyConnectError(e);
-      this.emit();
-      throw new Error(this.error);
+      return;
     }
+
+    if (options.host) {
+      await this.leave();
+      this.mode = "connecting";
+      this.error = null;
+      this.code = normalized;
+      this.emit();
+      try {
+        const client = makeClient();
+        const room = await client.joinOrCreate(GAME_ROOM_NAME, {
+          code: normalized,
+          name: getNickname(),
+        });
+        this.bindRoom(room);
+        const serverCode = await waitForCode(room).catch(() => normalized);
+        this.code = serverCode || normalized;
+        this.mode = "in_room";
+        this.error = null;
+        this.emit();
+      } catch (e) {
+        this.mode = "error";
+        this.error = friendlyConnectError(e);
+        this.emit();
+        throw new Error(this.error);
+      }
+      return;
+    }
+
+    // Guest: join-only (no ghost rooms on typos).
+    await this.join(normalized);
   }
 
   async leave(): Promise<void> {
