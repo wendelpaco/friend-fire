@@ -16,6 +16,7 @@ import {
   recordMatchResult,
 } from "@/domains/identity";
 import {
+  canDefuse,
   createMatchPhase,
   moneyAfterRound,
   onRoundWin,
@@ -50,9 +51,11 @@ import type {
   KillFeedEntry,
   MatchState,
   PlayerState,
+  RoundBannerKind,
   Team,
   WeaponId,
 } from "@/game/types";
+import { roundBannerText } from "@/game/types";
 import {
   getMapById,
   mapCollisionWalls,
@@ -273,6 +276,15 @@ export class GameClient {
     endPause: DEFAULT_MATCH.endPause,
     roundsToWin: ROUNDS_TO_WIN,
   };
+  /** Round banner toast until performance.now() (§2.2). */
+  private roundBannerUntil = 0;
+  private roundBannerKind: RoundBannerKind | null = null;
+  /** Killer to follow while spectating; null → free cam. */
+  private spectateTargetId: string | null = null;
+  /** true = follow target, false = free pan (Space toggles). */
+  private spectatorFollow = true;
+  /** Defuse interaction radius (spec §2.1). */
+  private static readonly DEFUSE_RADIUS = 2.5;
 
   /**
    * @param canvas WebGL host
@@ -547,6 +559,13 @@ export class GameClient {
       hitMarkerUntil: 0,
       damageFlashUntil: 0,
       lastDamageAmount: 0,
+      bombState: "carried",
+      bombCarrierId: null,
+      bombX: 0,
+      bombZ: 0,
+      plantProgress: 0,
+      defuseProgress: 0,
+      bombTimer: 40,
     };
   }
 
@@ -650,15 +669,21 @@ export class GameClient {
     this.state.showScoreboard = this.input.isDown("Tab");
 
     if (this.input.wasPressed("KeyC") && !this.state.showBuyMenu) {
-      this.state.cameraMode =
-        this.state.cameraMode === "locked" ? "free" : "locked";
-      Sfx.play("ui");
       const local = this.state.players.find(
         (x) => x.id === this.state.localPlayerId,
       );
-      if (local) {
-        this.freeCamX = local.x;
-        this.freeCamZ = local.z;
+      const spectating =
+        !!local && !local.alive && this.state.phase === "live";
+      if (spectating) {
+        this.toggleSpectatorCamera();
+      } else {
+        this.state.cameraMode =
+          this.state.cameraMode === "locked" ? "free" : "locked";
+        Sfx.play("ui");
+        if (local) {
+          this.freeCamX = local.x;
+          this.freeCamZ = local.z;
+        }
       }
     }
 
@@ -689,6 +714,8 @@ export class GameClient {
         this.updateTimer(dt);
       }
     }
+
+    this.updateSpectator(dt);
 
     if (this.state.phase === "match_over") {
       this.maybeRecordMissionResult();
@@ -841,6 +868,12 @@ export class GameClient {
   }
 
   private syncRender() {
+    const local = this.state.players.find(
+      (x) => x.id === this.state.localPlayerId,
+    );
+    const spectating =
+      !!local && !local.alive && this.state.phase === "live";
+    // Spectator always drives free-cam look target (follow or pan).
     this.three.sync({
       players: this.state.players.map((p) => ({
         id: p.id,
@@ -857,7 +890,7 @@ export class GameClient {
       })),
       bullets: this.state.bullets,
       localPlayerId: this.state.localPlayerId,
-      cameraMode: this.state.cameraMode,
+      cameraMode: spectating ? "free" : this.state.cameraMode,
       freeCamX: this.freeCamX,
       freeCamZ: this.freeCamZ,
     });
@@ -880,7 +913,7 @@ export class GameClient {
       prev.phase === "live" &&
       (next.phase === "ended" || next.phase === "match_over")
     ) {
-      this.applyRoundEndEffects("CT");
+      this.applyRoundEndEffects("CT", "ct_win");
     }
 
     if (
@@ -975,25 +1008,158 @@ export class GameClient {
 
   private beginLiveRoundEffects() {
     this.state.bullets = [];
+    this.clearSpectator();
     this.addChat("SYSTEM", `ROUND ${this.state.round} — boa sorte`, "system");
     for (const p of this.state.players) this.respawnPlayer(p);
   }
 
-  private applyRoundEndEffects(winner: Team) {
+  private applyRoundEndEffects(winner: Team, reason?: RoundBannerKind) {
+    const kind = reason ?? (winner === "TR" ? "tr_win" : "ct_win");
+    this.showRoundBanner(kind);
     this.addChat("SYSTEM", `${winner} venceu o round!`, "system");
     for (const p of this.state.players) {
       p.money = moneyAfterRound(p.team, winner, p.money);
     }
   }
 
-  private endRound(winner: Team) {
+  /** Full-width toast for 2.5s (spec §2.2). */
+  private showRoundBanner(kind: RoundBannerKind) {
+    this.roundBannerKind = kind;
+    this.roundBannerUntil = performance.now() + 2500;
+  }
+
+  /**
+   * End live round. Optional reason for bomb explode/defuse banners.
+   * Call with `endRound("TR", "bomb_exploded")` etc.
+   */
+  private endRound(winner: Team, reason?: RoundBannerKind) {
     if (this.state.phase !== "live") return;
     const next = onRoundWin(this.toPhaseState(), winner);
     this.applyPhaseState(next);
-    this.applyRoundEndEffects(winner);
+    this.applyRoundEndEffects(
+      winner,
+      reason ?? (winner === "TR" ? "tr_win" : "ct_win"),
+    );
     if (next.phase === "match_over") {
       this.maybeRecordMissionResult();
     }
+  }
+
+  private clearSpectator() {
+    this.spectateTargetId = null;
+    this.spectatorFollow = true;
+  }
+
+  private enterSpectator(killerId: string | null) {
+    const local = this.state.players.find(
+      (x) => x.id === this.state.localPlayerId,
+    );
+    if (!local) return;
+
+    this.spectateTargetId = killerId;
+    const target = killerId
+      ? this.state.players.find((p) => p.id === killerId && p.alive)
+      : null;
+
+    if (target) {
+      this.spectatorFollow = true;
+      this.state.cameraMode = "locked";
+      this.freeCamX = target.x;
+      this.freeCamZ = target.z;
+    } else {
+      this.spectatorFollow = false;
+      this.state.cameraMode = "free";
+      this.freeCamX = local.x;
+      this.freeCamZ = local.z;
+    }
+  }
+
+  private toggleSpectatorCamera() {
+    this.spectatorFollow = !this.spectatorFollow;
+    this.state.cameraMode = this.spectatorFollow ? "locked" : "free";
+    Sfx.play("ui");
+    if (this.spectatorFollow && this.spectateTargetId) {
+      const t = this.state.players.find(
+        (p) => p.id === this.spectateTargetId && p.alive,
+      );
+      if (t) {
+        this.freeCamX = t.x;
+        this.freeCamZ = t.z;
+      } else {
+        this.spectatorFollow = false;
+        this.state.cameraMode = "free";
+      }
+    }
+  }
+
+  /** Free / follow cam while dead in live phase (§2.3). */
+  private updateSpectator(dt: number) {
+    const local = this.state.players.find(
+      (x) => x.id === this.state.localPlayerId,
+    );
+    if (!local || local.alive || this.state.phase !== "live") return;
+
+    if (this.input.wasPressed("Space")) {
+      this.toggleSpectatorCamera();
+    }
+
+    if (this.spectatorFollow && this.spectateTargetId) {
+      const t = this.state.players.find(
+        (p) => p.id === this.spectateTargetId && p.alive,
+      );
+      if (t) {
+        this.freeCamX = t.x;
+        this.freeCamZ = t.z;
+      } else {
+        this.spectatorFollow = false;
+        this.state.cameraMode = "free";
+      }
+    } else {
+      const move = this.input.moveVector();
+      const pan = PLAYER_SPEED * 1.8 * dt;
+      this.freeCamX += move.x * pan;
+      this.freeCamZ += move.z * pan;
+    }
+  }
+
+  private computeBombPrompt(local: PlayerState): string | null {
+    if (!local.alive) return null;
+    const s = this.state;
+
+    if (
+      local.team === "TR" &&
+      s.bombCarrierId === local.id &&
+      (s.bombState === "carried" || s.bombState === "planting")
+    ) {
+      const nearSite = this.map.bombSites.some(
+        (site) =>
+          (local.x - site.x) ** 2 + (local.z - site.z) ** 2 <=
+          site.radius * site.radius,
+      );
+      if (nearSite) return "Segure F para plantar";
+    }
+
+    if (
+      canDefuse({
+        bomb: {
+          bombState: s.bombState,
+          bombCarrierId: s.bombCarrierId,
+          bombX: s.bombX,
+          bombZ: s.bombZ,
+          plantProgress: s.plantProgress,
+          defuseProgress: s.defuseProgress,
+          bombTimer: s.bombTimer,
+        },
+        team: local.team,
+        alive: local.alive,
+        x: local.x,
+        z: local.z,
+        radius: GameClient.DEFUSE_RADIUS,
+      })
+    ) {
+      return "Segure F para desarmar";
+    }
+    return null;
   }
 
   private respawnPlayer(p: PlayerState) {
@@ -1386,6 +1552,13 @@ export class GameClient {
         this.addChat(killer.name, pick(BOT_LINES.kill), "all");
       }
 
+      if (
+        victim.id === this.state.localPlayerId &&
+        this.state.phase === "live"
+      ) {
+        this.enterSpectator(killer.id);
+      }
+
       if (this.state.phase === "live") {
         const trAlive = this.state.players.some(
           (p) => p.team === "TR" && p.alive,
@@ -1446,6 +1619,19 @@ export class GameClient {
       reloadProgress = 1 - left / def.reloadTime;
     }
 
+    const spectating = !p.alive && this.state.phase === "live";
+    const roundBanner =
+      this.roundBannerKind && now < this.roundBannerUntil
+        ? roundBannerText(this.roundBannerKind)
+        : null;
+    if (this.roundBannerKind && now >= this.roundBannerUntil) {
+      this.roundBannerKind = null;
+    }
+
+    const bombDown =
+      this.state.bombState === "planted" ||
+      this.state.bombState === "defusing";
+
     this.onHud({
       hp: Math.max(0, Math.round(p.hp)),
       armor: Math.max(0, Math.round(p.armor)),
@@ -1481,6 +1667,13 @@ export class GameClient {
       damageFlash: Math.max(0, (this.state.damageFlashUntil - now) / 220),
       mapName: this.map.displayName,
       buyMessage: this.buyMessage,
+      bombState: this.state.bombState,
+      bombTimer: bombDown ? this.state.bombTimer : 0,
+      plantProgress: this.state.plantProgress,
+      defuseProgress: this.state.defuseProgress,
+      bombPrompt: this.computeBombPrompt(p),
+      roundBanner,
+      spectating,
       minimap: this.state.players.map((pl) => ({
         id: pl.id,
         x: pl.x,

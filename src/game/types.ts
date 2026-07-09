@@ -7,6 +7,15 @@ import type { Team } from "@/shared/types/team";
 import type { WeaponId } from "@/domains/combat";
 import type { RoundPhase } from "@/domains/match";
 
+/** C4 lifecycle (Wave 5 §2.1). */
+export type BombState =
+  | "carried"
+  | "planting"
+  | "planted"
+  | "defusing"
+  | "exploded"
+  | "defused";
+
 export interface PlayerState {
   id: string;
   name: string;
@@ -79,6 +88,15 @@ export interface MatchState {
   hitMarkerUntil: number;
   damageFlashUntil: number;
   lastDamageAmount: number;
+  /** C4 FSM (Wave 5 §2.1). */
+  bombState: BombState;
+  bombCarrierId: string | null;
+  bombX: number;
+  bombZ: number;
+  plantProgress: number;
+  defuseProgress: number;
+  /** Seconds remaining when planted / defusing. */
+  bombTimer: number;
 }
 
 export interface ScoreboardRow {
@@ -91,6 +109,26 @@ export interface ScoreboardRow {
   alive: boolean;
   isLocal: boolean;
   isBot: boolean;
+}
+
+/** Round-end banner reason → Portuguese toast copy (§2.2). */
+export type RoundBannerKind =
+  | "tr_win"
+  | "ct_win"
+  | "bomb_exploded"
+  | "bomb_defused";
+
+export function roundBannerText(kind: RoundBannerKind): string {
+  switch (kind) {
+    case "tr_win":
+      return "TR VENCEU";
+    case "ct_win":
+      return "CT VENCEU";
+    case "bomb_exploded":
+      return "BOMBA EXPLODIU";
+    case "bomb_defused":
+      return "BOMBA DESARMADA";
+  }
 }
 
 export interface HudSnapshot {
@@ -126,6 +164,20 @@ export interface HudSnapshot {
   damageFlash: number;
   mapName: string;
   buyMessage: string | null;
+  /** C4 state for HUD (§2.1). */
+  bombState: BombState;
+  /** Seconds until explode when planted/defusing; 0 otherwise. */
+  bombTimer: number;
+  /** 0–1 plant hold progress. */
+  plantProgress: number;
+  /** 0–1 defuse hold progress. */
+  defuseProgress: number;
+  /** e.g. "Segure F para plantar". */
+  bombPrompt: string | null;
+  /** Full-width round toast; null when hidden. */
+  roundBanner: string | null;
+  /** Dead in live round — spectator cam active. */
+  spectating: boolean;
   minimap: Array<{
     id: string;
     x: number;

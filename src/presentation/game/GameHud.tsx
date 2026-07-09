@@ -8,11 +8,19 @@ import { AdBanner } from "@/presentation/ads/AdBanner";
 import { BuyMenu } from "@/presentation/game/BuyMenu";
 import { kdRatio, type MatchResult } from "@/domains/stats";
 import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
+import { RoundBanner } from "@/presentation/game/RoundBanner";
 import { SettingsPanel } from "@/presentation/game/SettingsPanel";
 import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
 import type { Team } from "@/shared/types/team";
 
 function formatTime(seconds: number) {
+  const s = Math.max(0, Math.ceil(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
+function formatBombTimer(seconds: number) {
   const s = Math.max(0, Math.ceil(seconds));
   const m = Math.floor(s / 60);
   const r = s % 60;
@@ -194,6 +202,33 @@ export function GameHud({
             <CopyInviteLink code={roomCode} host={false} variant="compact" />
           </div>
         )}
+
+        {/* Bomb timer when planted / defusing */}
+        {(hud.bombState === "planted" || hud.bombState === "defusing") && (
+          <div
+            className={`mt-1 flex items-center gap-2 rounded-lg border px-3 py-1.5 shadow-xl backdrop-blur-md ${
+              hud.bombTimer <= 10
+                ? "border-red-500/55 bg-red-950/70"
+                : "border-orange-400/45 bg-black/70"
+            }`}
+          >
+            <span className="text-[9px] font-bold tracking-[0.2em] text-orange-300/90">
+              C4
+            </span>
+            <span
+              className={`font-mono text-lg font-black tabular-nums ${
+                hud.bombTimer <= 10 ? "text-red-300" : "text-orange-100"
+              }`}
+            >
+              {formatBombTimer(hud.bombTimer)}
+            </span>
+            {hud.bombState === "defusing" && (
+              <span className="text-[9px] font-semibold tracking-wider text-sky-300">
+                DESARMANDO
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Killfeed — max 6; new rows fade/slide in */}
@@ -285,8 +320,39 @@ export function GameHud({
         </div>
       </div>
 
-      {/* Weapon bar center */}
+      {/* Weapon bar center + plant/defuse progress + bomb prompt */}
       <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
+        {hud.bombPrompt && hud.alive && !hud.paused && (
+          <div className="rounded-md border border-white/20 bg-black/75 px-3 py-1 text-[11px] font-semibold tracking-wide text-amber-100 shadow-lg backdrop-blur-md">
+            {hud.bombPrompt}
+          </div>
+        )}
+        {(hud.plantProgress > 0 || hud.bombState === "planting") && (
+          <div className="w-48 rounded-full border border-orange-400/50 bg-black/75 p-1 backdrop-blur">
+            <div
+              className="h-1.5 rounded-full bg-orange-400 transition-all"
+              style={{
+                width: `${Math.max(0, Math.min(1, hud.plantProgress)) * 100}%`,
+              }}
+            />
+            <div className="mt-0.5 text-center text-[9px] font-semibold tracking-widest text-orange-200">
+              PLANTANDO
+            </div>
+          </div>
+        )}
+        {(hud.defuseProgress > 0 || hud.bombState === "defusing") && (
+          <div className="w-48 rounded-full border border-sky-400/50 bg-black/75 p-1 backdrop-blur">
+            <div
+              className="h-1.5 rounded-full bg-sky-400 transition-all"
+              style={{
+                width: `${Math.max(0, Math.min(1, hud.defuseProgress)) * 100}%`,
+              }}
+            />
+            <div className="mt-0.5 text-center text-[9px] font-semibold tracking-widest text-sky-200">
+              DESARMANDO
+            </div>
+          </div>
+        )}
         {hud.reloading && (
           <div className="w-40 rounded-full border border-amber-400/40 bg-black/70 p-1 backdrop-blur">
             <div
@@ -360,8 +426,26 @@ export function GameHud({
         </div>
       )}
 
-      {/* Death overlay */}
-      {!hud.alive && !hud.paused && (
+      {/* Round win banner (§2.2) — 2.5s controlled by GameClient */}
+      {hud.roundBanner && !hud.paused && <RoundBanner text={hud.roundBanner} />}
+
+      {/* Spectator (§2.3) when dead in live */}
+      {hud.spectating && !hud.paused && (
+        <div className="absolute left-1/2 top-[22%] z-20 -translate-x-1/2">
+          <div className="rounded-lg border border-white/15 bg-black/75 px-5 py-2.5 text-center shadow-xl backdrop-blur-md">
+            <div className="text-sm font-black tracking-[0.28em] text-white/90">
+              ESPECTANDO
+            </div>
+            <div className="mt-1 text-[11px] text-white/50">
+              espaço para soltar câmera
+              {hud.cameraMode === "free" ? " · livre" : " · seguindo"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Death overlay (warmup / non-live — live uses spectator) */}
+      {!hud.alive && !hud.paused && !hud.spectating && (
         <div className="absolute inset-0 flex items-center justify-center bg-red-950/25">
           <div className="rounded-xl border border-red-500/40 bg-black/75 px-10 py-6 text-center shadow-2xl backdrop-blur-md">
             <div className="text-2xl font-black tracking-[0.2em] text-red-300">
