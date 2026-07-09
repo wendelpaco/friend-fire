@@ -42,4 +42,14 @@ describe("getMapById", () => {
       expect(map.billboards.length).toBeGreaterThan(0);
     }
   });
+
+  it("maps expose accent hex + blurb for UI chips", () => {
+    for (const map of listMaps()) {
+      expect(map.accent).toMatch(/^#[0-9a-fA-F]{6}$/);
+      expect((map.blurb ?? "").length).toBeGreaterThan(0);
+    }
+    expect(getMapById("dust").accent).toBe("#c4a574");
+    expect(getMapById("favela").accent).toBe("#e85a5a");
+    expect(getMapById("yard").accent).toBe("#708090");
+  });
 });

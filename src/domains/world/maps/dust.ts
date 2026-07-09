@@ -5,6 +5,8 @@ export const MAP_DUST: GameMap = {
   id: "dust",
   name: "de_dust_ff",
   displayName: "Dust FF",
+  accent: "#c4a574",
+  blurb: "Corredores de areia e cobertura densa",
   size: { width: 48, depth: 48 },
   groundColor: 0xc4a574,
   groundAccent: 0xb8955f,

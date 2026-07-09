@@ -5,6 +5,8 @@ export const MAP_FAVELA: GameMap = {
   id: "favela",
   name: "de_favela_ff",
   displayName: "Favela FF",
+  accent: "#e85a5a",
+  blurb: "Vielas coloridas e campo aberto",
   size: { width: 48, depth: 48 },
   groundColor: 0xd4a574,
   groundAccent: 0xc4925a,

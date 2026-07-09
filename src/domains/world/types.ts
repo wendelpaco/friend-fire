@@ -48,6 +48,10 @@ export interface GameMap {
   id: string;
   name: string;
   displayName: string;
+  /** UI chip / swatch color (CSS hex, e.g. "#c4a574"). */
+  accent: string;
+  /** Short lobby blurb for map pickers. */
+  blurb?: string;
   size: { width: number; depth: number };
   groundColor: number;
   groundAccent: number;

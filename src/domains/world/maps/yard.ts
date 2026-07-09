@@ -5,6 +5,8 @@ export const MAP_YARD: GameMap = {
   id: "yard",
   name: "de_yard_ff",
   displayName: "Yard FF",
+  accent: "#708090",
+  blurb: "Pátio industrial com containers",
   size: { width: 48, depth: 48 },
   groundColor: 0x6b6b6b,
   groundAccent: 0x5a5a5a,
