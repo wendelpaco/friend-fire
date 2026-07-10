@@ -44,6 +44,14 @@ function PlayContent() {
   // Map fixed at entry (local ?map= or host create navigation). Room guests
   // should receive the same ?map= from invite/host; no mid-session reload.
   const mapId = searchParams.get("map") || undefined;
+  // Squad party (Meta-3): invitees share host party via ?party= (default code).
+  const rawParty = searchParams.get("party");
+  const partyId =
+    rawParty && rawParty.trim().length > 0
+      ? rawParty.trim().slice(0, 24)
+      : isHost && code
+        ? code
+        : undefined;
 
   return (
     <GameCanvas
@@ -51,6 +59,7 @@ function PlayContent() {
       roomCode={mode === "room" ? code : undefined}
       isHost={isHost}
       mapId={mapId}
+      partyId={mode === "room" ? partyId : undefined}
     />
   );
 }

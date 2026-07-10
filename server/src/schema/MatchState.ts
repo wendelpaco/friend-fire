@@ -49,6 +49,18 @@ export class PlayerState extends Schema {
   @type("string") operatorId: string = "";
   /** Skin id under operator catalog; empty if unset. */
   @type("string") skinId: string = "";
+  /**
+   * Squad / party id for private chat (Meta-3).
+   * Host default = room code; invitees with matching `party` join option share it;
+   * otherwise solo = session id.
+   */
+  @type("string") partyId: string = "";
+}
+
+/** Client → server chat message (Meta-3). */
+export interface ChatMessage {
+  channel: "squad" | "team" | "all";
+  text: string;
 }
 
 export class MatchState extends Schema {

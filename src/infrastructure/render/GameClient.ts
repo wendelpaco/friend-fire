@@ -80,6 +80,7 @@ import {
 } from "@/game/constants";
 import type {
   BulletState,
+  ChatChannel,
   ChatEntry,
   HudSnapshot,
   KillFeedEntry,
@@ -90,6 +91,7 @@ import type {
   WeaponId,
 } from "@/game/types";
 import { roundBannerText } from "@/game/types";
+import { sanitizeChatText } from "@/domains/session";
 import {
   getMapById,
   mapCollisionWalls,
@@ -401,6 +403,10 @@ export class GameClient {
   private missionMatchRecorded = false;
   /** When true, combat/bots come from Colyseus; local only predicts movement. */
   private networked = false;
+  private chatSender: ((channel: ChatChannel, text: string) => void) | null =
+    null;
+  private chatFocused = false;
+  private lastLocalChatAt = 0;
   private networkSessionId: string | null = null;
   /** When set (room mode), purchases go to the server instead of local tryBuy. */
   private buySender: ((itemId: string) => void) | null = null;
@@ -901,10 +907,12 @@ export class GameClient {
       }
     } else if (was) {
       this.buySender = null;
+      this.chatSender = null;
       this.networkPlayerById.clear();
       this.networkSeenIds.clear();
     } else {
       this.buySender = null;
+      this.chatSender = null;
     }
   }
 
@@ -915,6 +923,72 @@ export class GameClient {
   /** Inject room.send("buy") from GameCanvas when Colyseus is connected. */
   setBuySender(sender: ((itemId: string) => void) | null) {
     this.buySender = sender;
+  }
+
+  /** Inject room.send("chat") from GameCanvas when Colyseus is connected. */
+  setChatSender(sender: ((channel: ChatChannel, text: string) => void) | null) {
+    this.chatSender = sender;
+  }
+
+  /**
+   * Chat input focus trap — suppress combat keys while typing (Meta-3).
+   */
+  setChatFocused(focused: boolean) {
+    this.chatFocused = focused;
+    this.input.setSuppressed(focused);
+  }
+
+  isChatFocused() {
+    return this.chatFocused;
+  }
+
+  /**
+   * Send chat on channel. Online → server filter; offline → local log.
+   * Squad offline only shows to self (solo squad).
+   */
+  sendChat(channel: ChatChannel, text: string) {
+    const clean = sanitizeChatText(text);
+    if (!clean) return;
+    const now = performance.now();
+    if (now - this.lastLocalChatAt < 800) return;
+    this.lastLocalChatAt = now;
+
+    if (this.chatSender) {
+      this.chatSender(channel, clean);
+      return;
+    }
+
+    const local = this.state.players.find(
+      (x) => x.id === this.state.localPlayerId,
+    );
+    const kind: ChatEntry["kind"] =
+      channel === "team" ? "radio" : channel === "squad" ? "squad" : "all";
+    this.addChat(local?.name ?? "Você", clean, kind, channel);
+  }
+
+  /** Inbound multiplayer chat already filtered by server. */
+  appendNetworkChat(entry: {
+    id: string;
+    channel: ChatChannel;
+    fromName: string;
+    text: string;
+    at?: number;
+  }) {
+    const kind: ChatEntry["kind"] =
+      entry.channel === "team"
+        ? "radio"
+        : entry.channel === "squad"
+          ? "squad"
+          : "all";
+    this.state.chat.push({
+      id: entry.id || uid("chat"),
+      from: entry.fromName,
+      text: entry.text.slice(0, 120),
+      kind,
+      channel: entry.channel,
+      at: entry.at ?? performance.now(),
+    });
+    this.state.chat = this.state.chat.slice(-16);
   }
 
   applyNetworkState(net: {
@@ -1436,6 +1510,7 @@ export class GameClient {
           from: "SYSTEM",
           text: "AQUECIMENTO — treine mira e movimento. Nada conta.",
           kind: "system",
+          channel: "all",
           at: performance.now(),
         },
       ],
@@ -1560,6 +1635,13 @@ export class GameClient {
   // ─── update ──────────────────────────────────────────────
 
   private update(dt: number) {
+    // Chat focus trap: no combat / menu edge keys while typing (Meta-3).
+    if (this.chatFocused || this.input.isTypingTarget()) {
+      this.pushHud();
+      this.input.endFrame();
+      return;
+    }
+
     // Meta-2 showcase: consume Space/Esc/B here so the same edge does not
     // toggle BuyMenu or pause after dismiss.
     if (this.showShopShowcase) {
@@ -2136,9 +2218,21 @@ export class GameClient {
     if (!local) return;
 
     this.spectateTargetId = killerId;
-    const target = killerId
+    let target = killerId
       ? this.state.players.find((p) => p.id === killerId && p.alive)
       : null;
+
+    // Prefer living ally for death social when no killer target.
+    if (!target) {
+      target =
+        this.state.players.find(
+          (p) =>
+            p.alive &&
+            p.team === local.team &&
+            p.id !== local.id,
+        ) ?? null;
+      if (target) this.spectateTargetId = target.id;
+    }
 
     if (target) {
       this.spectatorFollow = true;
@@ -2173,6 +2267,7 @@ export class GameClient {
 
   /** Free / follow cam while dead in live phase (§2.3). */
   private updateSpectator(dt: number) {
+    if (this.chatFocused) return;
     const local = this.state.players.find(
       (x) => x.id === this.state.localPlayerId,
     );
@@ -2180,6 +2275,14 @@ export class GameClient {
 
     if (this.input.wasPressed("Space")) {
       this.toggleSpectatorCamera();
+    }
+
+    // Digit1 — cycle next living ally (Meta-3 death social).
+    if (
+      this.input.wasPressed("Digit1") ||
+      this.input.wasPressed("Numpad1")
+    ) {
+      this.cycleSpectateAlly(local.team);
     }
 
     if (this.spectatorFollow && this.spectateTargetId) {
@@ -2199,6 +2302,30 @@ export class GameClient {
       this.freeCamX += move.x * pan;
       this.freeCamZ += move.z * pan;
     }
+  }
+
+  /** Follow next living teammate while spectating. */
+  private cycleSpectateAlly(team: Team) {
+    const allies = this.state.players.filter(
+      (p) =>
+        p.alive &&
+        p.team === team &&
+        p.id !== this.state.localPlayerId,
+    );
+    if (allies.length === 0) {
+      this.spectatorFollow = false;
+      this.state.cameraMode = "free";
+      this.spectateTargetId = null;
+      return;
+    }
+    const idx = allies.findIndex((p) => p.id === this.spectateTargetId);
+    const next = allies[(idx + 1) % allies.length]!;
+    this.spectateTargetId = next.id;
+    this.spectatorFollow = true;
+    this.state.cameraMode = "locked";
+    this.freeCamX = next.x;
+    this.freeCamZ = next.z;
+    Sfx.play("ui");
   }
 
   private computeBombPrompt(local: PlayerState): string | null {
@@ -2900,15 +3027,24 @@ export class GameClient {
     }
   }
 
-  private addChat(from: string, text: string, kind: ChatEntry["kind"]) {
+  private addChat(
+    from: string,
+    text: string,
+    kind: ChatEntry["kind"],
+    channel?: ChatChannel,
+  ) {
+    const resolvedChannel: ChatChannel =
+      channel ??
+      (kind === "radio" ? "team" : kind === "squad" ? "squad" : "all");
     this.state.chat.push({
       id: uid("chat"),
       from,
       text,
       kind,
+      channel: resolvedChannel,
       at: performance.now(),
     });
-    this.state.chat = this.state.chat.slice(-8);
+    this.state.chat = this.state.chat.slice(-16);
   }
 
   private pushHud() {
@@ -2929,6 +3065,13 @@ export class GameClient {
     }
 
     const spectating = !p.alive && this.state.phase === "live";
+    let spectateTargetName = "";
+    if (spectating && this.spectatorFollow && this.spectateTargetId) {
+      const t = this.state.players.find(
+        (x) => x.id === this.spectateTargetId && x.alive,
+      );
+      spectateTargetName = t?.name ?? "";
+    }
     const roundBanner =
       this.roundBannerKind && now < this.roundBannerUntil
         ? roundBannerText(this.roundBannerKind)
@@ -3104,6 +3247,7 @@ export class GameClient {
       bombPrompt,
       roundBanner,
       spectating,
+      spectateTargetName,
       perf,
       minimap: this.state.players.map((pl) => ({
         id: pl.id,

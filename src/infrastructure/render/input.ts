@@ -9,7 +9,42 @@ export class Input {
   aimWorldZ = 0;
   private bound = false;
 
+  /**
+   * When true, keyboard/mouse combat edges are ignored (chat focus trap).
+   * Set by GameClient while SquadChat input is focused.
+   */
+  private suppressed = false;
+
+  /** True when typing in an input/textarea/contenteditable (or suppressed flag). */
+  isTypingTarget(target: EventTarget | null = null): boolean {
+    if (this.suppressed) return true;
+    const el =
+      (target as HTMLElement | null) ??
+      (typeof document !== "undefined"
+        ? (document.activeElement as HTMLElement | null)
+        : null);
+    if (!el) return false;
+    const tag = el.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
+  setSuppressed(suppressed: boolean) {
+    this.suppressed = suppressed;
+    if (suppressed) {
+      this.keys.clear();
+      this.justPressed.clear();
+      this.mouseButtons.clear();
+      this.mouseJustPressed.clear();
+    }
+  }
+
   private onKeyDown = (e: KeyboardEvent) => {
+    // Chat / form focus: do not capture game keys (Meta-3 input trap).
+    if (this.isTypingTarget(e.target)) {
+      return;
+    }
     if (!this.keys.has(e.code)) {
       this.justPressed.add(e.code);
     }
@@ -57,6 +92,7 @@ export class Input {
   };
 
   private onMouseDown = (e: MouseEvent) => {
+    if (this.isTypingTarget(e.target)) return;
     if (!this.mouseButtons.has(e.button)) {
       this.mouseJustPressed.add(e.button);
     }

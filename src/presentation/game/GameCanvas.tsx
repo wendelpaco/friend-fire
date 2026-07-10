@@ -30,6 +30,11 @@ interface GameCanvasProps {
    * before /play via host create URL).
    */
   mapId?: string;
+  /**
+   * Squad/party id from `?party=` (Meta-3). Invitees share host party for
+   * private squad chat. Host defaults to room code when omitted.
+   */
+  partyId?: string;
 }
 
 const INPUT_HZ = 20;
@@ -40,6 +45,7 @@ export function GameCanvas({
   roomCode,
   isHost = false,
   mapId,
+  partyId,
 }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -165,6 +171,9 @@ export function GameCanvas({
         if (snap.connected && !snap.hybridLocalCombat) {
           engine.setNetworked(true, snap.sessionId);
           engine.setBuySender((itemId) => client.sendBuy(itemId));
+          engine.setChatSender((channel, text) =>
+            client.sendChat(channel, text),
+          );
           // Pass players by reference — no per-tick map clone
           engine.applyNetworkState({
             sessionId: snap.sessionId,
@@ -187,8 +196,10 @@ export function GameCanvas({
         } else if (!snap.connected) {
           engine.setNetworked(false, null);
           engine.setBuySender(null);
+          engine.setChatSender(null);
         } else {
           engine.setBuySender(null);
+          engine.setChatSender(null);
         }
       }
 
@@ -224,10 +235,25 @@ export function GameCanvas({
           })
         : () => {};
 
+    const unsubChat =
+      typeof client.onChat === "function"
+        ? client.onChat((event) => {
+            if (cancelled) return;
+            engineRef.current?.appendNetworkChat({
+              id: event.id,
+              channel: event.channel,
+              fromName: event.fromName,
+              text: event.text,
+              at: event.at,
+            });
+          })
+        : () => {};
+
     const connect = async () => {
       const opts = {
         host: isHost,
         mapId: mapId || "dust",
+        party: partyId,
       };
       // Retry: first attempt often races Strict Mode remount / server warm-up.
       let lastErr: unknown;
@@ -249,6 +275,7 @@ export function GameCanvas({
         setNet(client.snapshot());
         engineRef.current?.setNetworked(false, null);
         engineRef.current?.setBuySender(null);
+        engineRef.current?.setChatSender(null);
         console.warn("[room] Colyseus connect failed:", lastErr);
       }
     };
@@ -257,6 +284,23 @@ export function GameCanvas({
     const inputTimer = window.setInterval(() => {
       const engine = engineRef.current;
       if (!engine || !client.isConnected()) return;
+      // Don't shoot / move-wire while typing in chat (Meta-3 focus trap).
+      if (engine.isChatFocused() || engine.input.isTypingTarget()) {
+        client.sendInput({
+          dx: 0,
+          dz: 0,
+          aimX: engine.input.aimWorldX,
+          aimZ: engine.input.aimWorldZ,
+          fire: false,
+          reload: false,
+          slot: 0,
+          plant: false,
+          he: false,
+          jump: false,
+          crouch: false,
+        });
+        return;
+      }
       const move = engine.input.moveVector();
       const slot = engine.input.weaponSlotKey() ?? 0;
       client.sendInput({
@@ -280,12 +324,14 @@ export function GameCanvas({
       unsub();
       unsubHe();
       unsubShot();
+      unsubChat();
       window.clearInterval(inputTimer);
       engineRef.current?.setNetworked(false, null);
       engineRef.current?.setBuySender(null);
+      engineRef.current?.setChatSender(null);
       // Keep Colyseus seat alive across Strict remounts; leave on page exit.
     };
-  }, [mode, roomCode, isHost, mapId]);
+  }, [mode, roomCode, isHost, mapId, partyId]);
 
   // Leave multiplayer only when leaving the play canvas entirely.
   useEffect(() => {
@@ -342,6 +388,12 @@ export function GameCanvas({
           onBuy={(id) => engineRef.current?.purchase(id)}
           onCloseBuy={() => engineRef.current?.closeBuyMenu()}
           onDismissShowcase={onDismissShowcase}
+          onSendChat={(channel, text) =>
+            engineRef.current?.sendChat(channel, text)
+          }
+          onChatFocusChange={(focused) =>
+            engineRef.current?.setChatFocused(focused)
+          }
         />
       )}
       {mode === "room" && displayCode && !hud && !loading && (

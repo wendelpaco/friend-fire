@@ -4,6 +4,7 @@ import {
   PlayerState,
   WeaponDropState,
   type BuyMessage,
+  type ChatMessage,
   type InputMessage,
 } from "../schema/MatchState";
 import {
@@ -143,6 +144,8 @@ export type GameRoomOptions = {
   operatorId?: string;
   /** Skin id under operator catalog. */
   skinId?: string;
+  /** Squad/party id for private squad chat (Meta-3). */
+  party?: string;
 };
 
 export type GameRoomMetadata = {
@@ -239,6 +242,9 @@ export class GameRoom extends Room<MatchState> {
   private diedThisRound = new Set<string>();
   /** Collision + cover for current map (hitscan cannot ignore walls). */
   private walls: WallRect[] = wallsForMap("dust");
+  /** Chat rate-limit: last message ms per session (Meta-3). */
+  private chatLastAt = new Map<string, number>();
+  private chatSeq = 0;
 
   async onCreate(options: GameRoomOptions = {}) {
     this.setState(new MatchState());
@@ -306,6 +312,10 @@ export class GameRoom extends Room<MatchState> {
       this.handleBuy(client, message?.itemId);
     });
 
+    this.onMessage("chat", (client, message: Partial<ChatMessage>) => {
+      this.handleChat(client, message);
+    });
+
     this.onMessage("ping", (client) => {
       client.send("pong", { t: Date.now() });
     });
@@ -365,6 +375,8 @@ export class GameRoom extends Room<MatchState> {
       typeof options.skinId === "string"
         ? options.skinId.trim().slice(0, 48)
         : "";
+    // Squad party: explicit option, else first human → room code, else solo session.
+    player.partyId = this.resolvePartyId(client.sessionId, options.party);
     this.applySpawn(player);
     const ammo = this.applyHumanLoadout(player);
 
@@ -382,7 +394,7 @@ export class GameRoom extends Room<MatchState> {
     this.syncBots();
 
     console.log(
-      `[GameRoom] join ${client.sessionId} name=${player.name} team=${player.team}`,
+      `[GameRoom] join ${client.sessionId} name=${player.name} team=${player.team} party=${player.partyId}`,
     );
   }
 
@@ -390,11 +402,92 @@ export class GameRoom extends Room<MatchState> {
     this.state.players.delete(client.sessionId);
     this.inputs.delete(client.sessionId);
     this.extras.delete(client.sessionId);
+    this.chatLastAt.delete(client.sessionId);
     this.syncBots();
   }
 
   onDispose() {
     console.log(`[GameRoom] dispose code=${this.state.code}`);
+  }
+
+  /**
+   * Host / first human → room code; explicit `party` join option; else solo sessionId.
+   */
+  private resolvePartyId(sessionId: string, partyOption?: string): string {
+    const raw = typeof partyOption === "string" ? partyOption.trim() : "";
+    if (raw.length > 0) return raw.slice(0, 24);
+
+    let humans = 0;
+    this.state.players.forEach((p) => {
+      if (!p.isBot) humans += 1;
+    });
+    // Called before the new player is inserted — 0 humans ⇒ host.
+    if (humans <= 0 && this.state.code) {
+      return this.state.code.slice(0, 24);
+    }
+    return sessionId.slice(0, 24);
+  }
+
+  private handleChat(client: Client, message: Partial<ChatMessage> | undefined) {
+    const CHAT_MAX = 120;
+    const RATE_MS = 800;
+    const p = this.state.players.get(client.sessionId);
+    if (!p || p.isBot) return;
+
+    const channelRaw = message?.channel;
+    const channel: ChatMessage["channel"] =
+      channelRaw === "squad" || channelRaw === "team" || channelRaw === "all"
+        ? channelRaw
+        : "all";
+
+    const text =
+      typeof message?.text === "string"
+        ? message.text.replace(/\s+/g, " ").trim().slice(0, CHAT_MAX)
+        : "";
+    if (!text) return;
+
+    const now = Date.now();
+    const last = this.chatLastAt.get(client.sessionId) ?? 0;
+    if (now - last < RATE_MS) return;
+    this.chatLastAt.set(client.sessionId, now);
+
+    this.chatSeq += 1;
+    const payload = {
+      id: `c${this.chatSeq}`,
+      channel,
+      fromId: p.id,
+      fromName: p.name,
+      text,
+      at: now,
+    };
+
+    for (const c of this.clients) {
+      const recipient = this.state.players.get(c.sessionId);
+      if (!recipient || recipient.isBot) continue;
+      if (!this.chatVisibleTo(channel, p, recipient)) continue;
+      try {
+        c.send("chat", payload);
+      } catch {
+        /* drop if mid-close */
+      }
+    }
+  }
+
+  private chatVisibleTo(
+    channel: ChatMessage["channel"],
+    sender: PlayerState,
+    recipient: PlayerState,
+  ): boolean {
+    if (channel === "all") return true;
+    if (channel === "team") return sender.team === recipient.team;
+    if (channel === "squad") {
+      return (
+        sender.partyId.length > 0 &&
+        recipient.partyId.length > 0 &&
+        sender.partyId === recipient.partyId
+      );
+    }
+    return false;
   }
 
   private handleBuy(client: Client, itemId: unknown) {

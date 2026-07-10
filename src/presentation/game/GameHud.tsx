@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { memo, useEffect, useState } from "react";
 import { CONTROLS_HELP } from "@/game/constants";
-import type { HudSnapshot } from "@/game/types";
+import type { ChatChannel, HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { BuyMenu } from "@/presentation/game/BuyMenu";
 import { kdRatio, type MatchResult } from "@/domains/stats";
@@ -11,6 +11,7 @@ import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
 import { RoundBanner } from "@/presentation/game/RoundBanner";
 import { SettingsPanel } from "@/presentation/game/SettingsPanel";
 import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
+import { DeathSocialPanel } from "@/presentation/session/DeathSocialPanel";
 import { ShopShowcase } from "@/presentation/session/ShopShowcase";
 import type { Team } from "@/shared/types/team";
 
@@ -58,6 +59,10 @@ interface GameHudProps {
   onBuy?: (itemId: string) => void;
   onCloseBuy?: () => void;
   onDismissShowcase?: (opts: { openBuy: boolean }) => void;
+  /** Meta-3 squad/team/all chat send. */
+  onSendChat?: (channel: ChatChannel, text: string) => void;
+  /** Combat input trap while chat focused. */
+  onChatFocusChange?: (focused: boolean) => void;
 }
 
 function fpsColorClass(fps: number): string {
@@ -145,6 +150,8 @@ function GameHudImpl({
   onBuy,
   onCloseBuy,
   onDismissShowcase,
+  onSendChat,
+  onChatFocusChange,
 }: GameHudProps) {
   const [showSettings, setShowSettings] = useState(false);
   useEffect(() => {
@@ -354,33 +361,42 @@ function GameHudImpl({
         ))}
       </div>
 
-      {/* Chat */}
-      <div className="absolute bottom-36 left-4 flex w-[22rem] flex-col gap-0.5">
-        {hud.chat.slice(-5).map((c) => (
-          <div
-            key={c.id}
-            className="text-[11px] leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]"
-          >
-            {c.kind === "system" ? (
-              <span className="font-semibold text-amber-300">▸ {c.text}</span>
-            ) : (
-              <>
-                <span
-                  className={
-                    c.kind === "radio"
-                      ? "font-semibold text-orange-300"
-                      : "font-semibold text-white/90"
-                  }
-                >
-                  {c.from}
-                  {c.kind === "radio" ? " · rádio" : ""}:
-                </span>{" "}
-                <span className="text-white/85">{c.text}</span>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
+      {/* Chat feed (hidden when death social owns the dock) */}
+      {!hud.spectating && (
+        <div className="absolute bottom-36 left-4 flex w-[22rem] flex-col gap-0.5">
+          {hud.chat.slice(-5).map((c) => (
+            <div
+              key={c.id}
+              className="text-[11px] leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]"
+            >
+              {c.kind === "system" ? (
+                <span className="font-semibold text-amber-300">▸ {c.text}</span>
+              ) : (
+                <>
+                  <span
+                    className={
+                      c.channel === "squad" || c.kind === "squad"
+                        ? "font-semibold text-violet-300"
+                        : c.kind === "radio" || c.channel === "team"
+                          ? "font-semibold text-orange-300"
+                          : "font-semibold text-white/90"
+                    }
+                  >
+                    {c.from}
+                    {c.channel === "squad"
+                      ? " · squad"
+                      : c.kind === "radio" || c.channel === "team"
+                        ? " · rádio"
+                        : ""}
+                    :
+                  </span>{" "}
+                  <span className="text-white/85">{c.text}</span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Bottom left vitals */}
       <div className="absolute bottom-5 left-4 flex items-end gap-3">
@@ -540,19 +556,15 @@ function GameHudImpl({
       {/* Round win banner (§2.2) — 2.5s controlled by GameClient */}
       {hud.roundBanner && !hud.paused && <RoundBanner text={hud.roundBanner} />}
 
-      {/* Spectator (§2.3) when dead in live */}
+      {/* Death social + squad chat when dead in live (Meta-3) */}
       {hud.spectating && !hud.paused && (
-        <div className="absolute left-1/2 top-[22%] z-20 -translate-x-1/2">
-          <div className="rounded-lg border border-white/15 bg-black/75 px-5 py-2.5 text-center shadow-xl backdrop-blur-md">
-            <div className="text-sm font-black tracking-[0.28em] text-white/90">
-              ESPECTANDO
-            </div>
-            <div className="mt-1 text-[11px] text-white/50">
-              espaço para soltar câmera
-              {hud.cameraMode === "free" ? " · livre" : " · seguindo"}
-            </div>
-          </div>
-        </div>
+        <DeathSocialPanel
+          spectateTargetName={hud.spectateTargetName ?? ""}
+          cameraMode={hud.cameraMode}
+          messages={hud.chat}
+          onSendChat={(channel, text) => onSendChat?.(channel, text)}
+          onChatFocusChange={onChatFocusChange}
+        />
       )}
 
       {/* Death overlay (warmup / non-live — live uses spectator) */}

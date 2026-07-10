@@ -63,6 +63,11 @@ export type CreateRoomOptions = {
   visibility?: RoomVisibility;
   /** BR | US — defaults to identity getRegion() on create. */
   region?: RoomRegion;
+  /**
+   * Squad/party id for private chat (Meta-3).
+   * Invitees share the host party (usually room code) via `?party=`.
+   */
+  party?: string;
 };
 
 /** Query params for GET /rooms (server browser filters). */
@@ -120,6 +125,16 @@ export type ShotFxEvent = {
     nz: number;
     surface: "wall" | "ground" | "prop";
   } | null;
+};
+
+/** Chat broadcast from GameRoom (Meta-3 channel-filtered). */
+export type ChatFxEvent = {
+  id: string;
+  channel: "squad" | "team" | "all";
+  fromId: string;
+  fromName: string;
+  text: string;
+  at: number;
 };
 
 export interface RoomClient {
@@ -206,6 +221,8 @@ export type NetworkPlayer = {
   /** Operator roster + skin (session meta; empty if unset). */
   operatorId: string;
   skinId: string;
+  /** Squad/party id for private chat (Meta-3). */
+  partyId: string;
 };
 
 export type InputPayload = {
@@ -327,6 +344,7 @@ function acquireNetworkPlayer(i: number): NetworkPlayer {
       heCount: 0,
       operatorId: "",
       skinId: "",
+      partyId: "",
     };
     networkPlayerPool[i] = p;
   }
@@ -369,6 +387,7 @@ function playersFromState(state: unknown): NetworkPlayer[] {
     row.heCount = Number(o.heCount) || 0;
     row.operatorId = typeof o.operatorId === "string" ? o.operatorId : "";
     row.skinId = typeof o.skinId === "string" ? o.skinId : "";
+    row.partyId = typeof o.partyId === "string" ? o.partyId : "";
     networkPlayersOut[n] = row;
     n += 1;
   };
@@ -682,9 +701,12 @@ export class ColyseusRoomClient implements RoomClient {
   private sessionId: string | null = null;
   private mode: NetworkRoomState["mode"] = "idle";
   private error: string | null = null;
+  /** Party/squad id from last join options (Meta-3). */
+  private party: string | null = null;
   private readonly listeners = new Set<(state: unknown) => void>();
   private readonly heFxListeners = new Set<(event: HeFxEvent) => void>();
   private readonly shotFxListeners = new Set<(event: ShotFxEvent) => void>();
+  private readonly chatListeners = new Set<(event: ChatFxEvent) => void>();
   private unbindRoom: (() => void) | null = null;
   /** Serialize create/join/connect so Strict Mode / double-click can't race. */
   private connectChain: Promise<void> = Promise.resolve();
@@ -710,6 +732,12 @@ export class ColyseusRoomClient implements RoomClient {
         // Host creates a real room and keeps the seat so the code stays joinable
         // until the host opens /play (or leaves). Guests use join-only.
         const op = getOperatorPrefs();
+        // Host party defaults to room code once known; server also assigns
+        // first human → code. Explicit opts.party wins when set.
+        this.party =
+          typeof opts?.party === "string" && opts.party.trim()
+            ? opts.party.trim().slice(0, 24)
+            : null;
         const room = await client.create(GAME_ROOM_NAME, {
           name: getNickname(),
           mapId: opts?.mapId,
@@ -718,10 +746,12 @@ export class ColyseusRoomClient implements RoomClient {
           region,
           operatorId: op.operatorId,
           skinId: op.skinId,
+          ...(this.party ? { party: this.party } : {}),
         });
         this.bindRoom(room);
         const code = await waitForCode(room);
         this.code = code;
+        if (!this.party) this.party = code;
         this.mode = "in_room";
         this.error = null;
         const mapId =
@@ -776,7 +806,7 @@ export class ColyseusRoomClient implements RoomClient {
     }
   }
 
-  async join(code: string): Promise<void> {
+  async join(code: string, opts?: { party?: string }): Promise<void> {
     const normalized = normalizeRoomCode(code);
     if (!isValidRoomCode(normalized)) {
       throw new Error("Código inválido. Use 6 caracteres (A–Z, 2–9).");
@@ -789,11 +819,17 @@ export class ColyseusRoomClient implements RoomClient {
       await this.leave();
       const client = makeClient();
       const op = getOperatorPrefs();
+      const party =
+        typeof opts?.party === "string" && opts.party.trim()
+          ? opts.party.trim().slice(0, 24)
+          : this.party;
+      this.party = party;
       const room = await client.join(GAME_ROOM_NAME, {
         code: normalized,
         name: getNickname(),
         operatorId: op.operatorId,
         skinId: op.skinId,
+        ...(party ? { party } : {}),
       });
       this.bindRoom(room);
       const serverCode =
@@ -827,6 +863,14 @@ export class ColyseusRoomClient implements RoomClient {
         throw new Error("Código inválido. Use 6 caracteres (A–Z, 2–9).");
       }
 
+      const partyOpt =
+        typeof options.party === "string" && options.party.trim()
+          ? options.party.trim().slice(0, 24)
+          : null;
+      // Host without explicit party → room code (squad with invitees using ?party=code).
+      if (partyOpt) this.party = partyOpt;
+      else if (options.host) this.party = normalized;
+
       // Reuse lobby create/join seat when already in this room.
       if (
         this.isConnected() &&
@@ -852,6 +896,8 @@ export class ColyseusRoomClient implements RoomClient {
           const client = makeClient();
           const region = resolveRegion(options.region);
           const op = getOperatorPrefs();
+          const party = this.party ?? normalized;
+          this.party = party;
           const room = await client.joinOrCreate(GAME_ROOM_NAME, {
             code: normalized,
             name: getNickname(),
@@ -861,6 +907,7 @@ export class ColyseusRoomClient implements RoomClient {
             region,
             operatorId: op.operatorId,
             skinId: op.skinId,
+            party,
           });
           this.bindRoom(room);
           const serverCode = await waitForCode(room).catch(() => normalized);
@@ -881,7 +928,9 @@ export class ColyseusRoomClient implements RoomClient {
       }
 
       // Guest: join-only (no ghost rooms on typos).
-      await this.join(normalized);
+      await this.join(normalized, {
+        party: this.party ?? undefined,
+      });
     });
   }
 
@@ -897,6 +946,7 @@ export class ColyseusRoomClient implements RoomClient {
     }
     this.room = null;
     this.sessionId = null;
+    this.party = null;
     this.mode = "idle";
     this.emit();
   }
@@ -928,8 +978,33 @@ export class ColyseusRoomClient implements RoomClient {
     }
   }
 
+  /**
+   * Channel-filtered chat (Meta-3). Server rate-limits + fans out to recipients.
+   */
+  sendChat(channel: "squad" | "team" | "all", text: string): void {
+    if (!this.room || !text) return;
+    try {
+      this.room.send("chat", { channel, text });
+    } catch {
+      /* drop if socket mid-close */
+    }
+  }
+
+  /** Inbound chat messages already filtered by the server. */
+  onChat(cb: (event: ChatFxEvent) => void): () => void {
+    this.chatListeners.add(cb);
+    return () => {
+      this.chatListeners.delete(cb);
+    };
+  }
+
   getCode(): string | null {
     return this.code;
+  }
+
+  /** Party/squad id used on last create/join (may be null offline). */
+  getParty(): string | null {
+    return this.party;
   }
 
   getSessionId(): string | null {
@@ -1051,6 +1126,26 @@ export class ColyseusRoomClient implements RoomClient {
     room.onMessage("he_throw", onHeThrow);
     room.onMessage("he_explode", onHeExplode);
     room.onMessage("fx_shot", onFxShot);
+
+    const onChatMsg = (data: unknown) => {
+      const o = data as Record<string, unknown>;
+      const channelRaw = o?.channel;
+      const channel: ChatFxEvent["channel"] =
+        channelRaw === "squad" || channelRaw === "team" || channelRaw === "all"
+          ? channelRaw
+          : "all";
+      const event: ChatFxEvent = {
+        id: String(o?.id ?? `chat-${Date.now()}`),
+        channel,
+        fromId: String(o?.fromId ?? ""),
+        fromName: String(o?.fromName ?? "Player"),
+        text: String(o?.text ?? "").slice(0, 120),
+        at: Number(o?.at) || Date.now(),
+      };
+      if (!event.text) return;
+      for (const cb of this.chatListeners) cb(event);
+    };
+    room.onMessage("chat", onChatMsg);
 
     room.onError((code, message) => {
       this.mode = "error";

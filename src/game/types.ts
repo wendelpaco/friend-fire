@@ -87,11 +87,17 @@ export interface KillFeedEntry {
   at: number;
 }
 
+/** Chat delivery channel (Meta-3 death social / squad). */
+export type ChatChannel = "squad" | "team" | "all";
+
 export interface ChatEntry {
   id: string;
   from: string;
   text: string;
-  kind: "radio" | "all" | "system";
+  /** Legacy radio/system flavor; channel is authoritative for filtering. */
+  kind: "radio" | "all" | "system" | "squad" | "team";
+  /** Delivery scope — squad / team / all. */
+  channel: ChatChannel;
   at: number;
 }
 
@@ -220,6 +226,8 @@ export interface HudSnapshot {
   roundBanner: string | null;
   /** Dead in live round — spectator cam active. */
   spectating: boolean;
+  /** Name of player being followed while spectating (empty if free cam / none). */
+  spectateTargetName: string;
   /** Always-on smoothed FPS for the mini counter (≈2 Hz). */
   fps: number;
   /**
