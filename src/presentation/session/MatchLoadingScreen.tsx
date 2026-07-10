@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GAME_NAME } from "@/game/constants";
 
 export type MatchLoadingPhase =
@@ -49,6 +49,10 @@ export function MatchLoadingScreen({
   const [progress, setProgress] = useState(0);
   const [started] = useState(() => performance.now());
   const [done, setDone] = useState(false);
+  /** Prevent double-finish; never cancelled by effect cleanup. */
+  const finishedRef = useRef(false);
+  const onFinishedRef = useRef(onFinished);
+  onFinishedRef.current = onFinished;
 
   const phase = useMemo(() => {
     let current = STEPS[0]!;
@@ -60,31 +64,45 @@ export function MatchLoadingScreen({
 
   useEffect(() => {
     let raf = 0;
+    let alive = true;
     const tick = () => {
+      if (!alive) return;
       const elapsed = performance.now() - started;
       // Ease toward 0.92 until engine ready, then sprint to 1
-      const base = Math.min(0.92, elapsed / minMs);
+      const base = Math.min(0.92, elapsed / Math.max(1, minMs));
       const target = engineReady
-        ? Math.min(1, base + 0.08 + (elapsed - minMs) / 600)
+        ? Math.min(1, Math.max(base, 0.5) + Math.max(0, elapsed - minMs) / 400)
         : base;
       setProgress((p) => {
-        const next = p + (target - p) * 0.12;
-        return next > 0.999 ? 1 : next;
+        const next = p + (target - p) * 0.18;
+        return next >= 0.998 ? 1 : next;
       });
+
+      // Finish once: engine ready + min time + near-full bar
+      if (
+        !finishedRef.current &&
+        engineReady &&
+        elapsed >= minMs &&
+        (target >= 1 || elapsed >= minMs + 800)
+      ) {
+        finishedRef.current = true;
+        setProgress(1);
+        setDone(true);
+        // Small beat so user sees 100% / GO, then enter match
+        window.setTimeout(() => {
+          onFinishedRef.current?.();
+        }, 220);
+        return; // stop rAF loop
+      }
+
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+    };
   }, [engineReady, minMs, started]);
-
-  useEffect(() => {
-    if (done) return;
-    if (progress < 0.995 || !engineReady) return;
-    if (performance.now() - started < minMs) return;
-    setDone(true);
-    const t = window.setTimeout(() => onFinished?.(), 180);
-    return () => window.clearTimeout(t);
-  }, [progress, engineReady, started, minMs, done, onFinished]);
 
   const pct = Math.min(100, Math.round(progress * 100));
 

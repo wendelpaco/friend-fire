@@ -88,6 +88,10 @@ export function GameCanvas({
     engineRef.current?.dismissShopShowcase(opts);
   }, []);
 
+  const onBootSplashFinished = useCallback(() => {
+    setBootSplash(false);
+  }, []);
+
   // Boot local engine (always — hybrid combat even in room mode)
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -398,7 +402,7 @@ export function GameCanvas({
           roomCode={mode === "room" ? displayCode : undefined}
           engineReady={engineReady}
           minMs={mode === "room" ? 3200 : 2600}
-          onFinished={() => setBootSplash(false)}
+          onFinished={onBootSplashFinished}
         />
       )}
       {hud && !bootSplash && (
