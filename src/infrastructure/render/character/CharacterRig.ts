@@ -31,20 +31,9 @@ function boxMesh(
 }
 
 /**
- * Low-poly hierarchical character rig.
- *
- * ```
- * root
- *   hips
- *     legL, legR
- *   torso
- *     armL, armR
- *       handR → weaponSlot
- *     head
- *       helmet
- * ```
- *
- * Bone pivots sit at joints so rot.x swings limbs naturally.
+ * Low-poly **tactical** soldier — RUSH-B style read at isometric distance:
+ * dark fatigues, team-color vest/helmet stripe, helmet mass, backpack, clear gun.
+ * Vest on +Z = chest / front (must match yawFromDirection).
  */
 export class CharacterRig {
   readonly group: THREE.Group;
@@ -56,149 +45,172 @@ export class CharacterRig {
     this.group = new THREE.Group();
     this.group.name = "character";
 
-    // Silhouette pass A: bulkier torso/helmet/pack so soldiers read at iso distance.
-    const bodyMat = new THREE.MeshStandardMaterial({
+    // Fatigues: dark olive (not full-body team paint — team is accents only)
+    const fatigues = new THREE.MeshStandardMaterial({
+      color: 0x3a4230,
+      roughness: 0.82,
+      metalness: 0.05,
+    });
+    const pants = new THREE.MeshStandardMaterial({
+      color: 0x2c3228,
+      roughness: 0.85,
+    });
+    const teamMat = new THREE.MeshStandardMaterial({
       color: teamColor,
-      roughness: 0.48,
-      metalness: 0.18,
+      roughness: 0.45,
+      metalness: 0.2,
     });
-    const darkMat = new THREE.MeshStandardMaterial({
-      color: 0x141414,
-      roughness: 0.7,
-    });
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: 0xd4a574,
-      roughness: 0.7,
+    const helmetMat = new THREE.MeshStandardMaterial({
+      color: 0x2a3020,
+      roughness: 0.55,
+      metalness: 0.15,
     });
     const gearMat = new THREE.MeshStandardMaterial({
-      color: 0x222222,
-      roughness: 0.5,
-      metalness: 0.28,
+      color: 0x1a1c18,
+      roughness: 0.6,
+      metalness: 0.25,
+    });
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: 0xc4a07a,
+      roughness: 0.75,
+    });
+    const bootMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1510,
+      roughness: 0.9,
     });
 
-    // --- hips (pelvis pivot) ---
+    // --- hips ---
     const hips = new THREE.Object3D();
     hips.name = "hips";
-    hips.position.y = 0.55;
+    hips.position.y = 0.52;
     this.group.add(hips);
 
-    const pelvis = boxMesh(0.44, 0.2, 0.28, darkMat);
+    const pelvis = boxMesh(0.42, 0.18, 0.26, pants);
     pelvis.position.y = 0.02;
     hips.add(pelvis);
 
-    // legs: pivot at hip joint; mesh hangs downward
+    // legs
     const legL = new THREE.Object3D();
     legL.name = "legL";
-    legL.position.set(-0.14, 0, 0);
+    legL.position.set(-0.13, 0, 0);
     hips.add(legL);
-    const legLMesh = boxMesh(0.18, 0.54, 0.2, darkMat);
-    legLMesh.position.y = -0.27;
+    const legLMesh = boxMesh(0.17, 0.5, 0.19, pants);
+    legLMesh.position.y = -0.25;
     legL.add(legLMesh);
-    const bootL = boxMesh(0.2, 0.11, 0.3, gearMat);
-    bootL.position.set(0, -0.54, 0.05);
+    const bootL = boxMesh(0.19, 0.12, 0.28, bootMat);
+    bootL.position.set(0, -0.52, 0.04);
     legL.add(bootL);
 
     const legR = new THREE.Object3D();
     legR.name = "legR";
-    legR.position.set(0.14, 0, 0);
+    legR.position.set(0.13, 0, 0);
     hips.add(legR);
-    const legRMesh = boxMesh(0.18, 0.54, 0.2, darkMat);
-    legRMesh.position.y = -0.27;
+    const legRMesh = boxMesh(0.17, 0.5, 0.19, pants);
+    legRMesh.position.y = -0.25;
     legR.add(legRMesh);
-    const bootR = boxMesh(0.2, 0.11, 0.3, gearMat);
-    bootR.position.set(0, -0.54, 0.05);
+    const bootR = boxMesh(0.19, 0.12, 0.28, bootMat);
+    bootR.position.set(0, -0.52, 0.04);
     legR.add(bootR);
 
-    // --- torso (spine pivot at hips) ---
+    // --- torso ---
     const torso = new THREE.Object3D();
     torso.name = "torso";
     torso.position.y = 0.1;
     hips.add(torso);
 
-    // Wider shoulders for iso readability
-    const chest = boxMesh(0.58, 0.58, 0.32, bodyMat);
-    chest.position.y = 0.34;
+    // Uniform torso (olive)
+    const chest = boxMesh(0.52, 0.52, 0.3, fatigues);
+    chest.position.y = 0.32;
     torso.add(chest);
 
-    // Vest on +Z = chest / “front” of the soldier (must match yawFromDirection).
-    const vest = boxMesh(0.5, 0.4, 0.16, gearMat);
-    vest.position.set(0, 0.36, 0.14);
+    // Team plate carrier on chest (+Z front)
+    const vest = boxMesh(0.46, 0.36, 0.14, teamMat);
+    vest.position.set(0, 0.34, 0.14);
     torso.add(vest);
+    // Pouches
+    const pouchL = boxMesh(0.12, 0.1, 0.08, gearMat);
+    pouchL.position.set(-0.14, 0.28, 0.22);
+    torso.add(pouchL);
+    const pouchR = boxMesh(0.12, 0.1, 0.08, gearMat);
+    pouchR.position.set(0.14, 0.28, 0.22);
+    torso.add(pouchR);
 
-    // Backpack mass (readable from behind)
-    const pack = boxMesh(0.36, 0.38, 0.18, gearMat);
-    pack.position.set(0, 0.36, -0.2);
+    // Pack
+    const pack = boxMesh(0.34, 0.36, 0.16, gearMat);
+    pack.position.set(0, 0.34, -0.18);
     torso.add(pack);
 
-    // Shoulder pads
-    const padL = boxMesh(0.16, 0.12, 0.22, bodyMat);
-    padL.position.set(-0.34, 0.58, 0);
+    // Shoulders / pads with team accent
+    const padL = boxMesh(0.14, 0.1, 0.2, teamMat);
+    padL.position.set(-0.32, 0.54, 0);
     torso.add(padL);
-    const padR = boxMesh(0.16, 0.12, 0.22, bodyMat);
-    padR.position.set(0.34, 0.58, 0);
+    const padR = boxMesh(0.14, 0.1, 0.2, teamMat);
+    padR.position.set(0.32, 0.54, 0);
     torso.add(padR);
 
-    // arms: pivot at shoulder
+    // arms (fatigues)
     const armL = new THREE.Object3D();
     armL.name = "armL";
-    armL.position.set(-0.36, 0.52, 0);
+    armL.position.set(-0.34, 0.5, 0);
     torso.add(armL);
-    const armLMesh = boxMesh(0.15, 0.5, 0.15, bodyMat);
-    armLMesh.position.y = -0.25;
+    const armLMesh = boxMesh(0.14, 0.48, 0.14, fatigues);
+    armLMesh.position.y = -0.24;
     armL.add(armLMesh);
 
     const armR = new THREE.Object3D();
     armR.name = "armR";
-    armR.position.set(0.36, 0.52, 0);
+    armR.position.set(0.34, 0.5, 0);
     torso.add(armR);
-    const armRMesh = boxMesh(0.15, 0.5, 0.15, bodyMat);
-    armRMesh.position.y = -0.25;
+    const armRMesh = boxMesh(0.14, 0.48, 0.14, fatigues);
+    armRMesh.position.y = -0.24;
     armR.add(armRMesh);
 
-    // right hand + weapon slot at end of arm
     const handR = new THREE.Object3D();
     handR.name = "handR";
-    handR.position.set(0, -0.5, 0.02);
+    handR.position.set(0, -0.48, 0.02);
     armR.add(handR);
-    const handMesh = boxMesh(0.12, 0.1, 0.12, skinMat);
+    const handMesh = boxMesh(0.11, 0.09, 0.11, skinMat);
     handMesh.position.y = -0.04;
     handR.add(handMesh);
 
     const weaponSlot = new THREE.Object3D();
     weaponSlot.name = WEAPON_SLOT_NAME;
-    // Character faces **+Z** (vest on +Z). Barrel meshes also along +Z.
-    // Slight forward offset so muzzle sits in front of the hand.
-    weaponSlot.position.set(0.02, -0.02, 0.1);
+    weaponSlot.position.set(0.02, -0.02, 0.12);
     handR.add(weaponSlot);
 
-    // head
+    // head + combat helmet
     const head = new THREE.Object3D();
     head.name = "head";
-    head.position.y = 0.66;
+    head.position.y = 0.62;
     torso.add(head);
-    const headMesh = boxMesh(0.3, 0.3, 0.3, skinMat);
-    headMesh.position.y = 0.15;
+    const headMesh = boxMesh(0.26, 0.26, 0.26, skinMat);
+    headMesh.position.y = 0.13;
     head.add(headMesh);
 
     const helmet = new THREE.Object3D();
     helmet.name = "helmet";
-    helmet.position.y = 0.3;
+    helmet.position.y = 0.28;
     head.add(helmet);
-    const helmetMesh = boxMesh(0.38, 0.16, 0.4, bodyMat);
+    // Dome
+    const helmetMesh = boxMesh(0.36, 0.18, 0.38, helmetMat);
     helmetMesh.position.y = 0.06;
     helmet.add(helmetMesh);
-    // Visor mass
-    const visor = boxMesh(0.34, 0.08, 0.12, gearMat);
-    visor.position.set(0, -0.02, 0.16);
+    // Team stripe on helmet
+    const stripe = boxMesh(0.38, 0.06, 0.12, teamMat);
+    stripe.position.set(0, 0.1, 0.14);
+    helmet.add(stripe);
+    // Goggles / visor
+    const visor = boxMesh(0.3, 0.07, 0.1, gearMat);
+    visor.position.set(0, 0.0, 0.18);
     helmet.add(visor);
 
-    // ground marker (selection ring)
+    // Team ground ring
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.42, 0.58, 28),
+      new THREE.RingGeometry(0.4, 0.55, 28),
       new THREE.MeshBasicMaterial({
         color: teamColor,
         transparent: true,
-        opacity: 0.75,
+        opacity: 0.7,
         side: THREE.DoubleSide,
         depthWrite: false,
       }),
@@ -223,18 +235,16 @@ export class CharacterRig {
     };
   }
 
-  /** Rest pose rotations (arms slightly ready). */
   applyRestPose(): void {
     const { legL, legR, armL, armR, torso, hips, head } = this.bones;
-    hips.position.y = 0.55;
+    hips.position.y = 0.52;
     hips.rotation.set(0, 0, 0);
     torso.position.y = 0.1;
     torso.rotation.set(0, 0, 0);
     legL.rotation.set(0, 0, 0);
     legR.rotation.set(0, 0, 0);
-    // slight ready angle for arms
-    armL.rotation.set(0.35, 0, 0.15);
-    armR.rotation.set(0.55, 0, -0.1);
+    armL.rotation.set(0.35, 0, 0.12);
+    armR.rotation.set(0.55, 0, -0.08);
     head.rotation.set(0, 0, 0);
   }
 

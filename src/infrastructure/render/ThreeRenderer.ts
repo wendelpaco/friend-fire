@@ -4,16 +4,16 @@ import type { BulletState, PlayerState } from "@/game/types";
 import { buildBillboardMesh, buildWallPoster } from "@/game/world/billboards";
 import {
   FOG_ENABLED_KEY,
-  GRAPHICS_QUALITY_KEY,
+  configFromRuntimeKnobs,
   getFogEnabled as readFogEnabledPref,
   resolveQualityConfig,
   type GraphicsQualityConfig,
+  type RuntimeKnobs,
 } from "@/domains/prefs";
 import type { GameMap } from "@/domains/world";
 import { Sfx } from "@/infrastructure/audio/Sfx";
 import {
   createCharacter,
-  preloadSoldierGltf,
   type CharacterHandle,
   type CharacterLod,
   type WeaponCategory,
@@ -42,12 +42,16 @@ export function pickCharacterLod(
   isLocal: boolean,
   visible: boolean,
   dist: number,
+  fullDist: number = ANIM_LOD_FULL_DIST,
+  midDist: number = ANIM_LOD_MID_DIST,
 ): CharacterLod {
   if (isLocal) return "full";
   if (!visible) return "far";
   if (!(dist >= 0) || !Number.isFinite(dist)) return "full";
-  if (dist <= ANIM_LOD_FULL_DIST) return "full";
-  if (dist <= ANIM_LOD_MID_DIST) return "mid";
+  const full = fullDist > 0 ? fullDist : ANIM_LOD_FULL_DIST;
+  const mid = midDist > full ? midDist : full + 1;
+  if (dist <= full) return "full";
+  if (dist <= mid) return "mid";
   return "far";
 }
 
@@ -155,21 +159,22 @@ export class ThreeRenderer {
   private dustAccum = 0;
   private propCastShadow = false;
   private quality: GraphicsQualityConfig = resolveQualityConfig();
+  private fxBudget = 1;
+  private animLodFullDist = ANIM_LOD_FULL_DIST;
+  private animLodMidDist = ANIM_LOD_MID_DIST;
+  private propDetail = 1;
   private vignette!: THREE.Mesh;
   private wallTex!: THREE.CanvasTexture;
   private sandTex!: THREE.CanvasTexture;
   /** Limited-vision cull; from `ff_fog_enabled` (default true). */
   private fogEnabled = true;
+  /** Fog only — quality knobs are owned by GameClient + QualityController. */
   private readonly onPrefsEvent = () => {
     this.fogEnabled = readFogEnabledPref();
-    this.applyQuality(resolveQualityConfig());
   };
   private readonly onStorageEvent = (e: StorageEvent) => {
     if (e.key === null || e.key === FOG_ENABLED_KEY) {
       this.fogEnabled = readFogEnabledPref();
-    }
-    if (e.key === null || e.key === GRAPHICS_QUALITY_KEY) {
-      this.applyQuality(resolveQualityConfig());
     }
   };
 
@@ -222,9 +227,6 @@ export class ThreeRenderer {
     // Apply DPR / shadows / dust after lights & dust exist.
     this.applyQuality(this.quality);
 
-    // Warm GLTF soldier cache (hot-swap on characters when ready)
-    preloadSoldierGltf();
-
     if (typeof window !== "undefined") {
       window.addEventListener("ff-prefs", this.onPrefsEvent);
       window.addEventListener("storage", this.onStorageEvent);
@@ -232,21 +234,34 @@ export class ThreeRenderer {
   }
 
   /**
-   * Apply graphics quality (runtime-safe knobs: DPR, shadows, dust).
+   * Apply graphics quality (runtime-safe knobs: DPR, shadows, dust, FX, LOD).
    * Antialias cannot toggle without recreating the WebGL context.
    */
   applyQuality(cfg: GraphicsQualityConfig = resolveQualityConfig()): void {
     this.quality = cfg;
-    this.propCastShadow = cfg.propCastShadow;
+    this.applyRuntimeKnobs(cfg);
+  }
+
+  /**
+   * Apply effective runtime knobs from QualityController (or tier preset).
+   * Safe to call every adaptation; skips no-op DPR/shadow rebuilds when possible.
+   */
+  applyRuntimeKnobs(knobs: RuntimeKnobs): void {
+    this.quality = configFromRuntimeKnobs(knobs, this.quality.quality);
+    this.propCastShadow = knobs.propCastShadow;
+    this.fxBudget = knobs.fxBudget;
+    this.animLodFullDist = knobs.animLodFullDist;
+    this.animLodMidDist = knobs.animLodMidDist;
+    this.propDetail = knobs.propDetail;
 
     const dpr =
       typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-    this.renderer.setPixelRatio(Math.min(dpr, cfg.maxPixelRatio));
+    this.renderer.setPixelRatio(Math.min(dpr, knobs.maxPixelRatio));
 
-    this.renderer.shadowMap.enabled = cfg.shadowsEnabled;
-    if (cfg.shadowType === "basic") {
+    this.renderer.shadowMap.enabled = knobs.shadowsEnabled;
+    if (knobs.shadowType === "basic") {
       this.renderer.shadowMap.type = THREE.BasicShadowMap;
-    } else if (cfg.shadowType === "pcf") {
+    } else if (knobs.shadowType === "pcf") {
       this.renderer.shadowMap.type = THREE.PCFShadowMap;
     } else {
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -254,8 +269,8 @@ export class ThreeRenderer {
     this.renderer.shadowMap.needsUpdate = true;
 
     if (this.sunLight) {
-      this.sunLight.castShadow = cfg.shadowsEnabled;
-      this.sunLight.shadow.mapSize.set(cfg.shadowMapSize, cfg.shadowMapSize);
+      this.sunLight.castShadow = knobs.shadowsEnabled;
+      this.sunLight.shadow.mapSize.set(knobs.shadowMapSize, knobs.shadowMapSize);
       // Force shadow map rebuild at new resolution
       if (this.sunLight.shadow.map) {
         this.sunLight.shadow.map.dispose();
@@ -263,14 +278,34 @@ export class ThreeRenderer {
       }
     }
 
-    this.applyPropShadowFlag(cfg.propCastShadow);
-    this.configureDust(cfg.dustCount, cfg.dustUpdateHz);
-    // Tracers off on low for fill-rate; reticle always cheap
-    this.tracerFx?.setEnabled(cfg.quality !== "low");
-    // Explosion debris: low=0, med=8, high=16
+    this.applyPropShadowFlag(knobs.propCastShadow);
+    this.configureDust(knobs.dustCount, knobs.dustUpdateHz);
+    // Tracers off when FX budget is low (covers low tier + auto degrade)
+    this.tracerFx?.setEnabled(knobs.fxBudget >= 0.5);
+    // Explosion debris scales with fxBudget (was tier-only)
     const debris =
-      cfg.quality === "low" ? 0 : cfg.quality === "medium" ? 8 : 16;
+      knobs.fxBudget < 0.5 ? 0 : knobs.fxBudget < 0.85 ? 8 : 16;
     this.heFx?.setDebrisBudget(debris);
+  }
+
+  getRuntimeKnobs(): RuntimeKnobs {
+    return {
+      maxPixelRatio: this.quality.maxPixelRatio,
+      shadowsEnabled: this.quality.shadowsEnabled,
+      shadowMapSize: this.quality.shadowMapSize,
+      shadowType: this.quality.shadowType,
+      propCastShadow: this.quality.propCastShadow,
+      dustCount: this.quality.dustCount,
+      dustUpdateHz: this.quality.dustUpdateHz,
+      fxBudget: this.fxBudget,
+      animLodFullDist: this.animLodFullDist,
+      animLodMidDist: this.animLodMidDist,
+      propDetail: this.propDetail,
+    };
+  }
+
+  getFxBudget(): number {
+    return this.fxBudget;
   }
 
   getQuality(): GraphicsQualityConfig {
@@ -551,7 +586,13 @@ export class ThreeRenderer {
     visible: boolean,
     dist: number,
   ): CharacterLod {
-    return pickCharacterLod(isLocal, visible, dist);
+    return pickCharacterLod(
+      isLocal,
+      visible,
+      dist,
+      this.animLodFullDist,
+      this.animLodMidDist,
+    );
   }
 
   resize(width: number, height: number) {
