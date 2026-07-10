@@ -47,6 +47,11 @@ export interface PlayerState {
   lastShotAt: number;
   reloadingUntil: number;
   color: number;
+  /**
+   * Died during the last live round — next buy strips to knife + team pistol.
+   * Survivors keep guns (CS economy).
+   */
+  diedThisRound: boolean;
 }
 
 export interface BulletState {
@@ -84,6 +89,9 @@ export interface MatchState {
   timeLeft: number;
   scoreTR: number;
   scoreCT: number;
+  /** Consecutive losses for loss-bonus economy (0–5). */
+  lossStreakTR: number;
+  lossStreakCT: number;
   players: PlayerState[];
   bullets: BulletState[];
   killFeed: KillFeedEntry[];
@@ -191,7 +199,25 @@ export interface HudSnapshot {
   /**
    * FPS / draw stats when `ff_show_fps` is on; null when overlay disabled.
    */
-  perf: { fps: number; drawCalls: number; triangles: number } | null;
+  perf: {
+    fps: number;
+    drawCalls: number;
+    triangles: number;
+    p50Ms: number;
+    p95Ms: number;
+    cpuMsP95: number;
+    renderMsP95: number;
+    autoEnabled: boolean;
+    userTierMax: "low" | "medium" | "high";
+    adaptReason: "degrade" | "upgrade" | "user" | "grace" | "init" | null;
+    knobs: {
+      maxPixelRatio: number;
+      shadowsEnabled: boolean;
+      shadowMapSize: number;
+      fxBudget: number;
+      dustCount: number;
+    };
+  } | null;
   minimap: Array<{
     id: string;
     x: number;

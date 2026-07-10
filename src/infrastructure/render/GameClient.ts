@@ -26,7 +26,9 @@ import {
   createMatchPhase,
   explode as explodeBomb,
   isInsideSite,
-  moneyAfterRound,
+  applyDefaultLoadout,
+  applyRoundEconomy,
+  clampMoney,
   onDefuseComplete,
   onPlantComplete,
   onRoundWin,
@@ -80,6 +82,17 @@ import {
   type WallRect,
 } from "@/domains/world";
 import { RapierWorld } from "@/infrastructure/physics/RapierWorld";
+import {
+  FrameSampler,
+  QualityController,
+  type AdaptReason,
+} from "@/infrastructure/perf";
+import {
+  getAutoQuality,
+  getGraphicsQuality,
+  parseGraphicsQuality,
+  type GraphicsQuality,
+} from "@/domains/prefs";
 import { Input } from "./input";
 import { ThreeRenderer } from "./ThreeRenderer";
 
@@ -307,11 +320,21 @@ export class GameClient {
     weaponId: string | undefined;
   }> = [];
   private showFps = false;
+  private autoQuality = true;
+  private userTierMax: GraphicsQuality = "medium";
   private fpsFrames = 0;
   private fpsLastT = 0;
   private fpsDisplay = 0;
   private lastDrawCalls = 0;
   private lastTriangles = 0;
+  private frameSampler = new FrameSampler(120);
+  private qualityController = new QualityController();
+  private perfP50Ms = 0;
+  private perfP95Ms = 0;
+  private perfCpuP95Ms = 0;
+  private perfRenderP95Ms = 0;
+  private lastAdaptReason: AdaptReason | null = null;
+  private metricsPublishAt = 0;
   /** Active HE projectiles (local solo). */
   private heProjectiles: Array<{
     slot: number;
@@ -615,6 +638,7 @@ export class GameClient {
         fogEnabled?: boolean;
         graphicsQuality?: string;
         showFps?: boolean;
+        autoQuality?: boolean;
       }>
     ).detail;
     if (detail && typeof detail.fogEnabled === "boolean") {
@@ -637,9 +661,22 @@ export class GameClient {
   private applyGraphicsPrefs(detail?: {
     graphicsQuality?: string;
     showFps?: boolean;
+    autoQuality?: boolean;
   }) {
-    // Quality is always re-read from storage (SettingsPanel persists first).
-    this.three.applyQuality();
+    // Prefs are persisted before the event; re-read storage as source of truth.
+    const tier =
+      detail && detail.graphicsQuality != null
+        ? parseGraphicsQuality(detail.graphicsQuality)
+        : getGraphicsQuality();
+    const auto =
+      detail && typeof detail.autoQuality === "boolean"
+        ? detail.autoQuality
+        : getAutoQuality();
+
+    const tierChanged = tier !== this.userTierMax;
+    this.userTierMax = tier;
+    this.autoQuality = auto;
+
     if (detail && typeof detail.showFps === "boolean") {
       this.showFps = detail.showFps;
     } else if (typeof window !== "undefined") {
@@ -649,6 +686,19 @@ export class GameClient {
       } catch {
         this.showFps = false;
       }
+    }
+
+    if (!auto) {
+      const knobs = this.qualityController.freezeToTier(tier);
+      this.three.applyRuntimeKnobs(knobs);
+      this.lastAdaptReason = "user";
+    } else if (tierChanged) {
+      const knobs = this.qualityController.setUserTier(tier);
+      this.three.applyRuntimeKnobs(knobs);
+      this.lastAdaptReason = "user";
+    } else {
+      // Auto on, same tier — re-apply current controller knobs (or init)
+      this.three.applyRuntimeKnobs(this.qualityController.getKnobs());
     }
   }
 
@@ -895,6 +945,10 @@ export class GameClient {
         reloadingUntil: existing?.reloadingUntil ?? 0,
         heCount: np.heCount ?? existing?.heCount ?? 0,
         color: TEAM_COLORS[team],
+        diedThisRound:
+          existing?.diedThisRound ||
+          (isLocal && existing?.alive && !np.alive) ||
+          false,
       });
     }
 
@@ -985,25 +1039,63 @@ export class GameClient {
     this.clock.start();
     this.fpsLastT = performance.now();
     this.fpsFrames = 0;
+    this.metricsPublishAt = performance.now();
+    this.frameSampler.clear();
     const loop = () => {
       if (!this.running) return;
       this.raf = requestAnimationFrame(loop);
       const dt = Math.min(this.clock.getDelta(), 0.05);
+      const t0 = performance.now();
       this.update(dt);
+      const t1 = performance.now();
       this.three.render();
-      if (this.showFps) {
-        this.fpsFrames += 1;
-        const now = performance.now();
-        if (now - this.fpsLastT >= 500) {
-          this.fpsDisplay = Math.round(
-            (this.fpsFrames * 1000) / (now - this.fpsLastT),
-          );
+      const t2 = performance.now();
+
+      this.frameSampler.push({
+        frameMs: t2 - t0,
+        cpuMs: t1 - t0,
+        renderMs: t2 - t1,
+      });
+
+      if (this.showFps) this.fpsFrames += 1;
+
+      // Metrics + quality controller ~2 Hz (not every frame)
+      if (t2 - this.metricsPublishAt >= 500) {
+        const snap = this.frameSampler.snapshot();
+        this.perfP50Ms = snap.p50FrameMs;
+        this.perfP95Ms = snap.p95FrameMs;
+        this.perfCpuP95Ms = snap.p95CpuMs;
+        this.perfRenderP95Ms = snap.p95RenderMs;
+
+        if (this.showFps) {
+          const elapsed = t2 - this.fpsLastT;
+          if (elapsed > 0 && this.fpsFrames > 0) {
+            this.fpsDisplay = Math.round((this.fpsFrames * 1000) / elapsed);
+          }
           this.fpsFrames = 0;
-          this.fpsLastT = now;
+          this.fpsLastT = t2;
           const info = this.three.getRenderInfo();
           this.lastDrawCalls = info.calls;
           this.lastTriangles = info.triangles;
         }
+
+        const tick = this.qualityController.tick(
+          { p50FrameMs: snap.p50FrameMs, p95FrameMs: snap.p95FrameMs },
+          {
+            autoEnabled: this.autoQuality,
+            userTierMax: this.userTierMax,
+            documentHidden:
+              typeof document !== "undefined" ? document.hidden : false,
+          },
+        );
+        if (tick.changed) {
+          this.three.applyRuntimeKnobs(tick.knobs);
+          this.lastAdaptReason = tick.reason;
+        } else if (tick.reason === "grace" || tick.reason === "user") {
+          this.lastAdaptReason = tick.reason;
+        }
+
+        this.metricsPublishAt = t2;
       }
     };
     loop();
@@ -1059,6 +1151,8 @@ export class GameClient {
       timeLeft: match.timeLeft,
       scoreTR: match.scoreTR,
       scoreCT: match.scoreCT,
+      lossStreakTR: 0,
+      lossStreakCT: 0,
       players,
       bullets: [],
       killFeed: [],
@@ -1175,6 +1269,7 @@ export class GameClient {
       lastShotAt: 0,
       reloadingUntil: 0,
       color: TEAM_COLORS[team],
+      diedThisRound: false,
     };
   }
 
@@ -1572,7 +1667,7 @@ export class GameClient {
     }
   }
 
-  /** Start of buy freezetime: spawn, money already on players, shop unlocked. */
+  /** Start of buy freezetime: CS strip if died, spawn, shop unlocked. */
   private beginBuyPhaseEffects() {
     this.state.bullets = [];
     this.heProjectiles = [];
@@ -1582,9 +1677,20 @@ export class GameClient {
       `COMPRA · round ${this.state.round} · ${Math.ceil(this.state.timeLeft)}s · tecla B`,
       "system",
     );
-    for (const p of this.state.players) this.respawnPlayer(p);
+    for (const p of this.state.players) {
+      // CS: die → knife + team pistol next buy; survive → keep guns
+      if (p.diedThisRound) {
+        const stripped = applyDefaultLoadout(p);
+        p.weapons = stripped.weapons;
+        p.ammo = stripped.ammo;
+        p.weaponSlot = stripped.weaponSlot;
+        p.armor = stripped.armor;
+        p.heCount = stripped.heCount;
+      }
+      p.diedThisRound = false;
+      this.respawnPlayer(p);
+    }
     this.assignBombCarrier();
-    // Nudge local into shop once
     if (!this.networked && canOpenBuyMenu("buy")) {
       this.state.showBuyMenu = true;
     }
@@ -1596,6 +1702,9 @@ export class GameClient {
     this.heProjectiles = [];
     this.clearSpectator();
     this.state.showBuyMenu = false;
+    for (const p of this.state.players) {
+      p.diedThisRound = false;
+    }
     this.addChat("SYSTEM", `ROUND ${this.state.round} — combate!`, "system");
   }
 
@@ -1603,9 +1712,16 @@ export class GameClient {
     const kind = reason ?? (winner === "TR" ? "tr_win" : "ct_win");
     this.showRoundBanner(kind);
     this.addChat("SYSTEM", `${winner} venceu o round!`, "system");
-    for (const p of this.state.players) {
-      p.money = moneyAfterRound(p.team, winner, p.money);
-    }
+    // CS economy: win $3250 / loss $1400 + consecutive loss bonus, cap $16k
+    const eco = applyRoundEconomy(
+      this.state.players,
+      winner,
+      this.state.lossStreakTR,
+      this.state.lossStreakCT,
+    );
+    this.state.players = eco.players as PlayerState[];
+    this.state.lossStreakTR = eco.lossStreakTR;
+    this.state.lossStreakCT = eco.lossStreakCT;
     // Freeze bomb/HE visuals until next live assign
     this.heProjectiles = [];
     this.three.setBombVisual(null);
@@ -2216,8 +2332,10 @@ export class GameClient {
       victim.alive = false;
       victim.deaths += 1;
       killer.kills += 1;
-
-      if (this.state.phase === "live") killer.money += KILL_REWARD;
+      if (this.state.phase === "live") {
+        victim.diedThisRound = true;
+        killer.money = clampMoney(killer.money + KILL_REWARD);
+      }
 
       const entry: KillFeedEntry = {
         id: uid("kf"),
@@ -2361,6 +2479,14 @@ export class GameClient {
             fps: this.fpsDisplay,
             drawCalls: this.lastDrawCalls,
             triangles: this.lastTriangles,
+            p50Ms: Math.round(this.perfP50Ms * 10) / 10,
+            p95Ms: Math.round(this.perfP95Ms * 10) / 10,
+            cpuMsP95: Math.round(this.perfCpuP95Ms * 10) / 10,
+            renderMsP95: Math.round(this.perfRenderP95Ms * 10) / 10,
+            autoEnabled: this.autoQuality,
+            userTierMax: this.userTierMax,
+            adaptReason: this.lastAdaptReason,
+            knobs: this.three.getRuntimeKnobs(),
           }
         : null,
       minimap: this.state.players.map((pl) => ({

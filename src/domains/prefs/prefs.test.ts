@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  AUTO_QUALITY_KEY,
   CAMERA_DEFAULT_KEY,
   FOG_ENABLED_KEY,
   GRAPHICS_QUALITY_KEY,
   SHOW_FPS_KEY,
+  getAutoQuality,
   getCameraDefault,
   getFogEnabled,
   getGraphicsQuality,
   getShowFps,
   resolveQualityConfig,
+  setAutoQuality,
   setCameraDefault,
   setFogEnabled,
   setGraphicsQuality,
@@ -54,6 +57,7 @@ afterEach(() => {
     localStorage.removeItem(CAMERA_DEFAULT_KEY);
     localStorage.removeItem(GRAPHICS_QUALITY_KEY);
     localStorage.removeItem(SHOW_FPS_KEY);
+    localStorage.removeItem(AUTO_QUALITY_KEY);
   } catch {
     /* ignore */
   }
@@ -133,5 +137,22 @@ describe("graphics quality", () => {
     expect(getShowFps()).toBe(true);
     setShowFps(false);
     expect(getShowFps()).toBe(false);
+  });
+
+  it("auto quality defaults on and round-trips", () => {
+    expect(getAutoQuality()).toBe(true);
+    setAutoQuality(false);
+    expect(getAutoQuality()).toBe(false);
+    expect(localStorage.getItem(AUTO_QUALITY_KEY)).toBe("false");
+    setAutoQuality(true);
+    expect(getAutoQuality()).toBe(true);
+  });
+
+  it("tier presets include fxBudget and anim LOD distances", () => {
+    const mid = resolveQualityConfig("medium");
+    expect(mid.fxBudget).toBe(1);
+    expect(mid.animLodFullDist).toBe(14);
+    expect(mid.animLodMidDist).toBe(24);
+    expect(mid.propDetail).toBe(1);
   });
 });
