@@ -1,12 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useEffect, useState } from "react";
-import { CONTROLS_HELP } from "@/game/constants";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DEFAULT_LIVE_CHAT_CHANNEL,
+  parseLiveChatOutbound,
+  visibleLiveChatMessages,
+} from "@/domains/session/chat";
+import {
+  bumpRoundsPlayedOnPhase,
+  readRoundsPlayed,
+  shouldShowControlHints,
+  writeRoundsPlayed,
+} from "@/domains/session/hudHints";
+import { kdRatio, type MatchResult } from "@/domains/stats";
+import { CONTROLS_HELP, DEBUG_OVERLAYS } from "@/game/constants";
 import type { ChatChannel, HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { BuyMenu } from "@/presentation/game/BuyMenu";
-import { kdRatio, type MatchResult } from "@/domains/stats";
 import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
 import { RoundBanner } from "@/presentation/game/RoundBanner";
 import { SettingsPanel } from "@/presentation/game/SettingsPanel";
@@ -134,6 +145,19 @@ const PerfOverlay = memo(function PerfOverlay({
   );
 });
 
+/** Amber state chip for C4 carrier — not a red banner. */
+function ObjectiveChip({ label = "C4" }: { label?: string }) {
+  return (
+    <div
+      className="flex items-center gap-1.5 rounded-md border border-amber-400/50 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold tracking-[0.18em] text-amber-100 shadow-[0_0_14px_rgba(245,158,11,0.14)] backdrop-blur-sm"
+      title="Você carrega a C4"
+    >
+      <Bomb size={12} className="opacity-90" />
+      {label}
+    </div>
+  );
+}
+
 function GameHudImpl({
   hud,
   roomCode,
@@ -148,9 +172,96 @@ function GameHudImpl({
   onChatFocusChange,
 }: GameHudProps) {
   const [showSettings, setShowSettings] = useState(false);
+  const [roundsPlayed, setRoundsPlayed] = useState(0);
+  const prevPhaseRef = useRef<string | null>(null);
+  const [liveChatOpen, setLiveChatOpen] = useState(false);
+  const [liveChatDraft, setLiveChatDraft] = useState("");
+  const [chatNow, setChatNow] = useState(0);
+  const liveChatInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (!hud.paused) setShowSettings(false);
   }, [hud.paused]);
+
+  // Onboarding: count completed live rounds (persisted).
+  useEffect(() => {
+    setRoundsPlayed(readRoundsPlayed(typeof window !== "undefined" ? localStorage : null));
+  }, []);
+
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    const next = bumpRoundsPlayedOnPhase(roundsPlayed, prev, hud.phase);
+    prevPhaseRef.current = hud.phase;
+    if (next !== roundsPlayed) {
+      setRoundsPlayed(next);
+      writeRoundsPlayed(
+        next,
+        typeof window !== "undefined" ? localStorage : null,
+      );
+    }
+  }, [hud.phase, roundsPlayed]);
+
+  // Collapsed live chat: re-filter fade window ~2 Hz while messages exist.
+  useEffect(() => {
+    if (hud.spectating || hud.chat.length === 0) return;
+    setChatNow(performance.now());
+    const id = window.setInterval(() => setChatNow(performance.now()), 500);
+    return () => window.clearInterval(id);
+  }, [hud.chat, hud.spectating]);
+
+  // Enter expands live chat (not while death dock / help / buy own focus).
+  useEffect(() => {
+    if (hud.spectating || hud.paused || hud.showHelp || hud.showBuyMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Enter" && e.key !== "Enter") return;
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      setLiveChatOpen(true);
+      requestAnimationFrame(() => liveChatInputRef.current?.focus());
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hud.spectating, hud.paused, hud.showHelp, hud.showBuyMenu]);
+
+  const submitLiveChat = useCallback(() => {
+    const parsed = parseLiveChatOutbound(
+      liveChatDraft,
+      DEFAULT_LIVE_CHAT_CHANNEL,
+    );
+    if (!parsed) return;
+    onSendChat?.(parsed.channel, parsed.text);
+    setLiveChatDraft("");
+    setLiveChatOpen(false);
+    onChatFocusChange?.(false);
+    liveChatInputRef.current?.blur();
+  }, [liveChatDraft, onSendChat, onChatFocusChange]);
+
+  const showHints = shouldShowControlHints({
+    roundsPlayed,
+    scoreboardHeld: hud.showScoreboard,
+    helpOpen: hud.showHelp,
+  });
+
+  const liveChatVisible = useMemo(
+    () =>
+      visibleLiveChatMessages(hud.chat, chatNow || performance.now()),
+    [hud.chat, chatNow],
+  );
+
+  // Only equipped weapons (empty slots never mount).
+  const equippedWeapons = useMemo(
+    () => hud.weapons.filter((w) => w.name && String(w.name).trim().length > 0),
+    [hud.weapons],
+  );
+
   const localRow = hud.scoreboard.find((r) => r.isLocal);
   const maxKills = hud.scoreboard.reduce(
     (m, r) => Math.max(m, r.kills),
@@ -245,25 +356,26 @@ function GameHudImpl({
               })}
           </div>
         </div>
-        {hud.perf ? (
+        {/* Advanced perf: dev-only tree (DEBUG_OVERLAYS). Mini FPS stays product. */}
+        {DEBUG_OVERLAYS && hud.perf ? (
           <PerfOverlay perf={hud.perf} />
         ) : (
           <MiniFps fps={hud.fps ?? 0} />
         )}
       </div>
 
-      {/* Top score bar */}
+      {/* Top score bar — timer one tier above TR/CT scores; no XP/NV in live. */}
       <div className="absolute left-1/2 top-4 flex -translate-x-1/2 flex-col items-center gap-1">
         <div className="flex items-stretch overflow-hidden rounded-lg border border-white/15 bg-[#0a0e16]/90 shadow-2xl backdrop-blur-md">
-          <div className="flex min-w-[78px] items-center justify-center gap-2 bg-orange-700/35 px-4 py-2.5">
+          <div className="flex min-w-[72px] items-center justify-center gap-1.5 bg-orange-700/35 px-3 py-2.5">
             <span className="text-[10px] font-bold tracking-widest text-orange-200">
               TR
             </span>
-            <span className="text-3xl font-black tabular-nums text-white">
+            <span className="text-2xl font-black tabular-nums text-white/90">
               {hud.scoreTR}
             </span>
           </div>
-          <div className="flex min-w-[150px] flex-col items-center justify-center border-x border-white/10 bg-[#0d121c] px-7 py-2">
+          <div className="flex min-w-[160px] flex-col items-center justify-center border-x border-white/10 bg-[#0d121c] px-6 py-1.5">
             <PhaseLabel
               phase={hud.phase}
               timeLeft={hud.timeLeft}
@@ -275,8 +387,8 @@ function GameHudImpl({
               </span>
             )}
           </div>
-          <div className="flex min-w-[78px] items-center justify-center gap-2 bg-sky-700/35 px-4 py-2.5">
-            <span className="text-3xl font-black tabular-nums text-white">
+          <div className="flex min-w-[72px] items-center justify-center gap-1.5 bg-sky-700/35 px-3 py-2.5">
+            <span className="text-2xl font-black tabular-nums text-white/90">
               {hud.scoreCT}
             </span>
             <span className="text-[10px] font-bold tracking-widest text-sky-200">
@@ -333,13 +445,13 @@ function GameHudImpl({
         ))}
       </div>
 
-      {/* Chat feed (hidden when death social owns the dock) */}
+      {/* Live chat dock: collapsed (last 2, fade ~6s); Enter expands TIME input */}
       {!hud.spectating && (
-        <div className="absolute bottom-36 left-4 flex w-[22rem] flex-col gap-0.5">
-          {hud.chat.slice(-5).map((c) => (
+        <div className="absolute bottom-36 left-4 flex w-[22rem] flex-col gap-1">
+          {liveChatVisible.map((c) => (
             <div
               key={c.id}
-              className="text-[11px] leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]"
+              className="motion-safe:animate-ff-chat-fade text-[11px] leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]"
             >
               {c.kind === "system" ? (
                 <span className="font-semibold text-amber-300">▸ {c.text}</span>
@@ -358,8 +470,8 @@ function GameHudImpl({
                     {c.channel === "squad"
                       ? " · squad"
                       : c.kind === "radio" || c.channel === "team"
-                        ? " · rádio"
-                        : ""}
+                        ? " · time"
+                        : " · todos"}
                     :
                   </span>{" "}
                   <span className="text-white/85">{c.text}</span>
@@ -367,6 +479,42 @@ function GameHudImpl({
               )}
             </div>
           ))}
+          {liveChatOpen && (
+            <form
+              className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-white/15 bg-black/75 px-2 py-1.5 shadow-lg backdrop-blur-md"
+              onSubmit={(e) => {
+                e.preventDefault();
+                submitLiveChat();
+              }}
+            >
+              <span className="shrink-0 rounded bg-orange-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-orange-200">
+                TIME
+              </span>
+              <input
+                ref={liveChatInputRef}
+                type="text"
+                value={liveChatDraft}
+                maxLength={120}
+                placeholder="Mensagem · /todos p/ todos"
+                className="min-w-0 flex-1 bg-transparent text-[12px] text-white outline-none placeholder:text-white/35"
+                onChange={(e) => setLiveChatDraft(e.target.value)}
+                onFocus={() => onChatFocusChange?.(true)}
+                onBlur={() => {
+                  onChatFocusChange?.(false);
+                  setLiveChatOpen(false);
+                }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setLiveChatOpen(false);
+                    onChatFocusChange?.(false);
+                    liveChatInputRef.current?.blur();
+                  }
+                }}
+              />
+            </form>
+          )}
         </div>
       )}
 
@@ -376,10 +524,13 @@ function GameHudImpl({
         <ArmorDisplay armor={hud.armor} />
       </div>
 
-      {/* Weapon bar center + plant/defuse progress + bomb prompt */}
+      {/* Weapon bar + ObjectiveChip (C4) + action prompts (events only) */}
       <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
+        {/* Carrier state = chip, never persistent red banner */}
+        {hud.carryingBomb && hud.alive && !hud.paused && <ObjectiveChip />}
+        {/* Contextual action only (near site / defuse range) — not “you have C4” */}
         {hud.bombPrompt && hud.alive && !hud.paused && (
-          <div className="rounded-md border border-white/20 bg-black/75 px-3 py-1 text-[11px] font-semibold tracking-wide text-amber-100 shadow-lg backdrop-blur-md">
+          <div className="rounded-md border border-white/15 bg-black/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-white/85 shadow-lg backdrop-blur-md">
             {hud.bombPrompt}
           </div>
         )}
@@ -421,12 +572,13 @@ function GameHudImpl({
           </div>
         )}
         <div className="flex items-end gap-1">
-          {hud.weapons.map((w) => (
+          {equippedWeapons.map((w) => (
             <WeaponSlot
               key={w.slot}
               slot={w.slot}
               name={w.name}
               active={w.active}
+              objective={w.slot === 5 || w.name === "C4"}
             />
           ))}
         </div>
@@ -455,9 +607,9 @@ function GameHudImpl({
         />
       </div>
 
-      {/* Subtle control strip */}
-      {!hud.paused &&
-        !hud.showHelp &&
+      {/* Control strip: first 2 rounds, or while holding TAB / help open */}
+      {showHints &&
+        !hud.paused &&
         !hud.showBuyMenu &&
         !hud.showShopShowcase && (
         <div className="absolute bottom-[5.5rem] left-1/2 -translate-x-1/2 text-[10px] tracking-wide text-white/30">

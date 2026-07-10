@@ -39,6 +39,7 @@ export type HudCriticalFields = {
   roundBanner: string | null;
   bombState: string;
   bombPrompt: string | null;
+  carryingBomb: boolean;
   buyMessage: string | null;
   /** Latest killfeed entry id (or length). */
   killFeedHead: string;
@@ -81,6 +82,7 @@ export function hudCriticalSignature(f: HudCriticalFields): string {
     f.roundBanner ?? "",
     f.bombState,
     f.bombPrompt ?? "",
+    f.carryingBomb ? 1 : 0,
     f.buyMessage ?? "",
     f.killFeedHead,
     f.chatHead,

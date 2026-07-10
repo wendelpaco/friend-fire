@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { GraphicsQuality } from "@/domains/prefs";
+import { DEBUG_OVERLAYS } from "@/game/constants";
 
 export type CameraDefault = "locked" | "free";
 
@@ -282,39 +283,44 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
             />
           </label>
 
-          <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3">
-            <div className="min-w-0">
-              <span className="block text-sm font-semibold text-white/85">
-                Overlay avançado de FPS
-              </span>
-              <span className="mt-0.5 block text-[11px] text-white/45">
-                Mini contador sempre visível. Liga p50/gpu/draws e tier.
-              </span>
-            </div>
-            <input
-              type="checkbox"
-              checked={prefs.showFps}
-              aria-label="Overlay avançado de FPS"
-              onChange={(e) => apply({ showFps: e.target.checked })}
-              className="h-4 w-4 shrink-0 accent-amber-500"
-            />
-          </label>
+          {/* Advanced debug overlays: compile-time gated out of production builds. */}
+          {DEBUG_OVERLAYS && (
+            <>
+              <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3">
+                <div className="min-w-0">
+                  <span className="block text-sm font-semibold text-white/85">
+                    Overlay avançado de FPS
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-white/45">
+                    Mini contador sempre visível. Liga p50/gpu/draws e tier.
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={prefs.showFps}
+                  aria-label="Overlay avançado de FPS"
+                  onChange={(e) => apply({ showFps: e.target.checked })}
+                  className="h-4 w-4 shrink-0 accent-amber-500"
+                />
+              </label>
 
-          <button
-            type="button"
-            className="mt-3 w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-2.5 text-xs font-semibold text-emerald-100/95 transition hover:bg-emerald-500/20"
-            onClick={() => {
-              if (typeof window === "undefined") return;
-              window.dispatchEvent(new CustomEvent("ff-export-perf"));
-            }}
-          >
-            Exportar sessão de performance (JSON)
-          </button>
-          <p className="mt-1.5 text-[10px] leading-snug text-white/40">
-            Baixa p50/p95 e SLOs Reference/Floor/Ceiling para QA. Ver{" "}
-            <span className="text-white/55">docs/performance-measurement.md</span>
-            .
-          </p>
+              <button
+                type="button"
+                className="mt-3 w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-2.5 text-xs font-semibold text-emerald-100/95 transition hover:bg-emerald-500/20"
+                onClick={() => {
+                  if (typeof window === "undefined") return;
+                  window.dispatchEvent(new CustomEvent("ff-export-perf"));
+                }}
+              >
+                Exportar sessão de performance (JSON)
+              </button>
+              <p className="mt-1.5 text-[10px] leading-snug text-white/40">
+                Baixa p50/p95 e SLOs Reference/Floor/Ceiling para QA. Ver{" "}
+                <span className="text-white/55">docs/performance-measurement.md</span>
+                .
+              </p>
+            </>
+          )}
         </div>
       </div>
 

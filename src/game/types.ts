@@ -220,8 +220,10 @@ export interface HudSnapshot {
   plantProgress: number;
   /** 0–1 defuse hold progress. */
   defuseProgress: number;
-  /** e.g. "Segure F para plantar". */
+  /** e.g. "Segure F para plantar" — action event only, never "você tem a C4". */
   bombPrompt: string | null;
+  /** Local player is C4 carrier (chip + slot 5); not a red banner. */
+  carryingBomb: boolean;
   /** Full-width round toast; null when hidden. */
   roundBanner: string | null;
   /** Dead in live round — spectator cam active. */

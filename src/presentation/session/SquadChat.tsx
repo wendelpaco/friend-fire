@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  DEFAULT_LIVE_CHAT_CHANNEL,
+  parseLiveChatOutbound,
+} from "@/domains/session/chat";
 import type { ChatChannel, ChatEntry } from "@/game/types";
 import { Panel } from "@/presentation/ui/Panel";
 
@@ -47,7 +51,9 @@ export function SquadChat({
   className = "",
   compact = false,
 }: SquadChatProps) {
-  const [channel, setChannel] = useState<ChatChannel>(defaultChannel);
+  const [channel, setChannel] = useState<ChatChannel>(
+    defaultChannel ?? DEFAULT_LIVE_CHAT_CHANNEL,
+  );
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -84,9 +90,13 @@ export function SquadChat({
   }, [onFocusChange]);
 
   const submit = useCallback(() => {
-    const text = draft.trim();
-    if (!text) return;
-    onSend(channel, text);
+    const parsed = parseLiveChatOutbound(draft, channel);
+    if (!parsed) return;
+    onSend(parsed.channel, parsed.text);
+    // Sticky channel only when user explicitly picked tab; /todos is one-shot.
+    if (parsed.channel !== channel && !draft.trim().startsWith("/")) {
+      setChannel(parsed.channel);
+    }
     setDraft("");
     inputRef.current?.focus();
   }, [channel, draft, onSend]);
@@ -171,7 +181,13 @@ export function SquadChat({
           type="text"
           value={draft}
           maxLength={120}
-          placeholder={`Chat ${channelLabel(channel)}…`}
+          placeholder={
+            channel === "all"
+              ? "Chat todos…"
+              : channel === "team"
+                ? "Chat time · /todos"
+                : `Chat ${channelLabel(channel)}…`
+          }
           className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/50 px-2.5 py-1.5 text-[12px] text-white outline-none placeholder:text-white/30 focus:border-amber-400/40"
           onChange={(e) => setDraft(e.target.value)}
           onFocus={() => onFocusChange?.(true)}

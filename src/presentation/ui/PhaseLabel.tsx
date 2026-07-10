@@ -14,7 +14,7 @@ function formatTime(seconds: number) {
 
 /**
  * FF Tactical phase label — warmup/buy/live round header.
- * Extracted from GameHud phaseLabel logic.
+ * Timer is one visual tier above TR/CT score numbers (design v2).
  */
 export function PhaseLabel({
   phase,
@@ -22,26 +22,33 @@ export function PhaseLabel({
   round,
   className = "",
 }: PhaseLabelProps) {
-  const map: Record<string, string> = {
-    warmup: "AQUECIMENTO",
-    buy: "COMPRA",
-    ended: "FIM DO ROUND",
-    match_over: "FIM DA PARTIDA",
-    live: formatTime(timeLeft),
-  };
+  const showClock = phase === "live" || phase === "buy" || phase === "warmup";
+  const primary = showClock
+    ? formatTime(timeLeft)
+    : phase === "ended"
+      ? "FIM DO ROUND"
+      : phase === "match_over"
+        ? "FIM DA PARTIDA"
+        : formatTime(timeLeft);
 
-  const label = map[phase] ?? formatTime(timeLeft);
-  const sub = (phase === "buy" || phase === "warmup" || phase === "live") ? (
-    <span className="text-[9px] font-semibold tracking-[0.28em] text-white/40">
-      {phase === "buy" ? "COMPRA" : phase === "warmup" ? "WARMUP" : "ROUND"}{" "}
-      {round != null && round > 0 ? round : "—"}
-    </span>
-  ) : null;
+  const sub =
+    phase === "buy" || phase === "warmup" || phase === "live" ? (
+      <span className="text-[9px] font-semibold tracking-[0.28em] text-white/40">
+        {phase === "buy" ? "COMPRA" : phase === "warmup" ? "WARMUP" : "ROUND"}{" "}
+        {round != null && round > 0 ? round : "—"}
+      </span>
+    ) : null;
 
   return (
     <div className={`flex flex-col items-center justify-center ${className}`}>
-      <span className="text-2xl font-black tabular-nums tracking-wide text-white">
-        {label}
+      <span
+        className={`font-black tabular-nums tracking-wide text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.18)] ${
+          showClock
+            ? "font-mono text-4xl leading-none"
+            : "text-2xl leading-tight"
+        }`}
+      >
+        {primary}
       </span>
       {sub}
     </div>

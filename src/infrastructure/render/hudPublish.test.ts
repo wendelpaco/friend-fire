@@ -33,6 +33,7 @@ const base: HudCriticalFields = {
   roundBanner: null,
   bombState: "carried",
   bombPrompt: null,
+  carryingBomb: false,
   buyMessage: null,
   killFeedHead: "",
   chatHead: "",

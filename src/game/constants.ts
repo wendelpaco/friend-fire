@@ -12,6 +12,13 @@ import { DEFAULT_MATCH } from "@/domains/match";
 export const GAME_NAME = "Friend Fire";
 export const GAME_TAGLINE = "TÁTICO // TOP-DOWN // MULTIPLAYER";
 
+/**
+ * Debug HUD / advanced overlays (perf dump, verbose labels).
+ * Compile-time gated: production builds tree-shake branches behind this flag.
+ * Never enable via runtime localStorage alone in production.
+ */
+export const DEBUG_OVERLAYS = process.env.NODE_ENV !== "production";
+
 export const PLAYER_RADIUS = 0.45;
 export const PLAYER_SPEED = 6.5;
 export const BOT_SPEED = 4.2;

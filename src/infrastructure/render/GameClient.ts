@@ -67,6 +67,7 @@ import {
   BOT_NAMES,
   BOT_SPEED,
   BULLET_RADIUS,
+  DEBUG_OVERLAYS,
   DEFAULT_MATCH,
   DEFUSE_RADIUS,
   KILL_REWARD,
@@ -1425,7 +1426,7 @@ export class GameClient {
         }
         this.fpsFrames = 0;
         this.fpsLastT = t2;
-        if (this.showFps) {
+        if (DEBUG_OVERLAYS && this.showFps) {
           const info = this.three.getRenderInfo();
           this.lastDrawCalls = info.calls;
           this.lastTriangles = info.triangles;
@@ -3256,6 +3257,10 @@ export class GameClient {
     const killFeedHead = this.state.killFeed[0]?.id ?? "";
     const chatHead = this.state.chat[0]?.id ?? "";
     const bombPrompt = this.computeBombPrompt(p);
+    const carryingBomb =
+      p.alive &&
+      this.state.bombCarrierId === p.id &&
+      (this.state.bombState === "carried" || this.state.bombState === "planting");
 
     const criticalSig = hudCriticalSignature({
       hp,
@@ -3281,6 +3286,7 @@ export class GameClient {
       roundBanner,
       bombState: this.state.bombState,
       bombPrompt,
+      carryingBomb,
       buyMessage: this.buyMessage,
       killFeedHead,
       chatHead,
@@ -3312,14 +3318,23 @@ export class GameClient {
     this.lastHudCriticalSig = criticalSig;
 
     // Fresh arrays each publish — React state must not share mutable buffers.
+    // Only equipped items (empty slots never published / never rendered).
     const weapons: HudSnapshot["weapons"] = [];
     for (const [slotStr, w] of Object.entries(p.weapons)) {
       if (!w) continue;
+      const slot = Number(slotStr);
+      if (!Number.isFinite(slot)) continue;
+      const defName = WEAPONS[w]?.name;
+      if (!defName) continue;
       weapons.push({
-        slot: Number(slotStr),
-        name: WEAPONS[w].name,
-        active: Number(slotStr) === p.weaponSlot,
+        slot,
+        name: defName,
+        active: slot === p.weaponSlot,
       });
+    }
+    // Slot 5 = C4 when local carrier (display-only; muscle memory numbers 1–5).
+    if (carryingBomb && !weapons.some((w) => w.slot === 5)) {
+      weapons.push({ slot: 5, name: "C4", active: false });
     }
     weapons.sort((a, b) => a.slot - b.slot);
 
@@ -3327,9 +3342,9 @@ export class GameClient {
       this.state.bombState === "planted" ||
       this.state.bombState === "defusing";
 
-    // Full perf panel at ≤4 Hz when overlay avançado is on.
+    // Full perf panel at ≤4 Hz when overlay avançado is on — never in production.
     let perf: HudSnapshot["perf"] = null;
-    if (this.showFps) {
+    if (DEBUG_OVERLAYS && this.showFps) {
       if (shouldRefreshPerf(now, this.lastPerfPublishAt, true)) {
         const knobs = this.three.getRuntimeKnobs();
         this.lastPerfSnapshot = {
@@ -3404,6 +3419,7 @@ export class GameClient {
       plantProgress: this.state.plantProgress,
       defuseProgress: this.state.defuseProgress,
       bombPrompt,
+      carryingBomb,
       roundBanner,
       spectating,
       spectateTargetName,
