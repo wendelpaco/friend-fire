@@ -52,6 +52,12 @@ import {
   type AmmoMap,
 } from "../sim/shop";
 import {
+  applySpreadToYaw,
+  nextShotsInBurst,
+  resolveAccuracyKnobs,
+  shotSpreadRadians,
+} from "../sim/accuracy";
+import {
   botPrimary,
   cooldownSec,
   fullAmmo,
@@ -59,6 +65,7 @@ import {
   START_MONEY,
   starterSecondary,
   WEAPONS,
+  type WeaponStats,
 } from "../sim/weapons";
 import { tickMotor } from "../sim/motor";
 import {
@@ -157,7 +164,39 @@ type RuntimeExtra = {
   jumpHeld: boolean;
   /** Edge-detect crouch hold bit (Control) → toggle posture. */
   crouchHeld: boolean;
+  /** Performance.now()-style ms timestamp of last shot (room clock). */
+  lastShotAtMs: number;
+  /** Shots in current bloom burst. */
+  shotsInBurst: number;
+  /** Room clock ms when reload completes; 0 = not reloading. */
+  reloadingUntil: number;
+  /** Last frame XZ for move-speed estimate. */
+  lastX: number;
+  lastZ: number;
+  /** Horizontal speed m/s. */
+  moveSpeed: number;
 };
+
+function createRuntimeExtra(
+  partial: Pick<RuntimeExtra, "ammo"> &
+    Partial<Omit<RuntimeExtra, "ammo">> & { x?: number; z?: number },
+): RuntimeExtra {
+  return {
+    fireCd: partial.fireCd ?? 0,
+    aimX: partial.aimX ?? partial.x ?? 0,
+    aimZ: partial.aimZ ?? partial.z ?? 0,
+    ammo: partial.ammo,
+    heHeld: partial.heHeld ?? false,
+    jumpHeld: partial.jumpHeld ?? false,
+    crouchHeld: partial.crouchHeld ?? false,
+    lastShotAtMs: partial.lastShotAtMs ?? 0,
+    shotsInBurst: partial.shotsInBurst ?? 0,
+    reloadingUntil: partial.reloadingUntil ?? 0,
+    lastX: partial.lastX ?? partial.x ?? 0,
+    lastZ: partial.lastZ ?? partial.z ?? 0,
+    moveSpeed: partial.moveSpeed ?? 0,
+  };
+}
 
 /**
  * Authoritative private match: movement, hitscan fire, bots, rounds, shop,
@@ -302,15 +341,16 @@ export class GameRoom extends Room<MatchState> {
     const ammo = this.applyHumanLoadout(player);
 
     this.state.players.set(client.sessionId, player);
-    this.extras.set(client.sessionId, {
-      fireCd: 0,
-      aimX: player.x,
-      aimZ: player.z,
-      ammo,
-      heHeld: false,
-      jumpHeld: false,
-      crouchHeld: false,
-    });
+    this.extras.set(
+      client.sessionId,
+      createRuntimeExtra({
+        ammo,
+        aimX: player.x,
+        aimZ: player.z,
+        x: player.x,
+        z: player.z,
+      }),
+    );
     this.syncBots();
 
     console.log(
@@ -410,9 +450,14 @@ export class GameRoom extends Room<MatchState> {
       return;
     }
 
-    // Decay fire cooldowns
-    this.extras.forEach((ex) => {
+    // Decay fire cooldowns; complete timed reloads
+    const nowMs = Date.now();
+    this.extras.forEach((ex, id) => {
       ex.fireCd = Math.max(0, ex.fireCd - dt);
+      if (ex.reloadingUntil > 0 && nowMs >= ex.reloadingUntil) {
+        const p = this.state.players.get(id);
+        if (p) this.completeReload(p, ex);
+      }
     });
 
     // Humans
@@ -436,6 +481,8 @@ export class GameRoom extends Room<MatchState> {
       const crouchEdge = Boolean(input.crouch) && !ex.crouchHeld;
       ex.crouchHeld = Boolean(input.crouch);
       if (crouchEdge) p.crouching = !p.crouching;
+      const prevX = p.x;
+      const prevZ = p.z;
       const next = tickMotor(
         {
           x: p.x,
@@ -461,6 +508,11 @@ export class GameRoom extends Room<MatchState> {
       p.vy = next.vy;
       p.crouching = next.crouching;
       p.onGround = next.onGround;
+      if (dt > 1e-6) {
+        ex.moveSpeed = Math.hypot(p.x - prevX, p.z - prevZ) / dt;
+      }
+      ex.lastX = p.x;
+      ex.lastZ = p.z;
 
       const adx = input.aimX - p.x;
       const adz = input.aimZ - p.z;
@@ -478,7 +530,7 @@ export class GameRoom extends Room<MatchState> {
         this.tryReload(p, ex);
       }
 
-      if (input.fire && ex.fireCd <= 0) {
+      if (input.fire && ex.fireCd <= 0 && ex.reloadingUntil <= 0) {
         this.tryFire(p, ex);
       }
 
@@ -571,6 +623,8 @@ export class GameRoom extends Room<MatchState> {
         mx = (-dz / dist) * BOT_SPEED * 0.6 * dt;
         mz = (dx / dist) * BOT_SPEED * 0.6 * dt;
       }
+      const prevX = bot.x;
+      const prevZ = bot.z;
       const r = resolveCircleWalls(
         bot.x + mx,
         bot.z + mz,
@@ -579,6 +633,11 @@ export class GameRoom extends Room<MatchState> {
       );
       bot.x = r.x;
       bot.z = r.z;
+      if (dt > 1e-6) {
+        ex.moveSpeed = Math.hypot(bot.x - prevX, bot.z - prevZ) / dt;
+      }
+      ex.lastX = bot.x;
+      ex.lastZ = bot.z;
 
       if (!canShoot) continue;
 
@@ -592,7 +651,7 @@ export class GameRoom extends Room<MatchState> {
 
       const w = activeWeaponStats(bot.primaryId, bot.secondaryId, bot.activeSlot);
       const range = w?.range ?? 28;
-      if (dist < range && ex.fireCd <= 0) {
+      if (dist < range && ex.fireCd <= 0 && ex.reloadingUntil <= 0) {
         this.tryFire(bot, ex);
         // small jitter already via weapon cooldown
         if (ex.fireCd > 0) {
@@ -616,10 +675,31 @@ export class GameRoom extends Room<MatchState> {
   private tryReload(p: PlayerState, ex: RuntimeExtra) {
     const w = activeWeaponStats(p.primaryId, p.secondaryId, p.activeSlot);
     if (!w || w.isMelee) return;
+    if (ex.reloadingUntil > 0) return;
     if (p.mag >= w.magazine) return;
     if (p.reserve <= 0) return;
+    if (w.reloadTimeMs <= 0) {
+      this.finishReloadAmmo(p, ex, w);
+      return;
+    }
+    // Timed reload — ammo applied on complete
+    ex.reloadingUntil = Date.now() + w.reloadTimeMs;
+  }
 
+  private completeReload(p: PlayerState, ex: RuntimeExtra) {
+    ex.reloadingUntil = 0;
+    const w = activeWeaponStats(p.primaryId, p.secondaryId, p.activeSlot);
+    if (!w || w.isMelee) return;
+    this.finishReloadAmmo(p, ex, w);
+  }
+
+  private finishReloadAmmo(
+    p: PlayerState,
+    ex: RuntimeExtra,
+    w: WeaponStats,
+  ) {
     const need = w.magazine - p.mag;
+    if (need <= 0 || p.reserve <= 0) return;
     const take = Math.min(need, p.reserve);
     p.mag += take;
     p.reserve -= take;
@@ -629,12 +709,14 @@ export class GameRoom extends Room<MatchState> {
   private tryFire(p: PlayerState, ex: RuntimeExtra) {
     // No combat during buy freezetime (shop only)
     if (this.phase.phase === "buy" || this.phase.phase === "ended") return;
+    if (ex.reloadingUntil > 0) return;
     const w = activeWeaponStats(p.primaryId, p.secondaryId, p.activeSlot);
     if (!w) return;
 
     if (w.isMelee) {
       ex.fireCd = cooldownSec(w);
-      this.hitscan(p, w.damage, w.range, true);
+      ex.shotsInBurst = 0;
+      this.hitscan(p, ex, w, true);
       return;
     }
 
@@ -647,24 +729,55 @@ export class GameRoom extends Room<MatchState> {
     p.mag -= 1;
     ex.ammo[w.id] = { mag: p.mag, reserve: p.reserve };
     ex.fireCd = cooldownSec(w);
-    this.hitscan(p, w.damage, w.range, false);
+    this.hitscan(p, ex, w, false);
   }
 
   /**
    * Hitscan + cosmetic `fx_shot` broadcast so all clients see muzzle/impact.
+   * Applies accuracy spread (move / air / crouch / bloom) before the ray.
    * @param melee — skip wall impact spray for knife
    */
   private hitscan(
     shooter: PlayerState,
-    damage: number,
-    maxRange: number,
+    ex: RuntimeExtra,
+    weapon: WeaponStats,
     melee = false,
   ) {
     // Bots never deal damage in warmup (belt + suspenders with tickBots).
     if (shooter.isBot && this.phase.phase !== "live") return;
 
-    const dirX = Math.sin(shooter.rot);
-    const dirZ = Math.cos(shooter.rot);
+    const nowMs = Date.now();
+    const msSinceLastShot =
+      ex.lastShotAtMs > 0
+        ? nowMs - ex.lastShotAtMs
+        : Number.POSITIVE_INFINITY;
+    const knobs = resolveAccuracyKnobs(weapon);
+    let aimRot = shooter.rot;
+    if (!melee) {
+      const spread = shotSpreadRadians(
+        {
+          speed: ex.moveSpeed,
+          standSpeed: PLAYER_SPEED,
+          airborne: !shooter.onGround,
+          crouching: Boolean(shooter.crouching),
+          shotsInBurst: ex.shotsInBurst,
+          msSinceLastShot,
+        },
+        knobs,
+      );
+      aimRot = applySpreadToYaw(shooter.rot, spread);
+      ex.shotsInBurst = nextShotsInBurst(
+        ex.shotsInBurst,
+        msSinceLastShot,
+        knobs.recoveryMs,
+      );
+    }
+    ex.lastShotAtMs = nowMs;
+
+    const dirX = Math.sin(aimRot);
+    const dirZ = Math.cos(aimRot);
+    const maxRange = weapon.range;
+    const damage = weapon.damage;
     let bestT = maxRange;
     let hit: PlayerState | undefined;
 
@@ -723,16 +836,22 @@ export class GameRoom extends Room<MatchState> {
     }
 
     // Cosmetic for every client (including shooter — client may skip self)
+    // rot uses final aim angle so tracers match hitscan
     this.broadcast("fx_shot", {
       ownerId: shooter.id,
       x: shooter.x,
       z: shooter.z,
-      rot: shooter.rot,
+      rot: aimRot,
       impact,
     });
 
     if (!hit) return;
-    const dmg = applyDamage(hit.hp, hit.armor, damage);
+    const dmg = applyDamage(
+      hit.hp,
+      hit.armor,
+      damage,
+      weapon.armorPen ?? 0,
+    );
     hit.hp = dmg.hp;
     hit.armor = dmg.armor;
     if (hit.hp <= 0) {
@@ -1081,6 +1200,10 @@ export class GameRoom extends Room<MatchState> {
     ex.heHeld = false;
     ex.jumpHeld = false;
     ex.crouchHeld = false;
+    ex.shotsInBurst = 0;
+    ex.reloadingUntil = 0;
+    ex.moveSpeed = 0;
+    ex.lastShotAtMs = 0;
     // Top off active mag so empty-gun death doesn't soft-lock shooting
     const w = activeWeaponStats(p.primaryId, p.secondaryId, p.activeSlot);
     if (w && !w.isMelee) {
@@ -1167,15 +1290,13 @@ export class GameRoom extends Room<MatchState> {
         const w = getWeapon(p.primaryId);
         if (w) ammo[p.primaryId] = fullAmmo(w);
       }
-      ex = {
-        fireCd: 0,
+      ex = createRuntimeExtra({
+        ammo,
         aimX: p.x,
         aimZ: p.z,
-        ammo,
-        heHeld: false,
-        jumpHeld: false,
-        crouchHeld: false,
-      };
+        x: p.x,
+        z: p.z,
+      });
       this.extras.set(id, ex);
     }
     return ex;
@@ -1224,15 +1345,16 @@ export class GameRoom extends Room<MatchState> {
       this.applySpawn(p);
       const ammo = this.applyBotLoadout(p);
       this.state.players.set(id, p);
-      this.extras.set(id, {
-        fireCd: 0,
-        aimX: p.x,
-        aimZ: p.z,
-        ammo,
-        heHeld: false,
-        jumpHeld: false,
-        crouchHeld: false,
-      });
+      this.extras.set(
+        id,
+        createRuntimeExtra({
+          ammo,
+          aimX: p.x,
+          aimZ: p.z,
+          x: p.x,
+          z: p.z,
+        }),
+      );
       bots += 1;
     }
 

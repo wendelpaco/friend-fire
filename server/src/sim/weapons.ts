@@ -1,4 +1,4 @@
-/** Server weapon stats — keep damage/cooldown/ammo aligned with client WEAPONS. */
+/** Server weapon stats — keep damage/cooldown/ammo/spread aligned with client WEAPONS. */
 
 export type WeaponId =
   | "knife"
@@ -19,8 +19,19 @@ export interface WeaponStats {
   magazine: number;
   reserve: number;
   range: number;
+  /** Base continuous-fire aim error (radians, half-angle). */
+  spread: number;
+  /** Reload duration ms (timed reload on server). */
+  reloadTimeMs: number;
   isMelee?: boolean;
   price?: number;
+  firstShotSpread?: number;
+  bloomPerShot?: number;
+  recoveryMs?: number;
+  moveInaccuracyScale?: number;
+  maxBloomShots?: number;
+  /** 0–1 armor pen for HP soak; AWP = 1. */
+  armorPen?: number;
 }
 
 export const WEAPONS: Record<WeaponId, WeaponStats> = {
@@ -32,6 +43,8 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     magazine: 1,
     reserve: 0,
     range: 1.4,
+    spread: 0,
+    reloadTimeMs: 0,
     isMelee: true,
   },
   glock: {
@@ -42,6 +55,12 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     magazine: 20,
     reserve: 120,
     range: 45,
+    spread: 0.04,
+    firstShotSpread: 0.01,
+    bloomPerShot: 0.006,
+    recoveryMs: 180,
+    moveInaccuracyScale: 1,
+    reloadTimeMs: 1800,
     price: 200,
   },
   usp: {
@@ -52,6 +71,12 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     magazine: 12,
     reserve: 100,
     range: 48,
+    spread: 0.03,
+    firstShotSpread: 0.0075,
+    bloomPerShot: 0.0045,
+    recoveryMs: 180,
+    moveInaccuracyScale: 1,
+    reloadTimeMs: 1900,
     price: 500,
   },
   deagle: {
@@ -62,6 +87,12 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     magazine: 7,
     reserve: 35,
     range: 50,
+    spread: 0.05,
+    firstShotSpread: 0.0125,
+    bloomPerShot: 0.0075,
+    recoveryMs: 180,
+    moveInaccuracyScale: 1,
+    reloadTimeMs: 2200,
     price: 700,
   },
   mp5: {
@@ -72,6 +103,12 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     magazine: 30,
     reserve: 120,
     range: 40,
+    spread: 0.04,
+    firstShotSpread: 0.01,
+    bloomPerShot: 0.006,
+    recoveryMs: 280,
+    moveInaccuracyScale: 0.7,
+    reloadTimeMs: 2100,
     price: 1500,
   },
   galil: {
@@ -82,6 +119,12 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     magazine: 35,
     reserve: 90,
     range: 52,
+    spread: 0.038,
+    firstShotSpread: 0.0095,
+    bloomPerShot: 0.0057,
+    recoveryMs: 280,
+    moveInaccuracyScale: 1,
+    reloadTimeMs: 2300,
     price: 2000,
   },
   ak47: {
@@ -92,6 +135,12 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     magazine: 30,
     reserve: 90,
     range: 55,
+    spread: 0.035,
+    firstShotSpread: 0.00875,
+    bloomPerShot: 0.00525,
+    recoveryMs: 280,
+    moveInaccuracyScale: 1,
+    reloadTimeMs: 2400,
     price: 2700,
   },
   awp: {
@@ -102,6 +151,13 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     magazine: 10,
     reserve: 30,
     range: 80,
+    spread: 0.01,
+    firstShotSpread: 0.0025,
+    bloomPerShot: 0.0015,
+    recoveryMs: 500,
+    moveInaccuracyScale: 1.8,
+    armorPen: 1,
+    reloadTimeMs: 2800,
     price: 4750,
   },
 };

@@ -2,5 +2,6 @@ export * from "./types";
 export * from "./weapons";
 export * from "./damage";
 export * from "./reload";
+export * from "./accuracy";
 export * from "./shop";
 export * from "./grenade";

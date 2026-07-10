@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { recordImpression } from "@/domains/ads";
 import {
   applyDamage as applyDamageToVitals,
+  applySpreadToYaw,
   beginReload,
   canOpenBuyMenu,
   completeReload,
@@ -9,6 +10,9 @@ import {
   HE_FUSE,
   HE_GRAVITY,
   isDead,
+  knobsForWeapon,
+  nextShotsInBurst,
+  shotSpreadRadians,
   throwGrenade,
   tryBuy,
   WEAPONS,
@@ -319,6 +323,8 @@ function createNetworkPlayerShell(
     assists: 0,
     lastShotAt: 0,
     reloadingUntil: 0,
+    shotsInBurst: 0,
+    moveSpeed: 0,
     color: TEAM_COLORS[team],
     diedThisRound: false,
   };
@@ -1444,6 +1450,8 @@ export class GameClient {
       assists: 0,
       lastShotAt: 0,
       reloadingUntil: 0,
+      shotsInBurst: 0,
+      moveSpeed: 0,
       color: TEAM_COLORS[team],
       diedThisRound: false,
     };
@@ -2065,6 +2073,8 @@ export class GameClient {
     p.hp = 100;
     p.alive = true;
     p.reloadingUntil = 0;
+    p.shotsInBurst = 0;
+    p.moveSpeed = 0;
     p.rot = p.team === "TR" ? Math.PI / 4 : (-3 * Math.PI) / 4;
     for (const [wid, ammo] of Object.entries(p.ammo)) {
       if (!ammo) continue;
@@ -2098,6 +2108,8 @@ export class GameClient {
     const wishX = opts.freeCamPan ? 0 : move.x;
     const wishZ = opts.freeCamPan ? 0 : move.z;
     const jump = this.input.wasJumpPressed();
+    const prevX = p.x;
+    const prevZ = p.z;
 
     void this.ensurePhysics();
     if (this.physics) {
@@ -2146,9 +2158,13 @@ export class GameClient {
       p.onGround = next.onGround;
     }
 
+    // Horizontal speed for accuracy (stop-shoot skill)
+    if (dt > 1e-6) {
+      p.moveSpeed = Math.hypot(p.x - prevX, p.z - prevZ) / dt;
+    }
+
     // Foot SFX is driven by CharacterAnimator foot-plant phase in ThreeRenderer
     // (finer sync than a fixed cooldown timer).
-    void dt;
   }
 
   private updateLocalPlayer(dt: number) {
@@ -2296,6 +2312,8 @@ export class GameClient {
         mx = (-dz / dist) * BOT_SPEED * 0.65 * stepDt;
         mz = (dx / dist) * BOT_SPEED * 0.65 * stepDt;
       }
+      const prevX = bot.x;
+      const prevZ = bot.z;
       const resolved = resolveCircleWalls(
         bot.x + mx,
         bot.z + mz,
@@ -2304,6 +2322,9 @@ export class GameClient {
       );
       bot.x = resolved.x;
       bot.z = resolved.z;
+      if (stepDt > 1e-6) {
+        bot.moveSpeed = Math.hypot(bot.x - prevX, bot.z - prevZ) / stepDt;
+      }
 
       const wid = bot.weapons[bot.weaponSlot];
       const ammo = wid ? bot.ammo[wid] : null;
@@ -2337,6 +2358,7 @@ export class GameClient {
 
     if (def.isMelee) {
       p.lastShotAt = now;
+      p.shotsInBurst = 0;
       this.meleeAttack(p, def.damage, def.range);
       return;
     }
@@ -2352,12 +2374,29 @@ export class GameClient {
       return;
     }
 
+    const msSinceLastShot =
+      p.lastShotAt > 0 ? now - p.lastShotAt : Number.POSITIVE_INFINITY;
+    const knobs = knobsForWeapon(wid);
+    const spread = shotSpreadRadians({
+      weaponId: wid,
+      speed: p.moveSpeed ?? 0,
+      standSpeed: PLAYER_SPEED,
+      airborne: !(p.onGround ?? true),
+      crouching: Boolean(p.crouching),
+      shotsInBurst: p.shotsInBurst ?? 0,
+      msSinceLastShot,
+    });
+    const angle = applySpreadToYaw(p.rot, spread);
+
     ammo.mag -= 1;
+    p.shotsInBurst = nextShotsInBurst(
+      p.shotsInBurst ?? 0,
+      msSinceLastShot,
+      knobs.recoveryMs,
+    );
     p.lastShotAt = now;
     if (!p.isBot) Sfx.play("shoot");
 
-    const spread = (Math.random() - 0.5) * def.spread;
-    const angle = p.rot + spread;
     const bullet: BulletState = {
       id: uid("b"),
       ownerId: p.id,
@@ -2373,7 +2412,7 @@ export class GameClient {
     this.state.bullets.push(bullet);
     this.three.spawnMuzzle(p.x, p.z, p.rot);
     this.three.notifyShoot(p.id);
-    // Cosmetic tracer toward aim (range estimate)
+    // Cosmetic tracer uses same final angle as projectile
     const reach = Math.min(def.range, 40);
     this.three.spawnTracer(
       p.x + Math.sin(p.rot) * 0.7,
@@ -2490,11 +2529,21 @@ export class GameClient {
         const dz = p.z - b.z;
         if (dx * dx + dz * dz < (PLAYER_RADIUS + BULLET_RADIUS) ** 2) {
           const owner = this.state.players.find((o) => o.id === b.ownerId);
-          const weaponName =
+          const wid =
             owner && owner.weapons[owner.weaponSlot]
-              ? WEAPONS[owner.weapons[owner.weaponSlot]!].name
-              : "ARMA";
-          if (owner) this.applyDamage(p, owner, b.damage, weaponName);
+              ? owner.weapons[owner.weaponSlot]
+              : undefined;
+          const wdef = wid ? WEAPONS[wid] : undefined;
+          const weaponName = wdef?.name ?? "ARMA";
+          if (owner) {
+            this.applyDamage(
+              p,
+              owner,
+              b.damage,
+              weaponName,
+              wdef?.armorPen ?? 0,
+            );
+          }
           hitPlayer = true;
           break;
         }
@@ -2511,12 +2560,14 @@ export class GameClient {
     killer: PlayerState,
     damage: number,
     weaponName: string,
+    armorPen = 0,
   ) {
     if (!victim.alive) return;
 
     const result = applyDamageToVitals(
       { hp: victim.hp, armor: victim.armor },
       damage,
+      { armorPen },
     );
     victim.hp = result.hp;
     victim.armor = result.armor;

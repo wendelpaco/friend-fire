@@ -309,17 +309,23 @@ export function resolveCircleWalls(
   return { x: nx, z: nz };
 }
 
+/**
+ * Armor formula + optional armorPen (0–1).
+ * armorPen 1 = full pen to HP (AWP); armor still chips.
+ */
 export function applyDamage(
   hp: number,
   armor: number,
   damage: number,
+  armorPen = 0,
 ): { hp: number; armor: number } {
   let dmg = damage;
   let a = armor;
+  const pen = Math.max(0, Math.min(1, armorPen));
   if (a > 0) {
     const absorbed = Math.min(a, dmg * 0.5);
     a -= absorbed;
-    dmg -= absorbed * 0.5;
+    dmg -= absorbed * 0.5 * (1 - pen);
   }
   return { hp: hp - dmg, armor: a };
 }

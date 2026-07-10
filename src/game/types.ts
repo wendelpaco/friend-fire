@@ -46,6 +46,10 @@ export interface PlayerState {
   assists: number;
   lastShotAt: number;
   reloadingUntil: number;
+  /** Shots fired in current burst (accuracy bloom); reset after recovery. */
+  shotsInBurst: number;
+  /** Last horizontal speed m/s from motor (accuracy movement term). */
+  moveSpeed: number;
   color: number;
   /**
    * Died during the last live round — next buy strips to knife + team pistol.
