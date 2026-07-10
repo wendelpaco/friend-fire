@@ -192,6 +192,15 @@ canvas:focus {
   outline: none;
 }
 
+/* Git City-inspired hard-shadow button */
+.btn-press-ff {
+  transition: all 120ms var(--ff-ease);
+}
+.btn-press-ff:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 0 transparent !important;
+}
+
 /* Scanline overlay — use on menu / cinematic screens */
 .scanlines::after {
   content: "";
