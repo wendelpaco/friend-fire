@@ -18,6 +18,8 @@ export type GamePrefs = {
   autoQuality: boolean;
   /** localStorage `ff_show_fps` (default false) */
   showFps: boolean;
+  /** localStorage `ff_high_contrast` (default false) — colorblind-friendly team colors */
+  highContrast: boolean;
 };
 
 export const PREFS_EVENT = "ff-prefs";
@@ -28,6 +30,7 @@ const CAMERA_KEY = "ff_camera_default";
 const QUALITY_KEY = "ff_graphics_quality";
 const AUTO_QUALITY_KEY = "ff_auto_quality";
 const FPS_KEY = "ff_show_fps";
+const HIGH_CONTRAST_KEY = "ff_high_contrast";
 
 function clampVolume(n: number): number {
   if (!Number.isFinite(n)) return 70;
@@ -56,6 +59,7 @@ export function readGamePrefs(): GamePrefs {
       graphicsQuality: "medium",
       autoQuality: true,
       showFps: false,
+      highContrast: false,
     };
   }
   try {
@@ -68,6 +72,7 @@ export function readGamePrefs(): GamePrefs {
     const graphicsQuality = parseQuality(localStorage.getItem(QUALITY_KEY));
     const autoQuality = parseBool(localStorage.getItem(AUTO_QUALITY_KEY), true);
     const showFps = parseBool(localStorage.getItem(FPS_KEY), false);
+    const highContrast = parseBool(localStorage.getItem(HIGH_CONTRAST_KEY), false);
     return {
       volume,
       fogEnabled,
@@ -75,6 +80,7 @@ export function readGamePrefs(): GamePrefs {
       graphicsQuality,
       autoQuality,
       showFps,
+      highContrast,
     };
   } catch {
     return {
@@ -84,6 +90,7 @@ export function readGamePrefs(): GamePrefs {
       graphicsQuality: "medium",
       autoQuality: true,
       showFps: false,
+      highContrast: false,
     };
   }
 }
@@ -100,6 +107,7 @@ export function persistGamePrefs(prefs: GamePrefs): void {
       prefs.autoQuality ? "true" : "false",
     );
     localStorage.setItem(FPS_KEY, prefs.showFps ? "true" : "false");
+    localStorage.setItem(HIGH_CONTRAST_KEY, prefs.highContrast ? "true" : "false");
   } catch {
     /* private mode / quota */
   }
@@ -126,6 +134,7 @@ export function writeGamePrefs(partial: Partial<GamePrefs>): GamePrefs {
   next.graphicsQuality = parseQuality(next.graphicsQuality);
   next.autoQuality = Boolean(next.autoQuality);
   next.showFps = Boolean(next.showFps);
+  next.highContrast = Boolean(next.highContrast);
   persistGamePrefs(next);
   dispatchPrefs(next);
   return next;
@@ -176,6 +185,33 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
             aria-label="Visão limitada (fog)"
             onChange={(e) => apply({ fogEnabled: e.target.checked })}
             className="h-4 w-4 accent-amber-500"
+          />
+        </label>
+
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3">
+          <div className="min-w-0">
+            <span className="text-sm font-semibold text-white/85">
+              Alto contraste (daltônico)
+            </span>
+            <p className="mt-0.5 text-[10px] leading-snug text-white/40">
+              Cores de time mais intensas e distintas.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={prefs.highContrast}
+            aria-label="Alto contraste"
+            onChange={(e) => {
+              apply({ highContrast: e.target.checked });
+              if (typeof document !== "undefined") {
+                if (e.target.checked) {
+                  document.documentElement.setAttribute("data-ff-high-contrast", "true");
+                } else {
+                  document.documentElement.removeAttribute("data-ff-high-contrast");
+                }
+              }
+            }}
+            className="h-4 w-4 shrink-0 accent-amber-500"
           />
         </label>
 

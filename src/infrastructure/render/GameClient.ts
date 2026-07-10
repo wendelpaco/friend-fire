@@ -932,10 +932,31 @@ export class GameClient {
 
   /**
    * Chat input focus trap — suppress combat keys while typing (Meta-3).
+   * Clearing also blurs any form field so `isDomTyping` cannot keep blocking fire
+   * after death social / squad chat unmount (stuck "can't shoot" after respawn).
    */
   setChatFocused(focused: boolean) {
     this.chatFocused = focused;
     this.input.setSuppressed(focused);
+    if (!focused) {
+      this.blurDomTypingTarget();
+    }
+  }
+
+  /** Blur active INPUT/TEXTAREA so combat keys and mouse fire work again. */
+  private blurDomTypingTarget() {
+    if (typeof document === "undefined") return;
+    const el = document.activeElement as HTMLElement | null;
+    if (!el) return;
+    const tag = el.tagName;
+    if (
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT" ||
+      el.isContentEditable
+    ) {
+      el.blur();
+    }
   }
 
   isChatFocused() {
@@ -1126,10 +1147,19 @@ export class GameClient {
       this.heProjectiles = [];
       this.showShopShowcase = false;
       this.pendingAutoBuyMenu = false;
+      this.state.showBuyMenu = false;
+      // Hard restore so a death free-cam / chat trap cannot survive into combat.
+      const localLive = this.networkPlayerById.get(
+        net.sessionId ?? this.state.localPlayerId,
+      );
+      if (localLive?.alive) this.restoreLocalCombatControl(localLive);
     }
 
     // Meta-2: showcase once per buy phase (client overlay; money from server)
     if (this.state.phase === "buy" && prevPhase !== "buy") {
+      // Drop spectator free-cam as soon as freezetime starts (player may already
+      // be alive from server respawn before live phase).
+      this.clearSpectator();
       this.pendingAutoBuyMenu = false;
       this.startShopShowcaseIfNeeded();
     } else if (this.state.phase !== "buy" && this.showShopShowcase) {
@@ -1250,6 +1280,13 @@ export class GameClient {
 
       if (isLocal && prevAlive && !np.alive) {
         p.diedThisRound = true;
+      }
+      // Leave spectator + restore fire/move when local becomes alive again
+      // (warmup respawn, buy freezetime, next live — without this free-cam /
+      // chat trap from death social sticks and mouse fire never reaches server).
+      // Run after loadout/pos patch so weapon slot + freeCam match server state.
+      if (isLocal && !prevAlive && np.alive) {
+        this.restoreLocalCombatControl(p);
       }
 
       nextList.push(p);
@@ -1798,8 +1835,17 @@ export class GameClient {
     const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
     if (!p || !p.alive) return;
 
+    // Alive again: never keep death-social chat trap or free-cam pan lock.
+    if (this.chatFocused) this.setChatFocused(false);
+
+    // Free-cam pan only while intentionally free AND not freezetime.
+    // After death, clearSpectator/restoreLocalCombatControl lock camera so
+    // WASD moves the body and fire is not "dead" from stuck free cam.
+    const freeCamPan =
+      this.state.cameraMode === "free" && this.state.phase !== "buy";
+
     this.applyPlayerMotor(p, dt, {
-      freeCamPan: this.state.cameraMode === "free",
+      freeCamPan,
     });
 
     const dx = this.input.aimWorldX - p.x;
@@ -2198,13 +2244,21 @@ export class GameClient {
     this.state.bullets = [];
     // Keep leftover drops from buy only if any; usually cleared at buy start.
     this.heProjectiles = [];
-    this.clearSpectator();
     this.state.showBuyMenu = false;
     this.showShopShowcase = false;
     this.pendingAutoBuyMenu = false;
     for (const p of this.state.players) {
       p.diedThisRound = false;
+      // Clear any stuck reload / burst so first shot of the round always fires.
+      p.reloadingUntil = 0;
+      p.shotsInBurst = 0;
+      p.lastShotAt = 0;
     }
+    const local = this.state.players.find(
+      (x) => x.id === this.state.localPlayerId,
+    );
+    if (local?.alive) this.restoreLocalCombatControl(local);
+    else this.clearSpectator();
     this.addChat("SYSTEM", `ROUND ${this.state.round} — combate!`, "system");
   }
 
@@ -2254,6 +2308,36 @@ export class GameClient {
   private clearSpectator() {
     this.spectateTargetId = null;
     this.spectatorFollow = true;
+    // After death free-cam must not stick into the next life (blocks WASD
+    // via freeCamPan and felt like "can't shoot/play").
+    this.state.cameraMode = "locked";
+    this.setChatFocused(false);
+  }
+
+  /**
+   * After death → alive (warmup respawn, buy strip, next live): restore full
+   * local control so the player can move and shoot again.
+   *
+   * Root causes of "died once then can't shoot":
+   * 1. cameraMode stayed "free" → freeCamPan zeroed wish (felt dead)
+   * 2. chatFocused / DOM input focus from DeathSocial stuck → fire never sent
+   * 3. weaponSlot empty after strip/drop
+   * 4. reloadingUntil / burst left mid-state across lives
+   */
+  private restoreLocalCombatControl(p: PlayerState) {
+    this.clearSpectator();
+    this.freeCamX = p.x;
+    this.freeCamZ = p.z;
+    p.reloadingUntil = 0;
+    p.shotsInBurst = 0;
+    p.lastShotAt = 0;
+    p.moveSpeed = 0;
+    // Ensure a firable weapon is selected (not empty slot after strip/drop).
+    if (!p.weapons[p.weaponSlot]) {
+      if (p.weapons[2]) p.weaponSlot = 2;
+      else if (p.weapons[1]) p.weaponSlot = 1;
+      else if (p.weapons[4]) p.weaponSlot = 4;
+    }
   }
 
   private enterSpectator(killerId: string | null) {
@@ -2427,12 +2511,20 @@ export class GameClient {
     p.reloadingUntil = 0;
     p.shotsInBurst = 0;
     p.moveSpeed = 0;
+    p.lastShotAt = 0;
     p.rot = p.team === "TR" ? Math.PI / 4 : (-3 * Math.PI) / 4;
     for (const [wid, ammo] of Object.entries(p.ammo)) {
       if (!ammo) continue;
       p.ammo[wid as WeaponId] = completeReload(ammo, wid as WeaponId);
     }
     this.physics?.ensureCharacter(p.id, p.x, p.z, 0);
+    if (p.id === this.state.localPlayerId) {
+      this.restoreLocalCombatControl(p);
+    } else if (!p.weapons[p.weaponSlot]) {
+      if (p.weapons[2]) p.weaponSlot = 2;
+      else if (p.weapons[1]) p.weaponSlot = 1;
+      else if (p.weapons[4]) p.weaponSlot = 4;
+    }
   }
 
   /**
@@ -2540,8 +2632,16 @@ export class GameClient {
       return;
     }
 
+    // Alive again: never keep death-social chat trap or free-cam pan lock.
+    if (this.chatFocused) this.setChatFocused(false);
+
+    // Free-cam pan only while intentionally free AND not in combat freezetime.
+    // After death, clearSpectator restores locked so WASD moves the body again.
+    const freeCamPan =
+      this.state.cameraMode === "free" && this.state.phase !== "buy";
+
     this.applyPlayerMotor(p, dt, {
-      freeCamPan: this.state.cameraMode === "free",
+      freeCamPan,
     });
 
     const dx = this.input.aimWorldX - p.x;

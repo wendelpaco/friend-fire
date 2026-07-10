@@ -306,21 +306,27 @@ export function GameCanvas({
       const engine = engineRef.current;
       if (!engine || !client.isConnected()) return;
       // Don't shoot / move-wire while typing in chat (Meta-3 focus trap).
+      // If mouse is already down on the canvas, force-clear the trap so a
+      // stuck death-social chat focus cannot permanently zero `fire`.
       if (engine.isChatFocused() || engine.input.isTypingTarget()) {
-        client.sendInput({
-          dx: 0,
-          dz: 0,
-          aimX: engine.input.aimWorldX,
-          aimZ: engine.input.aimWorldZ,
-          fire: false,
-          reload: false,
-          slot: 0,
-          plant: false,
-          he: false,
-          jump: false,
-          crouch: false,
-        });
-        return;
+        if (engine.input.isMouseDown(0)) {
+          engine.setChatFocused(false);
+        } else {
+          client.sendInput({
+            dx: 0,
+            dz: 0,
+            aimX: engine.input.aimWorldX,
+            aimZ: engine.input.aimWorldZ,
+            fire: false,
+            reload: false,
+            slot: 0,
+            plant: false,
+            he: false,
+            jump: false,
+            crouch: false,
+          });
+          return;
+        }
       }
       const move = engine.input.moveVector();
       const slot = engine.input.weaponSlotKey() ?? 0;

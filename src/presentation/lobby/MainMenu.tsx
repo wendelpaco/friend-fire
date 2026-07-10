@@ -214,7 +214,7 @@ export function MainMenu() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#07090e] text-white">
+    <div className="relative min-h-screen overflow-hidden bg-[#07090e] text-white scanlines">
       {/* cinematic bg — poster energy (RUSH-B-inspired, original geometry) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_30%,#3b1a08_0%,transparent_50%),radial-gradient(ellipse_at_15%_85%,#0a1628_0%,transparent_45%),linear-gradient(180deg,#12151c_0%,#07090e_100%)]" />
@@ -226,16 +226,42 @@ export function MainMenu() {
           }}
         />
         <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-orange-950/40 to-transparent" />
-        {/* Soldier silhouette (CSS shapes — no external art) */}
-        <div className="absolute bottom-0 right-[4%] hidden h-[78%] w-[min(42vw,420px)] opacity-[0.22] lg:block">
-          <div className="absolute bottom-[18%] left-1/2 h-[42%] w-[38%] -translate-x-1/2 rounded-t-[40%] bg-gradient-to-b from-amber-700/80 to-stone-900" />
-          <div className="absolute bottom-[52%] left-1/2 h-[14%] w-[22%] -translate-x-1/2 rounded-full bg-amber-800/90" />
-          <div className="absolute bottom-[58%] left-[58%] h-[8%] w-[48%] origin-left rotate-[-8deg] rounded-sm bg-stone-600" />
-          <div className="absolute bottom-0 left-[28%] h-[22%] w-[14%] rounded-t-md bg-stone-800" />
-          <div className="absolute bottom-0 right-[28%] h-[22%] w-[14%] rounded-t-md bg-stone-800" />
+        {/* Floating particles (CSS-only, sparse) */}
+        <div className="absolute inset-0 overflow-hidden motion-safe:opacity-100" aria-hidden>
+          <div className="absolute left-[15%] top-[20%] h-1 w-1 rounded-full bg-amber-400/30 motion-safe:animate-[float_8s_ease-in-out_infinite]" />
+          <div className="absolute left-[35%] top-[45%] h-1.5 w-1.5 rounded-full bg-orange-400/20 motion-safe:animate-[float_10s_ease-in-out_infinite_2s]" />
+          <div className="absolute left-[60%] top-[30%] h-1 w-1 rounded-full bg-amber-300/25 motion-safe:animate-[float_9s_ease-in-out_infinite_4s]" />
+          <div className="absolute left-[78%] top-[55%] h-0.5 w-0.5 rounded-full bg-yellow-400/30 motion-safe:animate-[float_7s_ease-in-out_infinite_1s]" />
+          <div className="absolute left-[22%] top-[65%] h-1 w-1 rounded-full bg-amber-400/20 motion-safe:animate-[float_11s_ease-in-out_infinite_3s]" />
+        </div>
+        {/* Soldier silhouette (CSS shapes — enhanced tactical operator) */}
+        <div className="absolute bottom-0 right-[3%] hidden h-[82%] w-[min(44vw,440px)] opacity-[0.18] lg:block motion-safe:animate-ff-fade-in">
+          {/* Torso / tactical vest */}
+          <div className="absolute bottom-[15%] left-1/2 h-[40%] w-[34%] -translate-x-1/2 rounded-t-[35%] bg-gradient-to-b from-amber-700/70 via-amber-800/50 to-stone-900" />
+          {/* Vest straps */}
+          <div className="absolute bottom-[30%] left-1/2 h-[2%] w-[36%] -translate-x-1/2 bg-amber-600/50" />
+          <div className="absolute bottom-[38%] left-1/2 h-[2%] w-[32%] -translate-x-1/2 bg-amber-600/40" />
+          {/* Helmet / head */}
+          <div className="absolute bottom-[48%] left-1/2 h-[13%] w-[20%] -translate-x-1/2 rounded-t-[45%] bg-gradient-to-b from-amber-700/90 to-amber-800/70" />
+          {/* Visor / face area */}
+          <div className="absolute bottom-[51%] left-1/2 h-[5%] w-[10%] -translate-x-1/2 rounded-sm bg-stone-950/80" />
+          {/* Right arm + weapon */}
+          <div className="absolute bottom-[42%] left-[64%] h-[8%] w-[52%] origin-left -rotate-[6deg] rounded-sm bg-gradient-to-r from-stone-700 to-stone-500" />
+          {/* Weapon barrel */}
+          <div className="absolute bottom-[44%] left-[85%] h-[3%] w-[18%] origin-left -rotate-[6deg] rounded-r-sm bg-stone-400/80" />
+          {/* Left arm */}
+          <div className="absolute bottom-[38%] left-[10%] h-[8%] w-[20%] origin-right rotate-[15deg] rounded-sm bg-stone-700/70" />
+          {/* Left leg / boot */}
+          <div className="absolute bottom-0 left-[28%] h-[20%] w-[13%] rounded-t-md bg-gradient-to-b from-stone-800 to-stone-950" />
+          <div className="absolute bottom-0 left-[26%] h-[5%] w-[16%] rounded-sm bg-stone-950" />
+          {/* Right leg / boot */}
+          <div className="absolute bottom-0 right-[28%] h-[20%] w-[13%] rounded-t-md bg-gradient-to-b from-stone-800 to-stone-950" />
+          <div className="absolute bottom-0 right-[26%] h-[5%] w-[16%] rounded-sm bg-stone-950" />
+          {/* Backpack */}
+          <div className="absolute bottom-[28%] left-[22%] h-[12%] w-[16%] rounded-md bg-stone-800/60" />
         </div>
         {/* Muzzle flash hint */}
-        <div className="absolute right-[18%] top-[38%] hidden h-24 w-24 rounded-full bg-orange-400/20 blur-2xl lg:block" />
+        <div className="absolute right-[14%] top-[36%] hidden h-28 w-28 rounded-full bg-orange-400/15 blur-2xl lg:block motion-safe:animate-ff-pulse-glow" />
       </div>
 
       {/* top sponsor strip */}
@@ -255,7 +281,7 @@ export function MainMenu() {
         </div>
       </div>
 
-      <div className="relative z-10 mx-auto grid min-h-[calc(100vh-3.5rem)] max-w-6xl gap-10 px-5 py-8 lg:grid-cols-[1fr_340px] lg:items-center lg:px-10">
+      <div className="relative z-10 mx-auto grid min-h-[calc(100vh-3.5rem)] max-w-6xl gap-10 px-5 py-8 motion-safe:animate-ff-fade-in lg:grid-cols-[1fr_340px] lg:items-center lg:px-10">
         {/* Left: logo + nav */}
         <div className="max-w-md">
           <div className="mb-8">
@@ -358,10 +384,10 @@ export function MainMenu() {
                     role="option"
                     aria-selected={selected}
                     onClick={() => selectLobbyMap(m.id)}
-                    className={`relative min-h-[5.25rem] overflow-hidden rounded-xl border p-3 text-left transition ${
+                    className={`relative min-h-[5.25rem] overflow-hidden rounded-xl border p-3 text-left motion-safe:transition-all motion-safe:duration-150 ${
                       selected
                         ? "border-white/40 shadow-lg ring-1 ring-white/15"
-                        : "border-white/10 hover:border-white/25"
+                        : "border-white/10 hover:border-white/25 hover:scale-[1.02]"
                     }`}
                     style={{
                       background: `linear-gradient(145deg, ${m.accent}55 0%, ${m.accent}12 42%, #0a0c12 100%)`,
@@ -397,7 +423,7 @@ export function MainMenu() {
           <nav className="flex flex-col gap-2">
             <Link
               href={quickPlayHref}
-              className="rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-600 to-amber-500 px-5 py-3.5 text-center text-sm font-black tracking-[0.2em] text-black shadow-lg shadow-amber-900/35 transition hover:from-amber-500 hover:to-amber-400 hover:shadow-amber-700/40"
+              className="motion-safe:animate-ff-pulse-glow rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-600 to-amber-500 px-5 py-3.5 text-center text-sm font-black tracking-[0.2em] text-black shadow-lg shadow-amber-900/35 motion-safe:transition-all motion-safe:duration-150 hover:from-amber-500 hover:to-amber-400 hover:shadow-amber-700/40 active:scale-[0.98]"
             >
               JOGO RÁPIDO
             </Link>
@@ -418,7 +444,7 @@ export function MainMenu() {
             {quickMatchError && (
               <p
                 role="alert"
-                className="rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
+                className="motion-safe:animate-ff-shake rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
               >
                 {quickMatchError}
               </p>
@@ -444,7 +470,7 @@ export function MainMenu() {
             {rejoinError && (
               <p
                 role="alert"
-                className="rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
+                className="motion-safe:animate-ff-shake rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
               >
                 {rejoinError}
               </p>
@@ -680,7 +706,7 @@ function MenuButton({
       disabled={disabled}
       title={title}
       onClick={onClick}
-      className="rounded-xl border border-white/10 bg-black/45 px-5 py-3.5 text-center text-sm font-semibold tracking-widest text-white/75 transition hover:border-white/20 hover:bg-black/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+      className="rounded-xl border border-white/10 bg-black/45 px-5 py-3.5 text-center text-sm font-semibold tracking-widest text-white/75 motion-safe:transition-all motion-safe:duration-150 hover:border-white/20 hover:bg-black/60 hover:text-white hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:scale-100"
     >
       {children}
     </button>

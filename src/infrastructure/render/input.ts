@@ -112,9 +112,23 @@ export class Input {
     if (!onCanvas && (this.suppressed || this.isDomTyping(e.target))) {
       return;
     }
-    if (onCanvas && this.suppressed) {
-      // Caller (GameClient) should clear chatFocused; still register the click.
+    if (onCanvas) {
+      // Always drop suppress + blur form fields so death-social chat cannot
+      // keep isDomTyping true (which blocks fire wire to the server forever).
       this.suppressed = false;
+      if (typeof document !== "undefined") {
+        const active = document.activeElement as HTMLElement | null;
+        if (
+          active &&
+          active !== t &&
+          (active.tagName === "INPUT" ||
+            active.tagName === "TEXTAREA" ||
+            active.tagName === "SELECT" ||
+            active.isContentEditable)
+        ) {
+          active.blur();
+        }
+      }
     }
     if (!this.mouseButtons.has(e.button)) {
       this.mouseJustPressed.add(e.button);

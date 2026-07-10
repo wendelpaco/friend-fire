@@ -13,29 +13,16 @@ import { SettingsPanel } from "@/presentation/game/SettingsPanel";
 import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
 import { DeathSocialPanel } from "@/presentation/session/DeathSocialPanel";
 import { ShopShowcase } from "@/presentation/session/ShopShowcase";
+import {
+  AmmoDisplay,
+  ArmorDisplay,
+  HealthBar,
+  KillFeedItem,
+  PhaseLabel,
+  WeaponSlot,
+} from "@/presentation/ui";
+import { Bomb, Coin, Skull, Star } from "@/presentation/icons";
 import type { Team } from "@/shared/types/team";
-
-function formatTime(seconds: number) {
-  const s = Math.max(0, Math.ceil(seconds));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${r.toString().padStart(2, "0")}`;
-}
-
-function formatBombTimer(seconds: number) {
-  const s = Math.max(0, Math.ceil(seconds));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${r.toString().padStart(2, "0")}`;
-}
-
-function phaseLabel(hud: HudSnapshot) {
-  if (hud.phase === "warmup") return `AQUECIMENTO ${Math.ceil(hud.timeLeft)}`;
-  if (hud.phase === "buy") return `COMPRA ${Math.ceil(hud.timeLeft)}`;
-  if (hud.phase === "ended") return "FIM DO ROUND";
-  if (hud.phase === "match_over") return "FIM DA PARTIDA";
-  return formatTime(hud.timeLeft);
-}
 
 /** Local team result from final scores. */
 function matchResultForTeam(
@@ -47,6 +34,13 @@ function matchResultForTeam(
   const trWon = scoreTR > scoreCT;
   if (team === "TR") return trWon ? "win" : "loss";
   return trWon ? "loss" : "win";
+}
+
+function formatBombTimer(seconds: number) {
+  const s = Math.max(0, Math.ceil(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
 }
 
 interface GameHudProps {
@@ -182,8 +176,7 @@ function GameHudImpl({
       {/* Damage vignette */}
       {hud.damageFlash > 0 && (
         <div
-          className="absolute inset-0 bg-red-600 transition-opacity"
-          style={{ opacity: hud.damageFlash * 0.28 }}
+          className="pointer-events-none absolute inset-0 motion-safe:animate-ff-flash-red"
         />
       )}
 
@@ -271,21 +264,11 @@ function GameHudImpl({
             </span>
           </div>
           <div className="flex min-w-[150px] flex-col items-center justify-center border-x border-white/10 bg-[#0d121c] px-7 py-2">
-            <span className="text-2xl font-black tabular-nums tracking-wide text-white">
-              {phaseLabel(hud)}
-            </span>
-            {(hud.phase === "live" ||
-              hud.phase === "buy" ||
-              hud.phase === "warmup") && (
-              <span className="text-[9px] font-semibold tracking-[0.28em] text-white/40">
-                {hud.phase === "buy"
-                  ? "COMPRA"
-                  : hud.phase === "warmup"
-                    ? "WARMUP"
-                    : "ROUND"}{" "}
-                {hud.round > 0 ? hud.round : "—"}
-              </span>
-            )}
+            <PhaseLabel
+              phase={hud.phase}
+              timeLeft={hud.timeLeft}
+              round={hud.round}
+            />
             {hud.canBuy && !hud.showBuyMenu && (
               <span className="mt-0.5 text-[9px] font-bold tracking-wide text-amber-300">
                 B · LOJA ABERTA
@@ -320,7 +303,7 @@ function GameHudImpl({
             }`}
           >
             <span className="text-[9px] font-bold tracking-[0.2em] text-orange-300/90">
-              C4
+              <Bomb size={12} className="inline-block" /> C4
             </span>
             <span
               className={`font-mono text-lg font-black tabular-nums ${
@@ -341,23 +324,12 @@ function GameHudImpl({
       {/* Killfeed — top-right, clear of radar/FPS */}
       <div className="absolute right-4 top-4 z-30 flex w-80 flex-col items-end gap-1.5">
         {hud.killFeed.slice(0, 6).map((k) => (
-          <div
+          <KillFeedItem
             key={k.id}
-            className="animate-kill-feed-in flex items-center gap-2 rounded-md border border-white/12 bg-black/70 px-2.5 py-1.5 text-[11px] shadow-lg shadow-black/40 backdrop-blur-md"
-          >
-            <span className="max-w-[7rem] truncate font-semibold text-orange-300">
-              {k.killer}
-            </span>
-            <span
-              className="shrink-0 rounded border border-amber-400/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-amber-200/80"
-              title={k.weapon}
-            >
-              {k.weapon}
-            </span>
-            <span className="max-w-[7rem] truncate font-semibold text-sky-300">
-              {k.victim}
-            </span>
-          </div>
+            killer={k.killer}
+            victim={k.victim}
+            weapon={k.weapon}
+          />
         ))}
       </div>
 
@@ -400,40 +372,8 @@ function GameHudImpl({
 
       {/* Bottom left vitals */}
       <div className="absolute bottom-5 left-4 flex items-end gap-3">
-        <div className="rounded-lg border border-white/10 bg-black/65 px-3 py-2 backdrop-blur-md">
-          <div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-white/40">
-            vida
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span
-              className={`text-3xl font-black tabular-nums ${
-                hud.hp <= 25
-                  ? "text-red-400"
-                  : hud.hp <= 50
-                    ? "text-amber-300"
-                    : "text-white"
-              }`}
-            >
-              {hud.hp}
-            </span>
-            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  hud.hp <= 25 ? "bg-red-500" : "bg-emerald-400"
-                }`}
-                style={{ width: `${hud.hp}%` }}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg border border-white/10 bg-black/65 px-3 py-2 backdrop-blur-md">
-          <div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-white/40">
-            colete
-          </div>
-          <span className="text-2xl font-bold tabular-nums text-sky-200/90">
-            {hud.armor}
-          </span>
-        </div>
+        <HealthBar hp={hud.hp} showLabel />
+        <ArmorDisplay armor={hud.armor} />
       </div>
 
       {/* Weapon bar center + plant/defuse progress + bomb prompt */}
@@ -482,17 +422,12 @@ function GameHudImpl({
         )}
         <div className="flex items-end gap-1">
           {hud.weapons.map((w) => (
-            <div
+            <WeaponSlot
               key={w.slot}
-              className={`min-w-[5.5rem] rounded-md border px-2.5 py-1.5 text-center transition-all ${
-                w.active
-                  ? "border-amber-400/80 bg-amber-500/25 text-amber-50 shadow-[0_0_20px_rgba(245,158,11,0.2)]"
-                  : "border-white/10 bg-black/55 text-white/50"
-              }`}
-            >
-              <div className="text-[9px] opacity-60">{w.slot}</div>
-              <div className="text-[10px] font-bold tracking-wide">{w.name}</div>
-            </div>
+              slot={w.slot}
+              name={w.name}
+              active={w.active}
+            />
           ))}
         </div>
       </div>
@@ -500,7 +435,8 @@ function GameHudImpl({
       {/* Bottom right economy + ammo */}
       <div className="absolute bottom-5 right-4 flex flex-col items-end gap-2">
         <div className="rounded-lg border border-emerald-500/30 bg-black/65 px-3 py-1.5 backdrop-blur-md">
-          <span className="text-lg font-black tabular-nums text-emerald-400">
+          <span className="flex items-center gap-1 text-lg font-black tabular-nums text-emerald-400">
+            <Coin size={16} />
             ${hud.money.toLocaleString("pt-BR")}
           </span>
           {hud.phase === "buy" && hud.nextLossBonus > 0 && (
@@ -512,28 +448,11 @@ function GameHudImpl({
             </div>
           )}
         </div>
-        <div
-          className={`rounded-lg border bg-black/65 px-3 py-2 backdrop-blur-md ${
-            hud.lowAmmo ? "border-red-500/50" : "border-white/10"
-          }`}
-        >
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-white/40">
-            munição
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span
-              className={`text-3xl font-black tabular-nums ${
-                hud.lowAmmo ? "text-red-400" : "text-white"
-              }`}
-            >
-              {hud.mag}
-            </span>
-            <span className="text-white/35">/</span>
-            <span className="text-lg tabular-nums text-white/65">
-              {hud.reserve}
-            </span>
-          </div>
-        </div>
+        <AmmoDisplay
+          mag={hud.mag}
+          reserve={hud.reserve}
+          lowAmmo={hud.lowAmmo}
+        />
       </div>
 
       {/* Subtle control strip */}
@@ -571,7 +490,8 @@ function GameHudImpl({
       {!hud.alive && !hud.paused && !hud.spectating && (
         <div className="absolute inset-0 flex items-center justify-center bg-red-950/25">
           <div className="rounded-xl border border-red-500/40 bg-black/75 px-10 py-6 text-center shadow-2xl backdrop-blur-md">
-            <div className="text-2xl font-black tracking-[0.2em] text-red-300">
+            <div className="flex items-center justify-center gap-2 text-2xl font-black tracking-[0.2em] text-red-300">
+              <Skull size={24} />
               VOCÊ MORREU
             </div>
             <div className="mt-2 text-sm text-white/55">
@@ -630,9 +550,10 @@ function GameHudImpl({
                         <span className="inline-flex items-center gap-1.5">
                           {isMvp && (
                             <span
-                              className="rounded bg-amber-400/20 px-1 py-px text-[9px] font-black tracking-wide text-amber-300"
+                              className="inline-flex items-center gap-0.5 rounded bg-amber-400/20 px-1 py-px text-[9px] font-black tracking-wide text-amber-300"
                               title="MVP"
                             >
+                              <Star size={10} />
                               MVP
                             </span>
                           )}

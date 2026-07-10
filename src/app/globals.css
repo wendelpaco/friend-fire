@@ -1,28 +1,52 @@
 @import "tailwindcss";
+@import "./design-tokens.css";
 
-:root {
-  --background: #0b0d12;
-  --foreground: #f5f5f5;
-
-  /* FF Tactical design tokens (session meta) */
-  --ff-void: #0a0c10;
-  --ff-panel: #10131a;
-  --ff-panel-2: #161b24;
-  --ff-amber: #f59e0b;
-  --ff-tr: #c45c26;
-  --ff-ct: #3a6ea5;
-  --ff-border: rgba(255, 255, 255, 0.1);
-  --ff-text: #f5f5f5;
-  --ff-muted: rgba(255, 255, 255, 0.45);
-}
+/* Limit Tailwind scan to source directories (skip docs/, server/, etc.) */
+@source "../../src/";
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* ---- Typography scale (game-optimised) ---- */
+  --text-ff-hero: 3.5rem;
+  --text-ff-hero--line-height: 1;
+  --text-ff-hero--font-weight: 900;
+  --text-ff-hero--letter-spacing: -0.02em;
+  --text-ff-display: 2.25rem;
+  --text-ff-display--line-height: 1.1;
+  --text-ff-display--font-weight: 800;
+  --text-ff-display--letter-spacing: -0.01em;
+  --text-ff-title: 1.5rem;
+  --text-ff-title--line-height: 1.2;
+  --text-ff-title--font-weight: 700;
+  --text-ff-label: 0.625rem;
+  --text-ff-label--line-height: 1;
+  --text-ff-label--font-weight: 600;
+  --text-ff-label--letter-spacing: 0.2em;
+  --text-ff-label--text-transform: uppercase;
+  --text-ff-mono-data: 1.125rem;
+  --text-ff-mono-data--font-family: var(--font-geist-mono);
+  --text-ff-mono-data--font-weight: 700;
+  --text-ff-mono-data--font-variant-numeric: tabular-nums;
+
+  /* ---- Animations ---- */
   --animate-kill-feed-in: kill-feed-in 280ms ease-out both;
+  --animate-ff-slide-up: ff-slide-up 200ms var(--ff-ease-out) both;
+  --animate-ff-scale-in: ff-scale-in 180ms var(--ff-ease-out) both;
+  --animate-ff-fade-in: ff-fade-in 200ms ease-out both;
+  --animate-ff-pulse-glow: ff-pulse-glow 2s ease-in-out infinite;
+  --animate-ff-shake: ff-shake 400ms ease-out both;
+  --animate-ff-flash-red: ff-flash-red 500ms ease-out both;
+  --animate-ff-flash-amber: ff-flash-amber 500ms ease-out both;
+  --animate-ff-blink-warn: ff-blink-warn 1s ease-in-out infinite;
 }
+
+/* ============================================================
+   KEYFRAMES
+   ============================================================ */
 
 @keyframes kill-feed-in {
   from {
@@ -33,6 +57,69 @@
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+@keyframes ff-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ff-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ff-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes ff-pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+  50%      { box-shadow: 0 0 16px 4px rgba(245, 158, 11, 0.15); }
+}
+
+@keyframes ff-shake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px); }
+  40%      { transform: translateX(4px); }
+  60%      { transform: translateX(-3px); }
+  80%      { transform: translateX(2px); }
+}
+
+@keyframes ff-flash-red {
+  0%   { background-color: rgba(239, 68, 68, 0); }
+  15%  { background-color: rgba(239, 68, 68, 0.25); }
+  100% { background-color: rgba(239, 68, 68, 0); }
+}
+
+@keyframes ff-flash-amber {
+  0%   { background-color: rgba(245, 158, 11, 0); }
+  25%  { background-color: rgba(245, 158, 11, 0.2); }
+  100% { background-color: rgba(245, 158, 11, 0); }
+}
+
+@keyframes ff-blink-warn {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.4; }
+  33%       { transform: translateY(-18px) translateX(6px); opacity: 0.8; }
+  66%       { transform: translateY(-8px) translateX(-4px); opacity: 0.5; }
 }
 
 html,
@@ -54,4 +141,20 @@ body {
 /* hide default focus ring only where game canvas steals input */
 canvas:focus {
   outline: none;
+}
+
+/* Scanline overlay — use on menu / cinematic screens */
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.025) 2px,
+    rgba(0, 0, 0, 0.025) 4px
+  );
+  z-index: 25;
 }

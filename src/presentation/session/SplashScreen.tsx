@@ -41,7 +41,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
   }, [dismiss]);
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-end overflow-hidden bg-[color:var(--ff-void)] text-white sm:justify-center">
+    <div className="relative flex min-h-screen flex-col items-center justify-end overflow-hidden bg-[color:var(--ff-void)] text-white scanlines sm:justify-center">
       {/* Cover art */}
       <div className="pointer-events-none absolute inset-0">
         {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -89,7 +89,7 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_20%,#3b1a08_0%,transparent_50%),radial-gradient(ellipse_at_15%_90%,#0a1628_0%,transparent_45%),linear-gradient(180deg,#12151c_0%,#0a0c10_100%)]" />
       </div>
 
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-10">
+      <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-4 py-8 motion-safe:animate-ff-fade-in sm:px-6 lg:px-10">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-[10px] font-semibold tracking-[0.35em] text-amber-500/80">
@@ -191,10 +191,10 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
                       key={s.id}
                       type="button"
                       onClick={() => setSkinId(s.id)}
-                      className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold transition ${
+                      className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold motion-safe:transition-all motion-safe:duration-150 ${
                         on
                           ? "border-amber-500/50 bg-amber-500/15 text-amber-100"
-                          : "border-white/10 bg-white/5 text-white/60 hover:border-white/20"
+                          : "border-white/10 bg-white/5 text-white/60 hover:border-white/20 hover:scale-[1.02]"
                       }`}
                     >
                       <span
@@ -235,10 +235,10 @@ function OperatorCard({
       role="option"
       aria-selected={selected}
       onClick={onSelect}
-      className={`flex overflow-hidden rounded-xl border text-left transition ${
+      className={`flex overflow-hidden rounded-xl border text-left motion-safe:transition-all motion-safe:duration-150 ${
         selected
           ? "border-amber-500/50 bg-amber-500/10 shadow-[0_0_0_1px_rgba(245,158,11,0.2)]"
-          : "border-white/10 bg-white/[0.03] hover:border-white/20"
+          : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:scale-[1.01]"
       }`}
     >
       <div

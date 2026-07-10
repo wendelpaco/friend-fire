@@ -20,11 +20,11 @@ const shellClass = (
   interactive: boolean,
   className: string,
 ) =>
-  `group flex flex-col overflow-hidden rounded-lg border-2 text-left transition ${
+  `group flex flex-col overflow-hidden rounded-lg border-2 text-left motion-safe:transition-all motion-safe:duration-150 ${
     afford
-      ? "border-white/15 bg-[color:var(--ff-panel-2)] hover:border-amber-400 hover:bg-[#1c2430]"
+      ? "border-white/15 bg-[color:var(--ff-panel-2)] hover:border-amber-400 hover:bg-[#1c2430] hover:scale-[1.02]"
       : "cursor-not-allowed border-white/5 bg-[color:var(--ff-void)] opacity-45"
-  } ${interactive && afford ? "cursor-pointer" : ""} ${className}`;
+  } ${interactive && afford ? "cursor-pointer active:scale-[0.98]" : ""} ${className}`;
 
 /** FF Tactical shop tile — used by ShopShowcase + BuyMenu. */
 export function WeaponCard({

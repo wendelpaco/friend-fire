@@ -21,7 +21,7 @@ export function PriceTag({
 }: PriceTagProps) {
   return (
     <span
-      className={`font-mono font-black tabular-nums tracking-tight ${SIZE[size]} ${
+      className={`font-mono font-black tabular-nums tracking-tight motion-safe:transition-all motion-safe:duration-200 ${SIZE[size]} ${
         afford ? "text-emerald-400" : "text-red-400"
       } ${className}`}
     >
