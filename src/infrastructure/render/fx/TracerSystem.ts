@@ -1,7 +1,8 @@
 import * as THREE from "three";
 
 const MAX_TRACERS = 16;
-const LIFE = 0.08;
+/** Short tracer life — readable peek flash (gunfeel E, ~2–3u travel feel). */
+const LIFE = 0.07;
 
 interface Slot {
   line: THREE.Line;

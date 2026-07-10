@@ -62,7 +62,7 @@ export class Input {
       this.justPressed.add(e.code);
     }
     this.keys.add(e.code);
-    // Prevent browser chrome: Space scrolls, Ctrl+click menus, arrows scroll, Tab focus.
+    // Prevent browser chrome: Space scrolls, arrows scroll, Tab focus.
     if (
       [
         "Space",
@@ -71,29 +71,11 @@ export class Input {
         "ArrowLeft",
         "ArrowRight",
         "Tab",
-        "ControlLeft",
-        "ControlRight",
       ].includes(e.code)
     ) {
       e.preventDefault();
     }
   };
-
-  /**
-   * Crouch is a toggle: rising edge on either Control key.
-   * Use for client prediction (`applyPlayerMotor`).
-   */
-  wasCrouchPressed() {
-    return this.wasPressed("ControlLeft") || this.wasPressed("ControlRight");
-  }
-
-  /**
-   * Control currently held (either key).
-   * Multiplayer wire bit only — server rising-edge detects toggle; not "hold to crouch".
-   */
-  isCrouchDown() {
-    return this.isDown("ControlLeft") || this.isDown("ControlRight");
-  }
 
   /** Jump edge (Space). */
   wasJumpPressed() {

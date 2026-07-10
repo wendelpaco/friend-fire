@@ -20,8 +20,6 @@ export type AnimatorInput = {
   weights?: LocomotionWeights;
   /** Upper-body Y twist toward aim (radians). */
   torsoTwist?: number;
-  /** Hold crouch (CTRL) — lowers hips / bends legs. */
-  crouching?: boolean;
   /** Airborne (jump) — tuck pose, less walk amp. */
   airborne?: boolean;
   /** True while mag reload timer active — mag-swap arm pose. */
@@ -42,6 +40,8 @@ const RUN_BOB = 0.035;
 const RECOIL_MS = 0.1;
 const RECOIL_ARM = 0.55;
 const RECOIL_TORSO = 0.12;
+/** Subtle lean into aim on shoot (peek legibility, gunfeel E). */
+const RECOIL_LEAN = 0.06;
 
 const ZERO_WEIGHTS: LocomotionWeights = {
   idle: 1,
@@ -112,7 +112,7 @@ export class CharacterAnimator {
 
     // Foot plant when sin crosses zero while walking on ground (sync SFX).
     this.pendingFoot = null;
-    if (moving > 0.2 && !airborne && !input.crouching) {
+    if (moving > 0.2 && !airborne) {
       if (this.lastSin >= 0 && s < 0) this.pendingFoot = "left";
       else if (this.lastSin < 0 && s >= 0) this.pendingFoot = "right";
     }
@@ -204,26 +204,11 @@ export class CharacterAnimator {
       armRZ += 0.2 * k;
     }
 
-    // ── Crouch overlay (hold CTRL) ─────────────────────────────
-    // Lower hips, fold legs, slight torso tuck — works with walk blend.
-    if (input.crouching) {
-      hipsY -= 0.28;
-      torsoX += 0.22;
-      legLX += 0.85;
-      legRX += 0.85;
-      armLX += 0.15;
-      armRX += 0.2;
-      headX += 0.12;
-      // damp walk amp visually while crouched
-      legLZ *= 0.55;
-      legRZ *= 0.55;
-    }
-
     // ── Jump / airborne overlay ─────────────────────────────────
     if (input.airborne) {
       hipsY += 0.06;
       torsoX -= 0.12;
-      // tuck legs slightly (doesn't fight crouch badly)
+      // tuck legs slightly
       legLX = legLX * 0.4 + 0.55;
       legRX = legRX * 0.4 + 0.55;
       armLX -= 0.25;
@@ -255,12 +240,14 @@ export class CharacterAnimator {
     head.rotation.y = 0;
     head.rotation.z = 0;
 
-    // shoot recoil overlay — kick arm/torso opposite aim
+    // shoot recoil overlay — kick arm/torso opposite aim + subtle lean into aim
     if (this.recoilT > 0 && !knife) {
       const k = this.recoilT / RECOIL_MS;
       const kick = Math.sin(k * Math.PI);
       armR.rotation.x -= RECOIL_ARM * kick;
       torso.rotation.x -= RECOIL_TORSO * kick;
+      const twist = input.torsoTwist ?? 0;
+      torso.rotation.z += Math.sign(twist || 1) * RECOIL_LEAN * kick;
     } else if (this.recoilT > 0 && knife) {
       const k = this.recoilT / RECOIL_MS;
       const kick = Math.sin(k * Math.PI);

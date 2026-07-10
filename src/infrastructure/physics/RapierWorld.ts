@@ -7,14 +7,13 @@
  * - Grounded flag from controller + optional down-ray
  *
  * Y-up, same as Three.js. Horizontal plane is XZ.
+ * Crouch removed (F4) — single standing capsule.
  */
 
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { GameMap, WallRect } from "@/domains/world";
 import {
   AIR_CONTROL,
-  CROUCH_RADIUS,
-  CROUCH_SPEED_MULT,
   DEFAULT_STAND_SPEED,
   GRAVITY,
   JUMP_SPEED,
@@ -27,7 +26,6 @@ export type PhysicsPose = {
   y: number;
   z: number;
   vy: number;
-  crouching: boolean;
   onGround: boolean;
 };
 
@@ -36,7 +34,6 @@ export type PhysicsStepInput = {
   wishZ: number;
   /** Edge jump this frame. */
   jump: boolean;
-  crouching: boolean;
   dt: number;
   standSpeed?: number;
 };
@@ -45,16 +42,12 @@ type BodyHandle = {
   body: RAPIER.RigidBody;
   collider: RAPIER.Collider;
   controller: RAPIER.KinematicCharacterController;
-  crouching: boolean;
   vy: number;
   standHalfH: number;
-  crouchHalfH: number;
 };
 
 const STAND_HALF_H = 0.9;
-const CROUCH_HALF_H = 0.55;
-const CAPSULE_RADIUS_STAND = STAND_RADIUS;
-const CAPSULE_RADIUS_CROUCH = CROUCH_RADIUS;
+const CAPSULE_RADIUS = STAND_RADIUS;
 
 let rapierInit: Promise<void> | null = null;
 
@@ -147,7 +140,7 @@ export class RapierWorld {
     if (this.disposed) return;
     let h = this.bodies.get(id);
     if (h) {
-      const half = h.crouching ? h.crouchHalfH : h.standHalfH;
+      const half = h.standHalfH;
       h.body.setNextKinematicTranslation({
         x,
         y: y + half,
@@ -165,9 +158,9 @@ export class RapierWorld {
       ),
     );
     // capsule(halfHeight of cylinder, radius) — total height ≈ 2*(half+rad)
-    const cylHalf = Math.max(0.2, half - CAPSULE_RADIUS_STAND);
+    const cylHalf = Math.max(0.2, half - CAPSULE_RADIUS);
     const collider = this.world.createCollider(
-      RAPIER.ColliderDesc.capsule(cylHalf, CAPSULE_RADIUS_STAND).setFriction(0.8),
+      RAPIER.ColliderDesc.capsule(cylHalf, CAPSULE_RADIUS).setFriction(0.8),
       body,
     );
     const controller = this.world.createCharacterController(0.08);
@@ -182,10 +175,8 @@ export class RapierWorld {
       body,
       collider,
       controller,
-      crouching: false,
       vy: 0,
       standHalfH: STAND_HALF_H,
-      crouchHalfH: CROUCH_HALF_H,
     });
   }
 
@@ -198,30 +189,8 @@ export class RapierWorld {
     this.bodies.delete(id);
   }
 
-  private setCrouchShape(h: BodyHandle, crouching: boolean): void {
-    if (h.crouching === crouching) return;
-    const t = h.body.translation();
-    const oldHalf = h.crouching ? h.crouchHalfH : h.standHalfH;
-    const feetY = t.y - oldHalf;
-    h.crouching = crouching;
-    const half = crouching ? h.crouchHalfH : h.standHalfH;
-    const rad = crouching ? CAPSULE_RADIUS_CROUCH : CAPSULE_RADIUS_STAND;
-    this.world.removeCollider(h.collider, true);
-    h.collider = this.world.createCollider(
-      RAPIER.ColliderDesc.capsule(Math.max(0.15, half - rad), rad).setFriction(
-        0.8,
-      ),
-      h.body,
-    );
-    h.body.setNextKinematicTranslation({
-      x: t.x,
-      y: feetY + half,
-      z: t.z,
-    });
-  }
-
   /**
-   * Step one character: wish dir, jump edge, crouch state.
+   * Step one character: wish dir, jump edge.
    * Returns world feet pose (y = bottom of capsule ≈ ground contact).
    */
   stepCharacter(id: string, input: PhysicsStepInput): PhysicsPose | null {
@@ -234,12 +203,9 @@ export class RapierWorld {
       return this.readPose(id);
     }
 
-    this.setCrouchShape(h, input.crouching);
-
-    const half = h.crouching ? h.crouchHalfH : h.standHalfH;
+    const half = h.standHalfH;
     const standSpeed = input.standSpeed ?? DEFAULT_STAND_SPEED;
     let speed = standSpeed;
-    if (h.crouching) speed *= CROUCH_SPEED_MULT;
 
     // Grounded from previous frame controller result + low feet
     let onGround = h.controller.computedGrounded();
@@ -324,7 +290,6 @@ export class RapierWorld {
       y: feetY,
       z: next.z,
       vy: h.vy,
-      crouching: h.crouching,
       onGround: onG,
     };
   }
@@ -333,14 +298,13 @@ export class RapierWorld {
     const h = this.bodies.get(id);
     if (!h) return null;
     const t = h.body.translation();
-    const half = h.crouching ? h.crouchHalfH : h.standHalfH;
+    const half = h.standHalfH;
     const feetY = Math.max(0, t.y - half);
     return {
       x: t.x,
       y: feetY,
       z: t.z,
       vy: h.vy,
-      crouching: h.crouching,
       onGround: h.controller.computedGrounded() || feetY <= 0.08,
     };
   }

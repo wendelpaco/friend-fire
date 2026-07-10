@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  CROUCH_SPEED_MULT,
   GROUND_Y,
   JUMP_SPEED,
+  STAND_RADIUS,
   createMotorState,
   motorRadius,
   motorSpeed,
@@ -12,14 +12,13 @@ import type { WallRect } from "./types";
 
 const emptyWalls: WallRect[] = [];
 
-describe("motor jump / crouch / ground", () => {
+describe("motor jump / ground", () => {
   it("stays grounded when idle", () => {
     const s = createMotorState(0, 0);
     const next = tickMotor(s, {
       wishX: 0,
       wishZ: 0,
       jump: false,
-      crouch: false,
       dt: 1 / 60,
       walls: emptyWalls,
     });
@@ -34,7 +33,6 @@ describe("motor jump / crouch / ground", () => {
       wishX: 0,
       wishZ: 0,
       jump: true,
-      crouch: false,
       dt: 1 / 60,
       walls: emptyWalls,
     });
@@ -47,7 +45,6 @@ describe("motor jump / crouch / ground", () => {
       wishX: 0,
       wishZ: 0,
       jump: true,
-      crouch: false,
       dt: 1 / 60,
       walls: emptyWalls,
     });
@@ -60,7 +57,6 @@ describe("motor jump / crouch / ground", () => {
       wishX: 0,
       wishZ: 0,
       jump: true,
-      crouch: false,
       dt: 1 / 60,
       walls: emptyWalls,
     });
@@ -70,7 +66,6 @@ describe("motor jump / crouch / ground", () => {
         wishX: 0,
         wishZ: 0,
         jump: false,
-        crouch: false,
         dt: 1 / 60,
         walls: emptyWalls,
       });
@@ -81,42 +76,21 @@ describe("motor jump / crouch / ground", () => {
     expect(s.y).toBeGreaterThanOrEqual(GROUND_Y);
   });
 
-  it("crouch slows movement and shrinks radius", () => {
-    expect(motorRadius(true)).toBeLessThan(motorRadius(false));
-    expect(motorSpeed(true, true, 10)).toBeCloseTo(10 * CROUCH_SPEED_MULT);
+  it("uses standing radius and full stand speed on ground", () => {
+    expect(motorRadius()).toBe(STAND_RADIUS);
+    expect(motorSpeed(true, 10)).toBe(10);
+    expect(motorSpeed(false, 10)).toBeCloseTo(10 * 0.9);
 
     let s = createMotorState(0, 0);
     const stand = tickMotor(s, {
       wishX: 1,
       wishZ: 0,
       jump: false,
-      crouch: false,
       dt: 1,
       standSpeed: 10,
       walls: emptyWalls,
     });
-    s = createMotorState(0, 0);
-    const crouch = tickMotor(s, {
-      wishX: 1,
-      wishZ: 0,
-      jump: false,
-      crouch: true,
-      dt: 1,
-      standSpeed: 10,
-      walls: emptyWalls,
-    });
-    expect(Math.abs(crouch.x)).toBeLessThan(Math.abs(stand.x));
-    expect(crouch.crouching).toBe(true);
-  });
-
-  it("motor crouch input is state (not edge): true stays crouched", () => {
-    let s = createMotorState(0, 0);
-    s = tickMotor(s, { wishX: 0, wishZ: 0, jump: false, crouch: true, dt: 1/60, walls: emptyWalls });
-    expect(s.crouching).toBe(true);
-    s = tickMotor(s, { wishX: 0, wishZ: 0, jump: false, crouch: true, dt: 1/60, walls: emptyWalls });
-    expect(s.crouching).toBe(true);
-    s = tickMotor(s, { wishX: 0, wishZ: 0, jump: false, crouch: false, dt: 1/60, walls: emptyWalls });
-    expect(s.crouching).toBe(false);
+    expect(stand.x).toBeCloseTo(10);
   });
 
   it("does not pass through walls while moving", () => {
@@ -127,7 +101,6 @@ describe("motor jump / crouch / ground", () => {
         wishX: 1,
         wishZ: 0,
         jump: false,
-        crouch: false,
         dt: 1 / 30,
         standSpeed: 10,
         walls: [wall],
@@ -143,7 +116,6 @@ describe("motor jump / crouch / ground", () => {
       wishX: 0,
       wishZ: 0,
       jump: true,
-      crouch: false,
       dt: 1 / 60,
       walls: emptyWalls,
     });
@@ -152,7 +124,6 @@ describe("motor jump / crouch / ground", () => {
         wishX: 1,
         wishZ: 0,
         jump: false,
-        crouch: false,
         dt: 1 / 60,
         walls: emptyWalls,
       });
@@ -178,7 +149,6 @@ describe("motor jump / crouch / ground", () => {
         wishX: 0,
         wishZ: 0,
         jump: false,
-        crouch: false,
         dt: 1 / 60,
         walls: [crate],
       });

@@ -1,6 +1,7 @@
 /**
- * Player motor — CS-like jump / crouch / platforms (server authority).
+ * Player motor — CS-like jump / platforms (server authority).
  * Keep in sync with src/domains/world/motor.ts
+ * Crouch removed (F4 / Sprint 1 gunfeel pack).
  */
 
 import type { WallRect } from "./world";
@@ -14,10 +15,8 @@ export const GRAVITY = -28;
 export const JUMP_SPEED = 9.5;
 export const GROUND_Y = 0;
 export const GROUND_EPS = 0.05;
-export const CROUCH_SPEED_MULT = 0.34;
 export const AIR_CONTROL = 0.9;
 export const STAND_RADIUS = 0.45;
-export const CROUCH_RADIUS = 0.38;
 export const DEFAULT_STAND_SPEED = 6.5;
 
 export type MotorState = {
@@ -25,7 +24,6 @@ export type MotorState = {
   z: number;
   y: number;
   vy: number;
-  crouching: boolean;
   onGround: boolean;
 };
 
@@ -33,23 +31,20 @@ export type MotorInput = {
   wishX: number;
   wishZ: number;
   jump: boolean;
-  crouch: boolean;
   dt: number;
   standSpeed?: number;
   walls: WallRect[];
 };
 
-export function motorRadius(crouching: boolean): number {
-  return crouching ? CROUCH_RADIUS : STAND_RADIUS;
+export function motorRadius(): number {
+  return STAND_RADIUS;
 }
 
 export function motorSpeed(
-  crouching: boolean,
   onGround: boolean,
   standSpeed: number = DEFAULT_STAND_SPEED,
 ): number {
   let s = standSpeed;
-  if (crouching) s *= CROUCH_SPEED_MULT;
   if (!onGround) s *= AIR_CONTROL;
   return s;
 }
@@ -60,7 +55,6 @@ export function createMotorState(x = 0, z = 0): MotorState {
     z,
     y: GROUND_Y,
     vy: 0,
-    crouching: false,
     onGround: true,
   };
 }
@@ -69,10 +63,9 @@ export function tickMotor(state: MotorState, input: MotorInput): MotorState {
   const dt = input.dt > 0 && Number.isFinite(input.dt) ? input.dt : 0;
   if (dt <= 0) return state;
 
-  const crouching = Boolean(input.crouch);
   const standSpeed = input.standSpeed ?? DEFAULT_STAND_SPEED;
-  const radius = motorRadius(crouching);
-  const speed = motorSpeed(crouching, state.onGround, standSpeed);
+  const radius = motorRadius();
+  const speed = motorSpeed(state.onGround, standSpeed);
 
   let wx = input.wishX;
   let wz = input.wishZ;
@@ -133,5 +126,5 @@ export function tickMotor(state: MotorState, input: MotorInput): MotorState {
     }
   }
 
-  return { x, z, y, vy, crouching, onGround };
+  return { x, z, y, vy, onGround };
 }

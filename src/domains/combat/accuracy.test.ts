@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   AIR_INACCURACY,
   applySpreadToYaw,
-  CROUCH_INACCURACY,
+  effectiveRecoveryMs,
   knobsForWeapon,
   movementFactor,
   nextShotsInBurst,
   shotSpreadRadians,
+  spreadWorldRadius,
+  STOP_SHOOT_RECOVERY_MS,
   STOP_SPEED_FRACTION,
 } from "./accuracy";
 import { applyDamage } from "./damage";
@@ -20,7 +22,6 @@ function akBase(partial: Partial<Parameters<typeof shotSpreadRadians>[0]> = {}) 
     speed: 0,
     standSpeed,
     airborne: false,
-    crouching: false,
     shotsInBurst: 0,
     msSinceLastShot: 10_000,
     ...partial,
@@ -58,19 +59,6 @@ describe("shotSpreadRadians", () => {
     expect(air).toBeGreaterThan(ground);
   });
 
-  it("crouch σ < stand at same (stopped) speed", () => {
-    const stand = akBase({ crouching: false, speed: 0 });
-    const crouch = akBase({ crouching: true, speed: 0 });
-    expect(crouch).toBeCloseTo(stand * CROUCH_INACCURACY);
-    expect(crouch).toBeLessThan(stand);
-  });
-
-  it("crouch does not stack while airborne", () => {
-    const airStand = akBase({ airborne: true, crouching: false });
-    const airCrouch = akBase({ airborne: true, crouching: true });
-    expect(airCrouch).toBeCloseTo(airStand);
-  });
-
   it("first shot < burst shot N", () => {
     const first = akBase({ shotsInBurst: 0, msSinceLastShot: 10_000 });
     const burst5 = akBase({ shotsInBurst: 5, msSinceLastShot: 50 });
@@ -87,6 +75,40 @@ describe("shotSpreadRadians", () => {
     const trueFirst = akBase({ shotsInBurst: 0, msSinceLastShot: 10_000 });
     expect(recovered).toBeCloseTo(trueFirst);
     expect(recovered).toBeLessThan(spray);
+  });
+
+  it("stop-shoot recovers first-shot in ~100ms while stopped", () => {
+    const knobs = knobsForWeapon("ak47");
+    expect(knobs.recoveryMs).toBeGreaterThan(STOP_SHOOT_RECOVERY_MS);
+    const spray = akBase({
+      speed: 0,
+      shotsInBurst: 6,
+      msSinceLastShot: 40,
+    });
+    const stopShoot = akBase({
+      speed: 0,
+      shotsInBurst: 6,
+      msSinceLastShot: STOP_SHOOT_RECOVERY_MS,
+    });
+    const stillMoving = akBase({
+      speed: standSpeed,
+      shotsInBurst: 6,
+      msSinceLastShot: STOP_SHOOT_RECOVERY_MS,
+    });
+    const trueFirst = akBase({ shotsInBurst: 0, msSinceLastShot: 10_000 });
+    expect(stopShoot).toBeCloseTo(trueFirst);
+    expect(stopShoot).toBeLessThan(spray);
+    expect(stillMoving).toBeGreaterThan(stopShoot);
+  });
+
+  it("effectiveRecoveryMs is shorter when stopped", () => {
+    const knobs = knobsForWeapon("ak47");
+    expect(effectiveRecoveryMs(knobs, 0, standSpeed)).toBe(
+      STOP_SHOOT_RECOVERY_MS,
+    );
+    expect(effectiveRecoveryMs(knobs, standSpeed, standSpeed)).toBe(
+      knobs.recoveryMs,
+    );
   });
 
   it("AWP move scale hurts more than AK when running", () => {
@@ -106,11 +128,23 @@ describe("shotSpreadRadians", () => {
         speed: standSpeed,
         standSpeed,
         airborne: true,
-        crouching: false,
         shotsInBurst: 3,
         msSinceLastShot: 0,
       }),
     ).toBe(0);
+  });
+});
+
+describe("spreadWorldRadius", () => {
+  it("is distance · tan(spread)", () => {
+    const r = 0.1;
+    const d = 10;
+    expect(spreadWorldRadius(r, d)).toBeCloseTo(Math.tan(r) * d);
+  });
+
+  it("is 0 for zero spread or distance", () => {
+    expect(spreadWorldRadius(0, 10)).toBe(0);
+    expect(spreadWorldRadius(0.1, 0)).toBe(0);
   });
 });
 

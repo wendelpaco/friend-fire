@@ -2,6 +2,8 @@ type KillFeedItemProps = {
   killer: string;
   victim: string;
   weapon: string;
+  /** Amber border when local player is the killer (kill confirm). */
+  localKiller?: boolean;
   className?: string;
 };
 
@@ -13,11 +15,15 @@ export function KillFeedItem({
   killer,
   victim,
   weapon,
+  localKiller = false,
   className = "",
 }: KillFeedItemProps) {
+  const border = localKiller
+    ? "border-amber-400/80 shadow-amber-500/20 ring-1 ring-amber-400/40"
+    : "border-white/12";
   return (
     <div
-      className={`motion-safe:animate-kill-feed-in flex items-center gap-2 rounded-md border border-white/12 bg-black/70 px-2.5 py-1.5 text-[11px] shadow-lg shadow-black/40 backdrop-blur-md ${className}`}
+      className={`motion-safe:animate-kill-feed-in flex items-center gap-2 rounded-md border bg-black/70 px-2.5 py-1.5 text-[11px] shadow-lg shadow-black/40 backdrop-blur-md ${border} ${className}`}
     >
       <span className="max-w-[7rem] truncate font-semibold text-[var(--ff-killer)]">
         {killer}

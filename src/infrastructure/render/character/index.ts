@@ -59,7 +59,6 @@ export type CharacterHandle = {
       moveZ: number;
       aimYaw: number;
       rootY?: number;
-      crouching?: boolean;
       airborne?: boolean;
       reloading?: boolean;
       shooting?: boolean;
@@ -141,7 +140,6 @@ export function createCharacter(
         speed: state.speed,
         weights: state.weights,
         torsoTwist: state.torsoTwist,
-        crouching: input.crouching,
         airborne: input.airborne,
         reloading: input.reloading,
         shooting: input.shooting,

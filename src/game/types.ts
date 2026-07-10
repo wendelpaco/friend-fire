@@ -25,12 +25,10 @@ export interface PlayerState {
   isBot: boolean;
   x: number;
   z: number;
-  /** Vertical position (0 = floor). Jump/crouch motor. */
+  /** Vertical position (0 = floor). Jump motor. */
   y: number;
   /** Vertical velocity. */
   vy: number;
-  /** Toggle crouch (Control edge). Desired posture state. */
-  crouching: boolean;
   /** True when feet on floor (can jump). */
   onGround: boolean;
   rot: number;
@@ -85,6 +83,8 @@ export interface KillFeedEntry {
   victim: string;
   weapon: string;
   at: number;
+  /** True when local player is the killer (amber highlight). */
+  localKiller?: boolean;
 }
 
 /** Chat delivery channel (Meta-3 death social / squad). */

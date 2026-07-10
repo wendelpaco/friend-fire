@@ -23,14 +23,16 @@ export const HIT_RANGE = 42;
 export const HIT_RADIUS = 0.55;
 
 export const BULLET_HEIGHT_STAND = 1.35;
-export const BULLET_HEIGHT_CROUCH = 0.72;
+/** Low ray for cover geometry tests — players always shoot standing (F4). */
+export const BULLET_HEIGHT_LOW = 0.72;
 export const MIN_BULLET_BLOCK_H = 0.4;
 /** Standing peeks over walls at or below this height. */
 export const LOW_COVER_MAX_H = 1.65;
 export const SURFACE_EPS = 0.08;
 
-export function bulletHeight(crouching: boolean): number {
-  return crouching ? BULLET_HEIGHT_CROUCH : BULLET_HEIGHT_STAND;
+/** Player hitscan ray height (standing only — crouch removed F4). */
+export function bulletHeight(): number {
+  return BULLET_HEIGHT_STAND;
 }
 
 export function wallHeight(w: WallRect): number {

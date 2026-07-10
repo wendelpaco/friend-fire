@@ -1,18 +1,19 @@
 /**
  * Server mirror of domains/combat/accuracy.ts — keep formulas in sync.
  * Pure; used by GameRoom hitscan for movement/bloom aim error.
+ * Crouch mult removed (F4 / Sprint 1 gunfeel pack).
  */
 
 export const STOP_SPEED_FRACTION = 0.12;
 export const AIR_INACCURACY = 3.0;
-export const CROUCH_INACCURACY = 0.75;
+/** Stop-shoot recovery window when fully stopped (ms). */
+export const STOP_SHOOT_RECOVERY_MS = 100;
 export const DEFAULT_MAX_BLOOM_SHOTS = 10;
 
 export type AccuracyInput = {
   speed: number;
   standSpeed: number;
   airborne: boolean;
-  crouching: boolean;
   shotsInBurst: number;
   msSinceLastShot: number;
 };
@@ -67,13 +68,30 @@ export function movementFactor(speed: number, standSpeed: number): number {
   return Math.min(1, speed / standSpeed);
 }
 
+export function effectiveRecoveryMs(
+  knobs: AccuracyKnobs,
+  speed: number,
+  standSpeed: number,
+): number {
+  const m = movementFactor(speed, standSpeed);
+  if (m <= 0) {
+    return Math.min(knobs.recoveryMs, STOP_SHOOT_RECOVERY_MS);
+  }
+  return knobs.recoveryMs;
+}
+
 export function shotSpreadRadians(
   input: AccuracyInput,
   knobs: AccuracyKnobs,
 ): number {
   if (knobs.spread <= 0 && knobs.firstShotSpread <= 0) return 0;
 
-  const recovered = input.msSinceLastShot >= knobs.recoveryMs;
+  const recoveryMs = effectiveRecoveryMs(
+    knobs,
+    input.speed,
+    input.standSpeed,
+  );
+  const recovered = input.msSinceLastShot >= recoveryMs;
   const burst = recovered ? 0 : Math.max(0, input.shotsInBurst);
 
   const sigmaShot =
@@ -84,15 +102,8 @@ export function shotSpreadRadians(
 
   const m = movementFactor(input.speed, input.standSpeed);
   const mAir = input.airborne ? AIR_INACCURACY : 1;
-  const mCrouch =
-    input.crouching && !input.airborne ? CROUCH_INACCURACY : 1;
 
-  return (
-    sigmaShot *
-    (1 + knobs.moveInaccuracyScale * m) *
-    mAir *
-    mCrouch
-  );
+  return sigmaShot * (1 + knobs.moveInaccuracyScale * m) * mAir;
 }
 
 export function applySpreadToYaw(

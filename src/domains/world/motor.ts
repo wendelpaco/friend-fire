@@ -1,5 +1,5 @@
 /**
- * Player motor — CS-like jump / crouch / platforms on top-down XZ maps.
+ * Player motor — CS-like jump / platforms on top-down XZ maps.
  *
  * Pure functions (no Three.js). Horizontal collision via
  * {@link resolveCircleWalls}; vertical ground via {@link sampleGroundY}
@@ -7,6 +7,8 @@
  *
  * Orientation note: yaw must use **only** horizontal velocity (moveX, moveZ).
  * Never mix `y` into facing math or the moonwalk bug returns.
+ *
+ * Crouch removed (F4 / Sprint 1 gunfeel pack) — single standing radius.
  */
 
 import type { Vec2, WallRect } from "./types";
@@ -24,12 +26,9 @@ export const JUMP_SPEED = 9.5;
 export const GROUND_Y = 0;
 /** Snap / grounded tolerance. */
 export const GROUND_EPS = 0.05;
-/** CS crouch walk ≈ 1/3 stand speed. */
-export const CROUCH_SPEED_MULT = 0.34;
 /** Slight air steer (still controllable mid-jump). */
 export const AIR_CONTROL = 0.9;
 export const STAND_RADIUS = 0.45;
-export const CROUCH_RADIUS = 0.38;
 /** Stand run speed (matches game PLAYER_SPEED). */
 export const DEFAULT_STAND_SPEED = 6.5;
 
@@ -40,7 +39,6 @@ export type MotorState = {
   y: number;
   /** Vertical velocity. */
   vy: number;
-  crouching: boolean;
   onGround: boolean;
 };
 
@@ -50,31 +48,25 @@ export type MotorInput = {
   wishZ: number;
   /** Edge: jump this frame. */
   jump: boolean;
-  /** Desired crouch state this frame (toggle applied by caller). */
-  crouch: boolean;
   dt: number;
   /** Stand speed m/s. */
   standSpeed?: number;
   walls: WallRect[];
 };
 
-/**
- * Collision radius for current posture.
- */
-export function motorRadius(crouching: boolean): number {
-  return crouching ? CROUCH_RADIUS : STAND_RADIUS;
+/** Collision radius (standing only). */
+export function motorRadius(): number {
+  return STAND_RADIUS;
 }
 
 /**
- * Horizontal speed cap for posture / air.
+ * Horizontal speed cap for ground / air.
  */
 export function motorSpeed(
-  crouching: boolean,
   onGround: boolean,
   standSpeed: number = DEFAULT_STAND_SPEED,
 ): number {
   let s = standSpeed;
-  if (crouching) s *= CROUCH_SPEED_MULT;
   if (!onGround) s *= AIR_CONTROL;
   return s;
 }
@@ -88,23 +80,21 @@ export function createMotorState(x = 0, z = 0): MotorState {
     z,
     y: GROUND_Y,
     vy: 0,
-    crouching: false,
     onGround: true,
   };
 }
 
 /**
- * One simulation step: crouch → wish move + walls (feet-aware) → jump →
+ * One simulation step: wish move + walls (feet-aware) → jump →
  * gravity → snap to floor or standable prop tops.
  */
 export function tickMotor(state: MotorState, input: MotorInput): MotorState {
   const dt = input.dt > 0 && Number.isFinite(input.dt) ? input.dt : 0;
   if (dt <= 0) return state;
 
-  const crouching = Boolean(input.crouch);
   const standSpeed = input.standSpeed ?? DEFAULT_STAND_SPEED;
-  const radius = motorRadius(crouching);
-  const speed = motorSpeed(crouching, state.onGround, standSpeed);
+  const radius = motorRadius();
+  const speed = motorSpeed(state.onGround, standSpeed);
 
   let wx = input.wishX;
   let wz = input.wishZ;
@@ -177,5 +167,5 @@ export function tickMotor(state: MotorState, input: MotorInput): MotorState {
     }
   }
 
-  return { x, z, y, vy, crouching, onGround };
+  return { x, z, y, vy, onGround };
 }

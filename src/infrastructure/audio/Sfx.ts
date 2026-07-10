@@ -3,7 +3,15 @@
  * Volume 0–1 from localStorage ff_volume (0–100).
  */
 
-type SfxName = "shoot" | "reload" | "buy" | "ui" | "foot" | "hit" | "deny";
+type SfxName =
+  | "shoot"
+  | "reload"
+  | "buy"
+  | "ui"
+  | "foot"
+  | "hit"
+  | "kill"
+  | "deny";
 
 let ctx: AudioContext | null = null;
 
@@ -113,6 +121,12 @@ export const Sfx = {
       case "hit":
         beep(90, 0.05, "square", 0.1);
         noiseBurst(0.04, 0.2);
+        break;
+      case "kill":
+        // Dry kill confirm — short high tick + soft body thud
+        beep(880, 0.04, "square", 0.14, 620);
+        noiseBurst(0.035, 0.12);
+        setTimeout(() => beep(220, 0.06, "triangle", 0.08, 120), 30);
         break;
       case "foot":
         beep(80 + Math.random() * 20, 0.03, "triangle", 0.04);

@@ -13,9 +13,11 @@ import {
   HE_FUSE,
   HE_GRAVITY,
   isDead,
+  effectiveRecoveryMs,
   knobsForWeapon,
   nextShotsInBurst,
   shotSpreadRadians,
+  spreadWorldRadius,
   throwGrenade,
   tryBuy,
   WEAPON_DROP_PICKUP_RADIUS,
@@ -320,7 +322,6 @@ function createNetworkPlayerShell(
     z: 0,
     y: 0,
     vy: 0,
-    crouching: false,
     onGround: true,
     rot: 0,
     hp: 100,
@@ -421,7 +422,6 @@ export class GameClient {
     x: number;
     z: number;
     y: number;
-    crouching: boolean;
     onGround: boolean;
     reloading: boolean;
     rot: number;
@@ -1028,7 +1028,6 @@ export class GameClient {
       z: number;
       y?: number;
       vy?: number;
-      crouching?: boolean;
       onGround?: boolean;
       rot: number;
       hp: number;
@@ -1205,18 +1204,56 @@ export class GameClient {
       const prevAlive = p.alive;
       const prevHp = p.hp;
 
-      // Floating damage numbers when enemy HP drops soon after local shot
-      if (
-        !isNew &&
-        np.hp < prevHp &&
-        !isLocal &&
-        localP &&
-        p.team !== localTeam &&
-        performance.now() - localP.lastShotAt < 250
-      ) {
-        const dealt = Math.round(prevHp - np.hp);
-        if (dealt > 0) {
-          this.three.spawnDamageNumber(np.x, 1.4, np.z, `-${dealt}`);
+      // Network hit feedback (gunfeel B)
+      if (!isNew && np.hp < prevHp) {
+        if (
+          !isLocal &&
+          localP &&
+          p.team !== localTeam &&
+          performance.now() - localP.lastShotAt < 250
+        ) {
+          // Local scored a hit — flash enemy; skip damage numbers in live
+          this.three.flashHit(np.id);
+          this.state.hitMarkerUntil = performance.now() + 120;
+          if (this.state.phase !== "live") {
+            const dealt = Math.round(prevHp - np.hp);
+            if (dealt > 0) {
+              this.three.spawnDamageNumber(np.x, 1.4, np.z, `-${dealt}`);
+            }
+          }
+          // Kill confirm when enemy dies from our recent shot
+          if (prevAlive && !np.alive) {
+            Sfx.play("kill");
+            this.state.killFeed.unshift({
+              id: uid("kf"),
+              killer: localP.name,
+              victim: np.name,
+              weapon: "ARMA",
+              at: performance.now(),
+              localKiller: true,
+            });
+            this.state.killFeed = this.state.killFeed.slice(0, 6);
+          }
+        }
+        if (isLocal && localP) {
+          // Directional arc: nearest living enemy as damage source proxy
+          let bestDx = 0;
+          let bestDz = 1;
+          let bestD = Number.POSITIVE_INFINITY;
+          for (const other of net.players) {
+            if (other.id === np.id || !other.alive) continue;
+            if (normalizeTeam(other.team) === localTeam) continue;
+            const d = Math.hypot(other.x - np.x, other.z - np.z);
+            if (d < bestD) {
+              bestD = d;
+              bestDx = other.x;
+              bestDz = other.z;
+            }
+          }
+          this.three.spawnDamageArc(np.x, np.z, bestDx, bestDz);
+          this.state.damageFlashUntil = performance.now() + 220;
+          this.state.lastDamageAmount = Math.round(prevHp - np.hp);
+          Sfx.play("hit");
         }
       }
 
@@ -1269,14 +1306,13 @@ export class GameClient {
         p.z = np.z;
       }
 
-      // Jump/crouch: remote from server; local keeps prediction (soft y blend).
+      // Jump: remote from server; local keeps prediction (soft y blend).
       if (isLocal && !isNew) {
         p.y = p.y * 0.5 + (np.y ?? p.y) * 0.5;
-        // keep predicted crouch/ground/vy
+        // keep predicted ground/vy
       } else {
         p.y = np.y ?? p.y;
         p.vy = np.vy ?? p.vy;
-        p.crouching = np.crouching ?? p.crouching;
         p.onGround = np.onGround ?? p.onGround;
       }
 
@@ -1647,7 +1683,6 @@ export class GameClient {
       z: spawn.z + (Math.random() - 0.5) * 1.5,
       y: 0,
       vy: 0,
-      crouching: false,
       onGround: true,
       rot: team === "TR" ? Math.PI / 4 : (-3 * Math.PI) / 4,
       hp: 100,
@@ -1834,7 +1869,7 @@ export class GameClient {
     this.input.endFrame();
   }
 
-  /** Client prediction while server is authoritative (includes jump/crouch). */
+  /** Client prediction while server is authoritative (includes jump). */
   private updateLocalPlayerNetworked(dt: number) {
     const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
     if (!p || !p.alive) return;
@@ -1885,16 +1920,20 @@ export class GameClient {
               speed: p.moveSpeed ?? 0,
               standSpeed: PLAYER_SPEED,
               airborne: !(p.onGround ?? true),
-              crouching: Boolean(p.crouching),
               shotsInBurst: p.shotsInBurst ?? 0,
               msSinceLastShot,
             });
             const angle = applySpreadToYaw(p.rot, spread);
             p.lastShotAt = now;
+            const recMs = effectiveRecoveryMs(
+              knobs,
+              p.moveSpeed ?? 0,
+              PLAYER_SPEED,
+            );
             p.shotsInBurst = nextShotsInBurst(
               p.shotsInBurst ?? 0,
               msSinceLastShot,
-              knobs.recoveryMs,
+              recMs,
             );
             if (ammo) ammo.mag = Math.max(0, ammo.mag - 1);
             Sfx.play("shoot");
@@ -1977,7 +2016,7 @@ export class GameClient {
     const spectating =
       !!local && !local.alive && this.state.phase === "live";
     const now = performance.now();
-    // Ground reticle (RUSH-B style) — hide in menus / dead
+    // Ground reticle + dispersion circle (gunfeel pack A) — hide in menus / dead
     const showReticle =
       !!local &&
       local.alive &&
@@ -1989,6 +2028,36 @@ export class GameClient {
       this.input.aimWorldZ,
       showReticle,
     );
+    if (showReticle && local) {
+      const wid = local.weapons[local.weaponSlot];
+      const def = wid ? WEAPONS[wid] : null;
+      if (def && !def.isMelee) {
+        const msSince =
+          local.lastShotAt > 0
+            ? now - local.lastShotAt
+            : Number.POSITIVE_INFINITY;
+        const spread = shotSpreadRadians({
+          weaponId: wid!,
+          speed: local.moveSpeed ?? 0,
+          standSpeed: PLAYER_SPEED,
+          airborne: !(local.onGround ?? true),
+          shotsInBurst: local.shotsInBurst ?? 0,
+          msSinceLastShot: msSince,
+        });
+        const aimDist = Math.hypot(
+          this.input.aimWorldX - local.x,
+          this.input.aimWorldZ - local.z,
+        );
+        this.three.setDispersionRadius(
+          spreadWorldRadius(spread, Math.max(0.8, aimDist)),
+        );
+      } else {
+        this.three.setDispersionRadius(0);
+      }
+      this.three.setDamageArcPosition(local.x, local.z);
+    } else {
+      this.three.setDispersionRadius(0);
+    }
     const n = this.state.players.length;
     // Grow buffer once; mutate slots in place (no per-frame map alloc).
     while (this.renderPlayers.length < n) {
@@ -2000,7 +2069,6 @@ export class GameClient {
         x: 0,
         z: 0,
         y: 0,
-        crouching: false,
         onGround: true,
         reloading: false,
         rot: 0,
@@ -2024,7 +2092,6 @@ export class GameClient {
       slot.x = p.x;
       slot.z = p.z;
       slot.y = p.y ?? 0;
-      slot.crouching = p.crouching ?? false;
       slot.onGround = p.onGround ?? true;
       slot.reloading = p.reloadingUntil > now;
       slot.rot = p.rot;
@@ -2508,7 +2575,6 @@ export class GameClient {
     p.z = spawn.z + (Math.random() - 0.5);
     p.y = 0;
     p.vy = 0;
-    p.crouching = false;
     p.onGround = true;
     p.hp = 100;
     p.alive = true;
@@ -2532,10 +2598,9 @@ export class GameClient {
   }
 
   /**
-   * CS-like horizontal + jump/crouch.
+   * CS-like horizontal + jump.
    * Prefers Rapier CharacterController when WASM ready; else AABB motor.
-   * Crouch is **toggle** (Control edge). Free cam pans view only.
-   * Buy freezetime: wish 0 / no jump (CS freeze).
+   * Free cam pans view only. Buy freezetime: wish 0 / no jump (CS freeze).
    */
   private applyPlayerMotor(
     p: PlayerState,
@@ -2547,11 +2612,6 @@ export class GameClient {
       const pan = PLAYER_SPEED * 1.8 * dt;
       this.freeCamX += move.x * pan;
       this.freeCamZ += move.z * pan;
-    }
-
-    // Toggle crouch on Control edge; pass state (not key hold) to motor/Rapier
-    if (this.input.wasCrouchPressed()) {
-      p.crouching = !p.crouching;
     }
 
     // Buy phase = freezetime: no locomotion (wish 0), free-cam pan still ok
@@ -2569,7 +2629,6 @@ export class GameClient {
         wishX,
         wishZ,
         jump,
-        crouching: p.crouching ?? false,
         dt,
         standSpeed: PLAYER_SPEED,
       });
@@ -2578,7 +2637,6 @@ export class GameClient {
         p.z = pose.z;
         p.y = pose.y;
         p.vy = pose.vy;
-        p.crouching = pose.crouching;
         p.onGround = pose.onGround;
       }
     } else {
@@ -2588,14 +2646,12 @@ export class GameClient {
           z: p.z,
           y: p.y ?? 0,
           vy: p.vy ?? 0,
-          crouching: p.crouching ?? false,
           onGround: p.onGround ?? true,
         },
         {
           wishX,
           wishZ,
           jump,
-          crouch: p.crouching ?? false,
           dt,
           standSpeed: PLAYER_SPEED,
           walls: this.collisionWalls,
@@ -2605,7 +2661,6 @@ export class GameClient {
       p.z = next.z;
       p.y = next.y;
       p.vy = next.vy;
-      p.crouching = next.crouching;
       p.onGround = next.onGround;
     }
 
@@ -2928,7 +2983,6 @@ export class GameClient {
       speed: p.moveSpeed ?? 0,
       standSpeed: PLAYER_SPEED,
       airborne: !(p.onGround ?? true),
-      crouching: Boolean(p.crouching),
       shotsInBurst: p.shotsInBurst ?? 0,
       msSinceLastShot,
     });
@@ -2938,7 +2992,7 @@ export class GameClient {
     p.shotsInBurst = nextShotsInBurst(
       p.shotsInBurst ?? 0,
       msSinceLastShot,
-      knobs.recoveryMs,
+      effectiveRecoveryMs(knobs, p.moveSpeed ?? 0, PLAYER_SPEED),
     );
     p.lastShotAt = now;
     if (!p.isBot) Sfx.play("shoot");
@@ -3122,17 +3176,23 @@ export class GameClient {
       this.state.damageFlashUntil = performance.now() + 220;
       this.state.lastDamageAmount = damage;
       Sfx.play("hit");
+      // Directional damage arc (gunfeel B) — max 1, newest wins
+      this.three.spawnDamageArc(victim.x, victim.z, killer.x, killer.z);
     }
     if (killer.id === this.state.localPlayerId) {
       this.state.hitMarkerUntil = performance.now() + 120;
       Sfx.play("hit");
-      // Floating damage numbers for local damage dealt (Wave 5 §2.8)
-      this.three.spawnDamageNumber(
-        victim.x,
-        1.4,
-        victim.z,
-        `-${Math.round(damage)}`,
-      );
+      // Hitflash on enemy mesh ≤80ms
+      this.three.flashHit(victim.id);
+      // Skip floating damage numbers in live combat (v2 anti-pattern spam)
+      if (this.state.phase !== "live") {
+        this.three.spawnDamageNumber(
+          victim.x,
+          1.4,
+          victim.z,
+          `-${Math.round(damage)}`,
+        );
+      }
     }
 
     if (isDead(victim.hp)) {
@@ -3147,15 +3207,20 @@ export class GameClient {
       // C2b: guns hit the floor for living players to pick up
       this.spawnDeathWeaponDrops(victim);
 
+      const localKiller = killer.id === this.state.localPlayerId;
       const entry: KillFeedEntry = {
         id: uid("kf"),
         killer: killer.name,
         victim: victim.name,
         weapon: weaponName,
         at: performance.now(),
+        localKiller,
       };
       this.state.killFeed.unshift(entry);
       this.state.killFeed = this.state.killFeed.slice(0, 6);
+      if (localKiller) {
+        Sfx.play("kill");
+      }
 
       if (killer.isBot) {
         this.addChat(killer.name, pick(BOT_LINES.kill), "all");

@@ -451,6 +451,7 @@ function GameHudImpl({
             killer={k.killer}
             victim={k.victim}
             weapon={k.weapon}
+            localKiller={k.localKiller}
           />
         ))}
       </div>

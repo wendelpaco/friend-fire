@@ -4,8 +4,9 @@ import * as THREE from "three";
 const FLASH_DURATION_MIN = 0.04;
 const FLASH_DURATION_MAX = 0.06;
 const POOL_SIZE = 16;
-const BARREL_OFFSET = 0.95;
-const FLASH_HEIGHT = 1.0;
+/** Short muzzle ray offset (peek legibility — gunfeel E). */
+const BARREL_OFFSET = 0.85;
+const FLASH_HEIGHT = 1.05;
 const LIGHT_INTENSITY = 2.8;
 const LIGHT_DISTANCE = 4.5;
 

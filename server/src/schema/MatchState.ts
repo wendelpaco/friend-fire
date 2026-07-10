@@ -21,8 +21,6 @@ export class PlayerState extends Schema {
   @type("number") y: number = 0;
   /** Vertical velocity. */
   @type("number") vy: number = 0;
-  /** Toggle crouch posture (Control edge; not hold-to-crouch). */
-  @type("boolean") crouching: boolean = false;
   /** Feet on floor. */
   @type("boolean") onGround: boolean = true;
   @type("number") rot: number = 0;
@@ -122,8 +120,6 @@ export interface InputMessage {
   he: boolean;
   /** Edge: jump (Space) when on ground. */
   jump: boolean;
-  /** Hold bit for crouch (Ctrl); server edge-detects to toggle posture. */
-  crouch: boolean;
   /** Edge / hold: KeyE weapon pickup (also auto walk-over empty slot). */
   pickup: boolean;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  BULLET_HEIGHT_CROUCH,
+  BULLET_HEIGHT_LOW,
   BULLET_HEIGHT_STAND,
   firstWallImpactAlongRay,
   resolveCircleWalls,
@@ -38,9 +38,9 @@ describe("height-aware cover (CS LOS)", () => {
   const lowCover: WallRect = { x: 0, z: 5, w: 4, d: 1, h: 1.5 };
   const fullWall: WallRect = { x: 0, z: 5, w: 4, d: 1, h: 3.0 };
 
-  it("low cover blocks crouch shots but not stand shots", () => {
+  it("low cover blocks low rays but not stand shots", () => {
     expect(wallBlocksBullet(lowCover, BULLET_HEIGHT_STAND)).toBe(false);
-    expect(wallBlocksBullet(lowCover, BULLET_HEIGHT_CROUCH)).toBe(true);
+    expect(wallBlocksBullet(lowCover, BULLET_HEIGHT_LOW)).toBe(true);
   });
 
   it("full wall blocks standing shots", () => {
@@ -53,7 +53,7 @@ describe("height-aware cover (CS LOS)", () => {
       segmentBlockedByWalls(0, 0, 0, 10, walls, BULLET_HEIGHT_STAND),
     ).toBe(false);
     expect(
-      segmentBlockedByWalls(0, 0, 0, 10, walls, BULLET_HEIGHT_CROUCH),
+      segmentBlockedByWalls(0, 0, 0, 10, walls, BULLET_HEIGHT_LOW),
     ).toBe(true);
   });
 
@@ -68,16 +68,16 @@ describe("height-aware cover (CS LOS)", () => {
       BULLET_HEIGHT_STAND,
     );
     expect(hit).toBeNull();
-    const crouchHit = firstWallImpactAlongRay(
+    const lowHit = firstWallImpactAlongRay(
       0,
       0,
       0,
       1,
       12,
       [lowCover],
-      BULLET_HEIGHT_CROUCH,
+      BULLET_HEIGHT_LOW,
     );
-    expect(crouchHit).not.toBeNull();
+    expect(lowHit).not.toBeNull();
   });
 });
 

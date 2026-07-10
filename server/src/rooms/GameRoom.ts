@@ -62,6 +62,7 @@ import {
 } from "../sim/shop";
 import {
   applySpreadToYaw,
+  effectiveRecoveryMs,
   nextShotsInBurst,
   resolveAccuracyKnobs,
   shotSpreadRadians,
@@ -182,8 +183,6 @@ type RuntimeExtra = {
   heHeld: boolean;
   /** Edge-detect jump (Space). */
   jumpHeld: boolean;
-  /** Edge-detect crouch hold bit (Control) → toggle posture. */
-  crouchHeld: boolean;
   /** Performance.now()-style ms timestamp of last shot (room clock). */
   lastShotAtMs: number;
   /** Shots in current bloom burst. */
@@ -208,7 +207,6 @@ function createRuntimeExtra(
     ammo: partial.ammo,
     heHeld: partial.heHeld ?? false,
     jumpHeld: partial.jumpHeld ?? false,
-    crouchHeld: partial.crouchHeld ?? false,
     lastShotAtMs: partial.lastShotAtMs ?? 0,
     shotsInBurst: partial.shotsInBurst ?? 0,
     reloadingUntil: partial.reloadingUntil ?? 0,
@@ -303,7 +301,6 @@ export class GameRoom extends Room<MatchState> {
         plant: Boolean(message?.plant),
         he: Boolean(message?.he),
         jump: Boolean(message?.jump),
-        crouch: Boolean(message?.crouch),
         pickup: Boolean(message?.pickup),
       });
     });
@@ -598,16 +595,13 @@ export class GameRoom extends Room<MatchState> {
       const ex = this.ensureExtra(key, p);
       if (!input) return;
 
-      // Buy freezetime: no XZ wish / jump (shop only; crouch toggle still ok)
+      // Buy freezetime: no XZ wish / jump (shop only)
       const freezeBuy = this.phase.phase === "buy";
 
-      // Jump edge + crouch toggle (edge on hold bit) + XZ walls (same motor as client)
+      // Jump edge + XZ walls (same motor as client)
       const jumpEdge =
         !freezeBuy && Boolean(input.jump) && !ex.jumpHeld;
       ex.jumpHeld = Boolean(input.jump);
-      const crouchEdge = Boolean(input.crouch) && !ex.crouchHeld;
-      ex.crouchHeld = Boolean(input.crouch);
-      if (crouchEdge) p.crouching = !p.crouching;
       const prevX = p.x;
       const prevZ = p.z;
       const next = tickMotor(
@@ -616,14 +610,12 @@ export class GameRoom extends Room<MatchState> {
           z: p.z,
           y: p.y,
           vy: p.vy,
-          crouching: p.crouching,
           onGround: p.onGround,
         },
         {
           wishX: freezeBuy ? 0 : input.dx,
           wishZ: freezeBuy ? 0 : input.dz,
           jump: jumpEdge,
-          crouch: p.crouching,
           dt,
           standSpeed: PLAYER_SPEED,
           walls: this.walls,
@@ -633,7 +625,6 @@ export class GameRoom extends Room<MatchState> {
       p.z = next.z;
       p.y = next.y;
       p.vy = next.vy;
-      p.crouching = next.crouching;
       p.onGround = next.onGround;
       if (dt > 1e-6) {
         ex.moveSpeed = Math.hypot(p.x - prevX, p.z - prevZ) / dt;
@@ -866,7 +857,7 @@ export class GameRoom extends Room<MatchState> {
 
   /**
    * Hitscan + cosmetic `fx_shot` broadcast so all clients see muzzle/impact.
-   * Applies accuracy spread (move / air / crouch / bloom) before the ray.
+   * Applies accuracy spread (move / air / bloom) before the ray.
    * @param melee — skip wall impact spray for knife
    */
   private hitscan(
@@ -891,17 +882,21 @@ export class GameRoom extends Room<MatchState> {
           speed: ex.moveSpeed,
           standSpeed: PLAYER_SPEED,
           airborne: !shooter.onGround,
-          crouching: Boolean(shooter.crouching),
           shotsInBurst: ex.shotsInBurst,
           msSinceLastShot,
         },
         knobs,
       );
       aimRot = applySpreadToYaw(shooter.rot, spread);
+      const recMs = effectiveRecoveryMs(
+        knobs,
+        ex.moveSpeed,
+        PLAYER_SPEED,
+      );
       ex.shotsInBurst = nextShotsInBurst(
         ex.shotsInBurst,
         msSinceLastShot,
-        knobs.recoveryMs,
+        recMs,
       );
     }
     ex.lastShotAtMs = nowMs;
@@ -924,8 +919,8 @@ export class GameRoom extends Room<MatchState> {
       const cz = shooter.z + dirZ * t;
       const dist = Math.hypot(other.x - cx, other.z - cz);
       if (dist < HIT_RADIUS && t < bestT) {
-        // Height-aware cover: low walls block crouch shots; stand can peak over.
-        const shotH = bulletHeight(Boolean(shooter.crouching));
+        // Height-aware cover: standing peeks over low walls.
+        const shotH = bulletHeight();
         if (
           segmentBlockedByWalls(
             shooter.x,
@@ -945,7 +940,7 @@ export class GameRoom extends Room<MatchState> {
 
     // Wall impact for FX (first surface along ray, or before player hit)
     let impact: WallImpactFx | null = null;
-    const shotH = bulletHeight(Boolean(shooter.crouching));
+    const shotH = bulletHeight();
     if (!melee) {
       const wallHit = firstWallImpactAlongRay(
         shooter.x,
@@ -1465,14 +1460,12 @@ export class GameRoom extends Room<MatchState> {
     p.armor = Math.max(0, p.armor);
     p.y = 0;
     p.vy = 0;
-    p.crouching = false;
     p.onGround = true;
     this.applySpawn(p);
     const ex = this.ensureExtra(p.id, p);
     ex.fireCd = 0.25; // brief spawn protection vs accidental fire
     ex.heHeld = false;
     ex.jumpHeld = false;
-    ex.crouchHeld = false;
     ex.shotsInBurst = 0;
     ex.reloadingUntil = 0;
     ex.moveSpeed = 0;

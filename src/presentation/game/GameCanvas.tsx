@@ -323,7 +323,6 @@ export function GameCanvas({
             plant: false,
             he: false,
             jump: false,
-            crouch: false,
           });
           return;
         }
@@ -341,7 +340,6 @@ export function GameCanvas({
         plant: engine.input.isDown("KeyF"),
         he: engine.input.isDown("KeyG"),
         jump: engine.input.isDown("Space"),
-        crouch: engine.input.isCrouchDown(),
         pickup: engine.input.isDown("KeyE"),
       });
     }, INPUT_MS);

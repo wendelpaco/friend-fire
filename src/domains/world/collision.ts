@@ -1,14 +1,17 @@
 import type { GameMap, Vec2, WallRect } from "./types";
 
-/** Standing muzzle / torso ray height (m). */
+/** Standing muzzle / torso ray height (m). Players always shoot standing (F4). */
 export const BULLET_HEIGHT_STAND = 1.35;
-/** Crouched ray height (m). */
-export const BULLET_HEIGHT_CROUCH = 0.72;
+/**
+ * Low ray height for height-aware cover tests (not player posture — crouch removed).
+ * Low cover blocks rays at this height; standing peeks over.
+ */
+export const BULLET_HEIGHT_LOW = 0.72;
 /** Below this, debris never blocks bullets. */
 export const MIN_BULLET_BLOCK_H = 0.4;
 /**
- * Walls at or below this height are “low cover”: standing can peak over,
- * crouching is still blocked (CS sandbag / half-wall feel).
+ * Walls at or below this height are “low cover”: standing can peak over
+ * (CS sandbag / half-wall feel).
  */
 export const LOW_COVER_MAX_H = 1.65;
 /** Max step onto a standable top without a full jump (m). */
@@ -16,8 +19,9 @@ export const STEP_HEIGHT = 0.45;
 /** Feet within this of a surface top counts as on it. */
 export const SURFACE_EPS = 0.08;
 
-export function bulletHeight(crouching: boolean): number {
-  return crouching ? BULLET_HEIGHT_CROUCH : BULLET_HEIGHT_STAND;
+/** Player hitscan ray height (standing only — crouch removed F4). */
+export function bulletHeight(): number {
+  return BULLET_HEIGHT_STAND;
 }
 
 export function wallHeight(w: WallRect): number {
@@ -26,7 +30,7 @@ export function wallHeight(w: WallRect): number {
 
 /**
  * True if a ray at `shotHeight` is stopped by this wall/prop.
- * Standing peeks over low cover (h ≤ LOW_COVER_MAX_H); crouch shots do not.
+ * Standing peeks over low cover (h ≤ LOW_COVER_MAX_H).
  */
 export function wallBlocksBullet(w: WallRect, shotHeight: number): boolean {
   const h = wallHeight(w);
@@ -35,7 +39,7 @@ export function wallBlocksBullet(w: WallRect, shotHeight: number): boolean {
   if (shotHeight >= BULLET_HEIGHT_STAND - 0.1) {
     return h > LOW_COVER_MAX_H;
   }
-  // Crouch / low ray: any solid at or above the ray stops it
+  // Low ray: any solid at or above the ray stops it
   return h + 0.02 >= shotHeight;
 }
 

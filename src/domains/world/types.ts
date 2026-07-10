@@ -8,7 +8,7 @@ export interface Vec2 {
 /**
  * Axis-aligned box on XZ. Optional height drives CS-style cover / platforms:
  * - tall (h ≥ ~2) full wall — blocks standing shots
- * - low cover (h ≈ 1.4–1.6) — blocks crouch shots, stand can shoot over
+ * - low cover (h ≈ 1.4–1.6) — standing peeks over; low rays blocked
  * - standable props (crates/cars) — walk/jump on top when `standable`
  */
 export interface WallRect {

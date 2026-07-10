@@ -25,8 +25,10 @@ import {
 import {
   AimReticleSystem,
   BombMarkerSystem,
+  DamageArcSystem,
   DamageNumberSystem,
   HESystem,
+  HitFlashSystem,
   ImpactParticleSystem,
   type ImpactSurface,
   MuzzleFlashSystem,
@@ -87,7 +89,6 @@ export interface RenderSnapshot {
       weaponId?: string;
       /** Jump height (default 0). */
       y?: number;
-      crouching?: boolean;
       onGround?: boolean;
       /** Mag reload timer active — reload arm pose. */
       reloading?: boolean;
@@ -233,6 +234,8 @@ export class ThreeRenderer {
   private damageNumberFx: DamageNumberSystem;
   private tracerFx: TracerSystem;
   private aimReticle: AimReticleSystem;
+  private hitFlashFx: HitFlashSystem;
+  private damageArcFx: DamageArcSystem;
   private playerSpot!: THREE.SpotLight;
   private sunLight!: THREE.DirectionalLight;
   private dustParticles!: THREE.Points;
@@ -330,6 +333,8 @@ export class ThreeRenderer {
     this.damageNumberFx = new DamageNumberSystem(this.scene);
     this.tracerFx = new TracerSystem(this.scene);
     this.aimReticle = new AimReticleSystem(this.scene);
+    this.hitFlashFx = new HitFlashSystem();
+    this.damageArcFx = new DamageArcSystem(this.scene);
 
     // Apply DPR / shadows / dust after lights & dust exist.
     this.applyQuality(this.quality);
@@ -584,6 +589,9 @@ export class ThreeRenderer {
     this.heFx.update(dt);
     this.damageNumberFx.update(dt);
     this.tracerFx.update(dt);
+    this.hitFlashFx.update(dt);
+    this.damageArcFx.update(dt);
+    this.aimReticle.update(dt);
   }
 
   /** Bullet tracer muzzle → impact (or max range point). */
@@ -602,6 +610,38 @@ export class ThreeRenderer {
   setAimReticle(x: number, z: number, visible: boolean) {
     this.aimReticle.setVisible(visible);
     if (visible) this.aimReticle.setPosition(x, z);
+  }
+
+  /**
+   * World dispersion circle radius at aim point (from accuracy cone).
+   * Pass 0 to collapse when first-shot min / knife.
+   */
+  setDispersionRadius(radius: number) {
+    this.aimReticle.setDispersionRadius(radius);
+  }
+
+  /** White hitflash ≤80ms on enemy character mesh. */
+  flashHit(playerId: string) {
+    const handle = this.characters.get(playerId);
+    if (handle) this.hitFlashFx.flash(handle.group);
+  }
+
+  /**
+   * Directional damage arc on local player (300ms, max 1).
+   * Points from player toward damage source world XZ.
+   */
+  spawnDamageArc(
+    playerX: number,
+    playerZ: number,
+    fromX: number,
+    fromZ: number,
+  ) {
+    this.damageArcFx.spawn(playerX, playerZ, fromX, fromZ);
+  }
+
+  /** Keep damage arc under moving local player. */
+  setDamageArcPosition(x: number, z: number) {
+    this.damageArcFx.setPosition(x, z);
   }
 
   /** Brief shoot recoil overlay on character next sync. */
@@ -709,7 +749,6 @@ export class ThreeRenderer {
       }
 
       const shooting = this.shootFlags.has(p.id);
-      const crouching = Boolean(p.crouching);
       const airborne = p.onGround === false;
 
       // CharacterController: body faces velocity when moving, aim when idle.
@@ -718,7 +757,6 @@ export class ThreeRenderer {
         moveZ,
         aimYaw: p.rot,
         rootY,
-        crouching,
         airborne,
         reloading: Boolean(p.reloading),
         shooting,
@@ -830,6 +868,8 @@ export class ThreeRenderer {
     this.damageNumberFx.dispose();
     this.tracerFx.dispose();
     this.aimReticle.dispose();
+    this.hitFlashFx.dispose();
+    this.damageArcFx.dispose();
     for (const id of [...this.characters.keys()]) this.removeCharacter(id);
     for (const id of [...this.dropMeshes.keys()]) this.releaseDropMesh(id);
     this.dropBodyGeo?.dispose();

@@ -2,8 +2,9 @@
  * Shared gunfight accuracy model (CS-lite top-down).
  * Pure — used by offline GameClient and mirrored on the server hitscan path.
  *
- * σ = σ_shot · (1 + k_move · m) · m_air · m_crouch
+ * σ = σ_shot · (1 + k_move · m) · m_air
  * See docs/superpowers/specs/2026-07-09-cs-mechanics-v1-design.md §4.
+ * Crouch mult removed (F4 / Sprint 1 gunfeel pack).
  */
 
 import type { WeaponDef, WeaponId } from "./types";
@@ -13,8 +14,11 @@ import { WEAPONS } from "./weapons";
 export const STOP_SPEED_FRACTION = 0.12;
 /** Airborne inaccuracy multiplier. */
 export const AIR_INACCURACY = 3.0;
-/** Grounded crouch inaccuracy multiplier. */
-export const CROUCH_INACCURACY = 0.75;
+/**
+ * When fully stopped, recovery to first-shot collapses in this window (ms).
+ * Counter-strafe / stop-shoot skill (Sprint 1 gunfeel).
+ */
+export const STOP_SHOOT_RECOVERY_MS = 100;
 /** Cap bloom stacks so long sprays don't grow without bound. */
 export const DEFAULT_MAX_BLOOM_SHOTS = 10;
 
@@ -25,7 +29,6 @@ export type AccuracyInput = {
   /** Run cap m/s */
   standSpeed: number;
   airborne: boolean;
-  crouching: boolean;
   /** Shots already fired in the current burst (0 = about to fire first). */
   shotsInBurst: number;
   msSinceLastShot: number;
@@ -92,6 +95,22 @@ export function movementFactor(speed: number, standSpeed: number): number {
 }
 
 /**
+ * Effective recovery window: while fully stopped, first-shot returns in
+ * {@link STOP_SHOOT_RECOVERY_MS} (or weapon recovery if shorter).
+ */
+export function effectiveRecoveryMs(
+  knobs: AccuracyKnobs,
+  speed: number,
+  standSpeed: number,
+): number {
+  const m = movementFactor(speed, standSpeed);
+  if (m <= 0) {
+    return Math.min(knobs.recoveryMs, STOP_SHOOT_RECOVERY_MS);
+  }
+  return knobs.recoveryMs;
+}
+
+/**
  * Radians of aim error (half-angle); 0 = perfect aim.
  */
 export function shotSpreadRadians(input: AccuracyInput): number {
@@ -108,7 +127,12 @@ export function shotSpreadRadiansWithKnobs(
 ): number {
   if (knobs.spread <= 0 && knobs.firstShotSpread <= 0) return 0;
 
-  const recovered = input.msSinceLastShot >= knobs.recoveryMs;
+  const recoveryMs = effectiveRecoveryMs(
+    knobs,
+    input.speed,
+    input.standSpeed,
+  );
+  const recovered = input.msSinceLastShot >= recoveryMs;
   const burst = recovered ? 0 : Math.max(0, input.shotsInBurst);
 
   const sigmaShot =
@@ -119,15 +143,20 @@ export function shotSpreadRadiansWithKnobs(
 
   const m = movementFactor(input.speed, input.standSpeed);
   const mAir = input.airborne ? AIR_INACCURACY : 1;
-  const mCrouch =
-    input.crouching && !input.airborne ? CROUCH_INACCURACY : 1;
 
-  return (
-    sigmaShot *
-    (1 + knobs.moveInaccuracyScale * m) *
-    mAir *
-    mCrouch
-  );
+  return sigmaShot * (1 + knobs.moveInaccuracyScale * m) * mAir;
+}
+
+/**
+ * World-space radius of the half-angle cone at a given aim distance.
+ * Used by the ground dispersion circle.
+ */
+export function spreadWorldRadius(
+  spreadRadians: number,
+  aimDistance: number,
+): number {
+  if (!(spreadRadians > 0) || !(aimDistance > 0)) return 0;
+  return Math.tan(spreadRadians) * aimDistance;
 }
 
 /**

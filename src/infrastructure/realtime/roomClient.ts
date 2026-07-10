@@ -201,7 +201,6 @@ export type NetworkPlayer = {
   z: number;
   y: number;
   vy: number;
-  crouching: boolean;
   onGround: boolean;
   rot: number;
   hp: number;
@@ -239,10 +238,8 @@ export type InputPayload = {
   he: boolean;
   /** Edge: Space jump. */
   jump: boolean;
-  /** Hold bit: Control down (server rising-edge → toggle crouch). */
-  crouch: boolean;
   /** KeyE weapon pickup (server walk-over + E). */
-  pickup: boolean;
+  pickup?: boolean;
 };
 
 interface LocalRoomRecord {
@@ -328,7 +325,6 @@ function acquireNetworkPlayer(i: number): NetworkPlayer {
       z: 0,
       y: 0,
       vy: 0,
-      crouching: false,
       onGround: true,
       rot: 0,
       hp: 0,
@@ -371,7 +367,6 @@ function playersFromState(state: unknown): NetworkPlayer[] {
     row.z = Number(o.z) || 0;
     row.y = Number(o.y) || 0;
     row.vy = Number(o.vy) || 0;
-    row.crouching = Boolean(o.crouching);
     row.onGround = o.onGround !== false;
     row.rot = Number(o.rot) || 0;
     row.hp = Number(o.hp) || 0;
