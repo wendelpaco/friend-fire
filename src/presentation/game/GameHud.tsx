@@ -191,53 +191,60 @@ function GameHudImpl({
         </div>
       )}
 
-      {/* Minimap */}
-      <div className="absolute left-4 top-4 overflow-hidden rounded-lg border border-amber-500/35 bg-black/60 shadow-xl backdrop-blur-md">
-        <div className="flex items-center justify-between border-b border-white/10 px-2 py-1">
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-white/55">
-            {hud.mapName}
-          </span>
-          <span className="text-[9px] text-white/35">radar</span>
+      {/* Minimap + FPS stacked (left column) */}
+      <div className="absolute left-4 top-4 z-30 flex w-32 flex-col gap-1.5">
+        <div className="overflow-hidden rounded-lg border border-amber-500/35 bg-black/60 shadow-xl backdrop-blur-md">
+          <div className="flex items-center justify-between border-b border-white/10 px-2 py-1">
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-white/55">
+              {hud.mapName}
+            </span>
+            <span className="text-[9px] text-white/35">radar</span>
+          </div>
+          <div className="relative h-32 w-32 bg-[#1a1510]/60">
+            {/* grid */}
+            <div
+              className="absolute inset-0 opacity-20"
+              style={{
+                backgroundImage:
+                  "linear-gradient(rgba(255,255,255,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.15) 1px, transparent 1px)",
+                backgroundSize: "25% 25%",
+              }}
+            />
+            {hud.minimap
+              .filter((p) => p.alive)
+              .map((p) => {
+                const halfW = (hud.mapWidth || 72) / 2;
+                const halfD = (hud.mapDepth || 72) / 2;
+                const px = ((p.x + halfW) / (halfW * 2)) * 100;
+                const pz = ((p.z + halfD) / (halfD * 2)) * 100;
+                return (
+                  <span
+                    key={p.id}
+                    className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full"
+                    style={{
+                      left: `${px}%`,
+                      top: `${pz}%`,
+                      width: p.isLocal ? 7 : 5,
+                      height: p.isLocal ? 7 : 5,
+                      backgroundColor: p.isLocal
+                        ? "#fff"
+                        : p.team === "TR"
+                          ? "#e07a3a"
+                          : "#4a9ad4",
+                      boxShadow: p.isLocal
+                        ? "0 0 8px #fff"
+                        : "0 0 3px rgba(0,0,0,0.6)",
+                    }}
+                  />
+                );
+              })}
+          </div>
         </div>
-        <div className="relative h-32 w-32 bg-[#1a1510]/60">
-          {/* grid */}
-          <div
-            className="absolute inset-0 opacity-20"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgba(255,255,255,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.15) 1px, transparent 1px)",
-              backgroundSize: "25% 25%",
-            }}
-          />
-          {hud.minimap
-            .filter((p) => p.alive)
-            .map((p) => {
-              const halfW = (hud.mapWidth || 72) / 2;
-              const halfD = (hud.mapDepth || 72) / 2;
-              const px = ((p.x + halfW) / (halfW * 2)) * 100;
-              const pz = ((p.z + halfD) / (halfD * 2)) * 100;
-              return (
-                <span
-                  key={p.id}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full"
-                  style={{
-                    left: `${px}%`,
-                    top: `${pz}%`,
-                    width: p.isLocal ? 7 : 5,
-                    height: p.isLocal ? 7 : 5,
-                    backgroundColor: p.isLocal
-                      ? "#fff"
-                      : p.team === "TR"
-                        ? "#e07a3a"
-                        : "#4a9ad4",
-                    boxShadow: p.isLocal
-                      ? "0 0 8px #fff"
-                      : "0 0 3px rgba(0,0,0,0.6)",
-                  }}
-                />
-              );
-            })}
-        </div>
+        {hud.perf ? (
+          <PerfOverlay perf={hud.perf} />
+        ) : (
+          <MiniFps fps={hud.fps ?? 0} />
+        )}
       </div>
 
       {/* Top score bar */}
@@ -319,13 +326,8 @@ function GameHudImpl({
         )}
       </div>
 
-      {/* Top-right stack: FPS (always) then killfeed — no overlap */}
+      {/* Killfeed — top-right, clear of radar/FPS */}
       <div className="absolute right-4 top-4 z-30 flex w-80 flex-col items-end gap-1.5">
-        {hud.perf ? (
-          <PerfOverlay perf={hud.perf} />
-        ) : (
-          <MiniFps fps={hud.fps ?? 0} />
-        )}
         {hud.killFeed.slice(0, 6).map((k) => (
           <div
             key={k.id}
