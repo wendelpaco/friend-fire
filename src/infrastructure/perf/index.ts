@@ -9,6 +9,19 @@ export {
   targetMsForTier,
   type QualityControllerOptions,
 } from "./QualityController";
+export {
+  PERF_SESSION_MAX_SAMPLES,
+  PERF_SESSION_SAMPLE_MS,
+  PERF_SESSION_VERSION,
+  PerfSessionRecorder,
+  downloadPerfReport,
+  evaluateProfileSlo,
+  summarizeSamples,
+  type PerfSessionInput,
+  type PerfSessionReport,
+  type PerfSessionSample,
+  type PerfSloResult,
+} from "./PerfSessionRecorder";
 export type {
   AdaptReason,
   FrameSample,

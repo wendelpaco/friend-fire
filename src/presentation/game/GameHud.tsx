@@ -88,7 +88,7 @@ const PerfOverlay = memo(function PerfOverlay({
   perf: NonNullable<HudSnapshot["perf"]>;
 }) {
   return (
-    <div className="max-w-[14rem] rounded border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[10px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
+    <div className="pointer-events-auto max-w-[14rem] rounded border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[10px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
       <div className="flex items-baseline justify-between gap-2">
         <span className={fpsColorClass(perf.fps)}>{perf.fps} FPS</span>
         <span className="text-[9px] text-amber-200/80">
@@ -117,6 +117,16 @@ const PerfOverlay = memo(function PerfOverlay({
           : " · no-shadow"}
         · fx{perf.knobs.fxBudget}
       </div>
+      <button
+        type="button"
+        className="mt-1 w-full rounded border border-white/15 bg-white/5 py-0.5 text-[9px] font-semibold tracking-wide text-white/70 transition hover:bg-white/10 hover:text-white"
+        onClick={() => {
+          if (typeof window === "undefined") return;
+          window.dispatchEvent(new CustomEvent("ff-export-perf"));
+        }}
+      >
+        JSON
+      </button>
     </div>
   );
 });

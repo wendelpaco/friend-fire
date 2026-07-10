@@ -84,7 +84,9 @@ import {
 import { RapierWorld } from "@/infrastructure/physics/RapierWorld";
 import {
   FrameSampler,
+  PerfSessionRecorder,
   QualityController,
+  downloadPerfReport,
   type AdaptReason,
 } from "@/infrastructure/perf";
 import {
@@ -353,6 +355,11 @@ export class GameClient {
   /** Network player index for O(1) patch (W4). */
   private networkPlayerById = new Map<string, PlayerState>();
   private networkSeenIds = new Set<string>();
+  /** Local QA session log (W5) — download JSON, no server. */
+  private perfSession = new PerfSessionRecorder();
+  private readonly onExportPerfEvent = () => {
+    this.exportPerfSession();
+  };
   private collisionWalls: WallRect[];
   private helpSeenKey = "ff_help_seen";
   private sessionId = "server";
@@ -678,10 +685,25 @@ export class GameClient {
     this.input.bind();
     if (typeof window !== "undefined") {
       window.addEventListener(PREFS_EVENT, this.onPrefsEvent);
+      window.addEventListener("ff-export-perf", this.onExportPerfEvent);
     }
+    this.perfSession.start({
+      mapId: this.map.id,
+      networked: this.networked,
+    });
     // Seed meshes from initial players
     this.syncRender();
     void this.ensurePhysics();
+  }
+
+  /** Build + download local perf JSON (W5 QA harness). */
+  exportPerfSession(): void {
+    this.perfSession.setMeta({
+      mapId: this.map.id,
+      networked: this.networked,
+    });
+    const report = this.perfSession.buildReport();
+    downloadPerfReport(report);
   }
 
   /** Lazy Rapier init (WASM). Falls back to AABB motor until ready. */
@@ -1185,6 +1207,25 @@ export class GameClient {
           this.lastAdaptReason = tick.reason;
         }
 
+        // Session recorder ~1 Hz (throttled inside)
+        this.perfSession.setMeta({
+          mapId: this.map.id,
+          networked: this.networked,
+        });
+        this.perfSession.maybeSample(t2, {
+          p50Ms: snap.p50FrameMs,
+          p95Ms: snap.p95FrameMs,
+          cpuMsP95: snap.p95CpuMs,
+          renderMsP95: snap.p95RenderMs,
+          fps: this.fpsDisplay,
+          drawCalls: this.lastDrawCalls,
+          triangles: this.lastTriangles,
+          userTierMax: this.userTierMax,
+          autoEnabled: this.autoQuality,
+          adaptReason: this.lastAdaptReason,
+          knobs: this.three.getRuntimeKnobs(),
+        });
+
         this.metricsPublishAt = t2;
       }
     };
@@ -1201,9 +1242,21 @@ export class GameClient {
     this.input.unbind();
     if (typeof window !== "undefined") {
       window.removeEventListener(PREFS_EVENT, this.onPrefsEvent);
+      window.removeEventListener("ff-export-perf", this.onExportPerfEvent);
     }
+    this.perfSession.clear();
+    this.frameSampler.clear();
+    this.botAccum.clear();
+    this.botTimers.clear();
+    this.networkPlayerById.clear();
+    this.networkSeenIds.clear();
+    this.alivePlayersScratch.length = 0;
+    this.renderPlayers.length = 0;
+    this.heProjectiles = [];
+    this.lastPerfSnapshot = null;
     this.physics?.dispose();
     this.physics = null;
+    this.physicsInit = null;
     this.three.dispose();
   }
 

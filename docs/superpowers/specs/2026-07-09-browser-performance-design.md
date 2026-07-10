@@ -1,7 +1,8 @@
 # Friend Fire — Browser Performance Design
 
-**Status:** Approved for implementation planning  
+**Status:** Implemented (W0–W5)  
 **Date:** 2026-07-09  
+**QA checklist:** `docs/performance-measurement.md`  
 **Branch:** `main` (or feature branch as needed)  
 **Context:** Free browser tactical shooter (Three.js + Colyseus). Performance is a product requirement, not a polish pass.
 
