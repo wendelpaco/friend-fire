@@ -8,7 +8,13 @@ import { GameRoom } from "./rooms/GameRoom";
 const PORT = Number(process.env.PORT) || 2567;
 
 const app = express();
-app.use(cors());
+// Reflect request Origin (not `*`) so browser XHR withCredentials (colyseus.js) works.
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  }),
+);
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "friend-fire-server" });
 });

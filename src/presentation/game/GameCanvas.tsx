@@ -110,15 +110,18 @@ export function GameCanvas({
     };
   }, [mapId]);
 
-  // Colyseus session when mode=room (reuse lobby singleton seat when present)
+  // Colyseus session when mode=room (reuse lobby singleton seat when present).
+  // IMPORTANT: do not leave() on every effect cleanup — React Strict Mode
+  // remounts would tear down a healthy socket and race the next connect
+  // (browser surfaces that as ProgressEvent / "servidor indisponível").
   useEffect(() => {
     if (mode !== "room" || !roomCode) {
       setNet(null);
+      void getColyseusRoomClient().leave();
       return;
     }
 
     let cancelled = false;
-    // Singleton: host create() / guest join() may already hold the seat.
     const client = getColyseusRoomClient();
     roomRef.current = client;
 
@@ -158,7 +161,6 @@ export function GameCanvas({
         engine.setNetworked(false, null);
         engine.setBuySender(null);
       } else {
-        // Hybrid / non-authoritative: keep local shop
         engine.setBuySender(null);
       }
     });
@@ -180,19 +182,31 @@ export function GameCanvas({
         : () => {};
 
     const connect = async () => {
-      try {
-        await client.connect(roomCode, {
-          host: isHost,
-          // Host create must send map so server walls/spawns match client.
-          mapId: mapId || "dust",
-        });
-      } catch (e) {
-        if (!cancelled) {
-          setNet(client.snapshot());
-          engineRef.current?.setNetworked(false, null);
-          engineRef.current?.setBuySender(null);
-          console.warn("[room] Colyseus connect failed:", e);
+      const opts = {
+        host: isHost,
+        mapId: mapId || "dust",
+      };
+      // Retry: first attempt often races Strict Mode remount / server warm-up.
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (cancelled) return;
+        try {
+          await client.connect(roomCode, opts);
+          if (!cancelled) setNet(client.snapshot());
+          return;
+        } catch (e) {
+          lastErr = e;
+          if (cancelled) return;
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+          }
         }
+      }
+      if (!cancelled) {
+        setNet(client.snapshot());
+        engineRef.current?.setNetworked(false, null);
+        engineRef.current?.setBuySender(null);
+        console.warn("[room] Colyseus connect failed:", lastErr);
       }
     };
     void connect();
@@ -225,10 +239,17 @@ export function GameCanvas({
       window.clearInterval(inputTimer);
       engineRef.current?.setNetworked(false, null);
       engineRef.current?.setBuySender(null);
-      void client.leave();
-      if (roomRef.current === client) roomRef.current = null;
+      // Keep Colyseus seat alive across Strict remounts; leave on page exit.
     };
   }, [mode, roomCode, isHost, mapId]);
+
+  // Leave multiplayer only when leaving the play canvas entirely.
+  useEffect(() => {
+    return () => {
+      void getColyseusRoomClient().leave();
+      roomRef.current = null;
+    };
+  }, []);
 
   const displayCode =
     (net?.code && net.code.length > 0 ? net.code : roomCode) ?? undefined;

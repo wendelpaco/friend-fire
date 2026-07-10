@@ -16,16 +16,38 @@ export {
   type LastRoom,
 } from "@/infrastructure/realtime/lastRoom";
 
-/**
- * WebSocket URL for the Colyseus game server.
- * Prefer 127.0.0.1 over `localhost` — on macOS, localhost→::1 often yields
- * opaque browser `ProgressEvent` failures while IPv4 works.
- */
-export const COLYSEUS_URL =
-  process.env.NEXT_PUBLIC_COLYSEUS_URL || "ws://127.0.0.1:2567";
+const DEFAULT_COLYSEUS_PORT = 2567;
 
-/** HTTP base derived from COLYSEUS_URL (ws:// → http://, wss:// → https://). */
-export const HTTP_URL = COLYSEUS_URL.replace(/^ws/i, "http");
+/**
+ * Resolve Colyseus WS URL at call time (not module load).
+ * - NEXT_PUBLIC_COLYSEUS_URL wins when set
+ * - Browser: same hostname as the page (so http://192.168.x.x:3000 works on LAN)
+ * - SSR / Node: 127.0.0.1
+ */
+export function getColyseusUrl(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_COLYSEUS_URL?.trim();
+  if (fromEnv) return fromEnv;
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const host = window.location.hostname;
+    const protocol =
+      window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${host}:${DEFAULT_COLYSEUS_PORT}`;
+  }
+  return `ws://127.0.0.1:${DEFAULT_COLYSEUS_PORT}`;
+}
+
+/** @deprecated Prefer getColyseusUrl() — kept for callers that need a string snapshot. */
+export const COLYSEUS_URL = getColyseusUrl();
+
+/** HTTP base derived from current Colyseus URL (ws:// → http://). */
+export function getHttpUrl(): string {
+  return getColyseusUrl().replace(/^ws/i, "http");
+}
+
+/** @deprecated Prefer getHttpUrl() */
+export const HTTP_URL = typeof window === "undefined"
+  ? `http://127.0.0.1:${DEFAULT_COLYSEUS_PORT}`
+  : getHttpUrl();
 
 export const GAME_ROOM_NAME = "game";
 
@@ -227,7 +249,7 @@ function friendlyConnectError(err: unknown): string {
   ) {
     return (
       "Servidor multiplayer indisponível. Em outro terminal rode " +
-      "`bun run dev:server` (ws://127.0.0.1:2567) e recarregue a página."
+      `\`bun run dev:server\` (${getColyseusUrl()}) e recarregue a página.`
     );
   }
   if (
@@ -245,7 +267,7 @@ function friendlyConnectError(err: unknown): string {
 }
 
 function makeClient(): Client {
-  return new Client(COLYSEUS_URL);
+  return new Client(getColyseusUrl());
 }
 
 function readCode(state: unknown): string | null {
@@ -388,7 +410,7 @@ export function pickQuickMatchRoom(
 export async function fetchRoomList(
   opts?: ListRoomsOptions,
 ): Promise<RoomListItem[]> {
-  const res = await fetch(`${HTTP_URL}/rooms${buildRoomsQuery(opts)}`);
+  const res = await fetch(`${getHttpUrl()}/rooms${buildRoomsQuery(opts)}`);
   if (!res.ok) {
     throw new Error(`Failed to list rooms (${res.status})`);
   }
@@ -555,40 +577,53 @@ export class ColyseusRoomClient implements RoomClient {
   private readonly heFxListeners = new Set<(event: HeFxEvent) => void>();
   private readonly shotFxListeners = new Set<(event: ShotFxEvent) => void>();
   private unbindRoom: (() => void) | null = null;
+  /** Serialize create/join/connect so Strict Mode / double-click can't race. */
+  private connectChain: Promise<void> = Promise.resolve();
+
+  private enqueueConnect<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.connectChain.then(fn, fn);
+    this.connectChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   async create(opts?: CreateRoomOptions): Promise<{ code: string }> {
-    this.mode = "connecting";
-    this.error = null;
-    this.emit();
-    try {
-      await this.leave();
-      const client = makeClient();
-      const region = resolveRegion(opts?.region);
-      // Host creates a real room and keeps the seat so the code stays joinable
-      // until the host opens /play (or leaves). Guests use join-only.
-      const room = await client.create(GAME_ROOM_NAME, {
-        name: getNickname(),
-        mapId: opts?.mapId,
-        roomName: opts?.roomName,
-        visibility: opts?.visibility,
-        region,
-      });
-      this.bindRoom(room);
-      const code = await waitForCode(room);
-      this.code = code;
-      this.mode = "in_room";
+    return this.enqueueConnect(async () => {
+      this.mode = "connecting";
       this.error = null;
-      const mapId =
-        opts?.mapId ?? stringFieldFromState(room.state, "mapId") ?? "";
-      saveLastRoom({ code, mapId });
       this.emit();
-      return { code };
-    } catch (e) {
-      this.mode = "error";
-      this.error = friendlyConnectError(e);
-      this.emit();
-      throw new Error(this.error);
-    }
+      try {
+        await this.leave();
+        const client = makeClient();
+        const region = resolveRegion(opts?.region);
+        // Host creates a real room and keeps the seat so the code stays joinable
+        // until the host opens /play (or leaves). Guests use join-only.
+        const room = await client.create(GAME_ROOM_NAME, {
+          name: getNickname(),
+          mapId: opts?.mapId,
+          roomName: opts?.roomName,
+          visibility: opts?.visibility,
+          region,
+        });
+        this.bindRoom(room);
+        const code = await waitForCode(room);
+        this.code = code;
+        this.mode = "in_room";
+        this.error = null;
+        const mapId =
+          opts?.mapId ?? stringFieldFromState(room.state, "mapId") ?? "";
+        saveLastRoom({ code, mapId });
+        this.emit();
+        return { code };
+      } catch (e) {
+        this.mode = "error";
+        this.error = friendlyConnectError(e);
+        this.emit();
+        throw new Error(this.error);
+      }
+    });
   }
 
   async listRooms(opts?: ListRoomsOptions): Promise<RoomListItem[]> {
@@ -671,63 +706,65 @@ export class ColyseusRoomClient implements RoomClient {
     code: string,
     options: { host?: boolean } & CreateRoomOptions = {},
   ): Promise<void> {
-    const normalized = normalizeRoomCode(code);
-    if (!isValidRoomCode(normalized)) {
-      throw new Error("Código inválido. Use 6 caracteres (A–Z, 2–9).");
-    }
+    return this.enqueueConnect(async () => {
+      const normalized = normalizeRoomCode(code);
+      if (!isValidRoomCode(normalized)) {
+        throw new Error("Código inválido. Use 6 caracteres (A–Z, 2–9).");
+      }
 
-    // Reuse lobby create/join seat when already in this room.
-    if (
-      this.isConnected() &&
-      this.code &&
-      normalizeRoomCode(this.code) === normalized
-    ) {
-      const mapId =
-        options.mapId ??
-        stringFieldFromState(this.room?.state, "mapId") ??
-        "";
-      saveLastRoom({ code: this.code, mapId });
-      this.emit();
-      return;
-    }
-
-    if (options.host) {
-      await this.leave();
-      this.mode = "connecting";
-      this.error = null;
-      this.code = normalized;
-      this.emit();
-      try {
-        const client = makeClient();
-        const region = resolveRegion(options.region);
-        const room = await client.joinOrCreate(GAME_ROOM_NAME, {
-          code: normalized,
-          name: getNickname(),
-          mapId: options.mapId,
-          roomName: options.roomName,
-          visibility: options.visibility,
-          region,
-        });
-        this.bindRoom(room);
-        const serverCode = await waitForCode(room).catch(() => normalized);
-        this.code = serverCode || normalized;
-        this.mode = "in_room";
-        this.error = null;
+      // Reuse lobby create/join seat when already in this room.
+      if (
+        this.isConnected() &&
+        this.code &&
+        normalizeRoomCode(this.code) === normalized
+      ) {
         const mapId =
-          options.mapId ?? stringFieldFromState(room.state, "mapId") ?? "";
+          options.mapId ??
+          stringFieldFromState(this.room?.state, "mapId") ??
+          "";
         saveLastRoom({ code: this.code, mapId });
         this.emit();
-      } catch (e) {
-        this.mode = "error";
-        this.error = friendlyConnectError(e);
-        this.emit();
-        throw new Error(this.error);
+        return;
       }
-      return;
-    }
 
-    // Guest: join-only (no ghost rooms on typos).
-    await this.join(normalized);
+      if (options.host) {
+        await this.leave();
+        this.mode = "connecting";
+        this.error = null;
+        this.code = normalized;
+        this.emit();
+        try {
+          const client = makeClient();
+          const region = resolveRegion(options.region);
+          const room = await client.joinOrCreate(GAME_ROOM_NAME, {
+            code: normalized,
+            name: getNickname(),
+            mapId: options.mapId,
+            roomName: options.roomName,
+            visibility: options.visibility,
+            region,
+          });
+          this.bindRoom(room);
+          const serverCode = await waitForCode(room).catch(() => normalized);
+          this.code = serverCode || normalized;
+          this.mode = "in_room";
+          this.error = null;
+          const mapId =
+            options.mapId ?? stringFieldFromState(room.state, "mapId") ?? "";
+          saveLastRoom({ code: this.code, mapId });
+          this.emit();
+        } catch (e) {
+          this.mode = "error";
+          this.error = friendlyConnectError(e);
+          this.emit();
+          throw new Error(this.error);
+        }
+        return;
+      }
+
+      // Guest: join-only (no ghost rooms on typos).
+      await this.join(normalized);
+    });
   }
 
   async leave(): Promise<void> {

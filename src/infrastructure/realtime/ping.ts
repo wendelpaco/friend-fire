@@ -1,4 +1,4 @@
-import { HTTP_URL } from "@/infrastructure/realtime/roomClient";
+import { getHttpUrl } from "@/infrastructure/realtime/roomClient";
 
 async function timedGet(
   path: string,
@@ -6,9 +6,11 @@ async function timedGet(
 ): Promise<number | null> {
   const started = performance.now();
   try {
-    const res = await fetch(`${HTTP_URL}${path}`, {
+    const res = await fetch(`${getHttpUrl()}${path}`, {
       method: "GET",
       cache: "no-store",
+      // Avoid credentials so /health can stay simple CORS; RTT still valid.
+      credentials: "omit",
       signal,
     });
     if (!res.ok) return null;
