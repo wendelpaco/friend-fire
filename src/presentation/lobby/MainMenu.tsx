@@ -6,11 +6,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AdBanner } from "@/presentation/ads/AdBanner";
-import { GAME_NAME, GAME_TAGLINE } from "@/game/constants";
+import { GAME_NAME } from "@/game/constants";
 import {
-  formatMissionProgress,
   getMissionsWithProgress,
   getXp,
   progressInTier,
@@ -25,10 +24,8 @@ import {
   type GraphicsQuality,
 } from "@/domains/prefs";
 import {
-  extractRoomCodeFromText,
   isValidRoomCode,
   normalizeRoomCode,
-  parseSalaQuery,
 } from "@/domains/session";
 import {
   getLastMapId,

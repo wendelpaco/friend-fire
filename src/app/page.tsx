@@ -18,10 +18,7 @@ export default function Home() {
 
   if (phase === "boot") {
     return (
-      <div
-        className="min-h-screen bg-[color:var(--ff-void,#0a0c10)]"
-        aria-hidden
-      />
+      <div className="min-h-screen bg-[#0B0D10]" aria-hidden />
     );
   }
 
