@@ -90,13 +90,13 @@
   --ff-space-3xl: 48px;
 
   /* ==========================================================
-     BORDER RADIUS
+     BORDER RADIUS (tactical = sharp, Sprint 1)
      ========================================================== */
-  --ff-radius-sm: 6px;
-  --ff-radius-md: 8px;
-  --ff-radius-lg: 12px;
-  --ff-radius-xl: 16px;
-  --ff-radius-2xl: 20px;
+  --ff-radius-sm: 2px;    /* HUD chips, badges */
+  --ff-radius-md: 4px;    /* buttons, inputs, weapon slots */
+  --ff-radius-lg: 6px;    /* cards, panels */
+  --ff-radius-xl: 8px;    /* modals */
+  --ff-radius-2xl: 8px;   /* main containers — no rounded SaaS look */
 
   /* ==========================================================
      SHADOWS

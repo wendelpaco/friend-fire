@@ -10,4 +10,5 @@ export { AmmoDisplay } from "./AmmoDisplay";
 export { WeaponSlot } from "./WeaponSlot";
 export { PhaseLabel, type TimerMode } from "./PhaseLabel";
 export { HighContrastInit } from "./HighContrastInit";
+export { ObjectiveChip } from "./ObjectiveChip";
 export { KillFeedItem } from "./KillFeedItem";

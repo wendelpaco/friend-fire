@@ -2956,6 +2956,7 @@ export class GameClient {
           plantProgress: s.plantProgress,
           defuseProgress: s.defuseProgress,
           bombTimer: s.bombTimer,
+          bombDefuserId: s.bombDefuserId ?? null,
         },
         team: local.team,
         alive: local.alive,

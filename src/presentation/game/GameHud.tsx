@@ -29,11 +29,12 @@ import {
   ArmorDisplay,
   HealthBar,
   KillFeedItem,
+  ObjectiveChip,
   PhaseLabel,
   WeaponSlot,
   type TimerMode,
 } from "@/presentation/ui";
-import { Bomb, Coin, Skull, Star } from "@/presentation/icons";
+import { Coin, Skull, Star } from "@/presentation/icons";
 import type { Team } from "@/shared/types/team";
 
 /** Local team result from final scores. */
@@ -146,18 +147,6 @@ const PerfOverlay = memo(function PerfOverlay({
 });
 
 /** Amber state chip for C4 carrier — not a red banner. */
-function ObjectiveChip({ label = "C4" }: { label?: string }) {
-  return (
-    <div
-      className="flex items-center gap-1.5 rounded-md border border-amber-400/50 bg-amber-500/15 px-2.5 py-1 text-[11px] font-bold tracking-[0.18em] text-amber-100 shadow-[0_0_14px_rgba(245,158,11,0.14)] backdrop-blur-sm"
-      title="Você carrega a C4"
-    >
-      <Bomb size={12} className="opacity-90" />
-      {label}
-    </div>
-  );
-}
-
 function GameHudImpl({
   hud,
   roomCode,
@@ -584,20 +573,24 @@ function GameHudImpl({
         <ArmorDisplay armor={hud.armor} />
       </div>
 
-      {/* Weapon bar + ObjectiveChip (C4) + action prompts (events only) */}
+      {/* Weapon bar + ObjectiveChip (C4) — state = chip, event = banner ≤3s */}
       <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
-        {/* Carrier state = amber chip only (never red persistent banner) */}
-        {hud.carryingBomb && hud.alive && !hud.paused && <ObjectiveChip />}
-        {/* Contextual approach prompt only — hold progress is world radial + SEGURE F */}
+        {/* Carrier state: amber chip only (never red persistent banner) */}
+        {hud.carryingBomb && hud.alive && !hud.paused && (
+          <ObjectiveChip kind="c4_carry" />
+        )}
+        {/* Action prompt: compact chip with verb + key */}
         {hud.bombPrompt &&
           hud.alive &&
           !hud.paused &&
           hud.plantProgress <= 0 &&
           hud.defuseProgress <= 0 && (
-          <div className="rounded-md border border-white/15 bg-black/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-white/85 shadow-lg backdrop-blur-md">
-            {hud.bombPrompt}
-          </div>
-        )}
+            hud.bombPrompt?.includes("plant") || hud.bombPrompt?.includes("PLANT") ? (
+              <ObjectiveChip kind="c4_plant" />
+            ) : (
+              <ObjectiveChip kind="c4_defuse" />
+            )
+          )}
         {hud.reloading && (
           <div className="w-40 rounded-full border border-amber-400/40 bg-black/70 p-1 backdrop-blur">
             <div

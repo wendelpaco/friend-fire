@@ -7,18 +7,28 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-saira);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-display: var(--font-saira-condensed);
 
-  /* ---- Typography scale (game-optimised) ---- */
+  /* Sprint 1: tactical radius (sharp, military) */
+  --radius-sm: var(--ff-radius-sm);
+  --radius-md: var(--ff-radius-md);
+  --radius-lg: var(--ff-radius-lg);
+  --radius-xl: var(--ff-radius-xl);
+  --radius-2xl: var(--ff-radius-2xl);
+
+  /* ---- Typography scale (game-optimised, Sprint 1: Saira + JetBrains) ---- */
   --text-ff-hero: 3.5rem;
   --text-ff-hero--line-height: 1;
-  --text-ff-hero--font-weight: 900;
+  --text-ff-hero--font-weight: 800;
   --text-ff-hero--letter-spacing: -0.02em;
+  --text-ff-hero--font-family: var(--font-display);
   --text-ff-display: 2.25rem;
   --text-ff-display--line-height: 1.1;
-  --text-ff-display--font-weight: 800;
+  --text-ff-display--font-weight: 700;
   --text-ff-display--letter-spacing: -0.01em;
+  --text-ff-display--font-family: var(--font-display);
   --text-ff-title: 1.5rem;
   --text-ff-title--line-height: 1.2;
   --text-ff-title--font-weight: 700;
@@ -28,7 +38,7 @@
   --text-ff-label--letter-spacing: 0.2em;
   --text-ff-label--text-transform: uppercase;
   --text-ff-mono-data: 1.125rem;
-  --text-ff-mono-data--font-family: var(--font-geist-mono);
+  --text-ff-mono-data--font-family: var(--font-mono);
   --text-ff-mono-data--font-weight: 700;
   --text-ff-mono-data--font-variant-numeric: tabular-nums;
 
@@ -165,7 +175,7 @@ body {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-saira), system-ui, sans-serif;
   overflow-x: hidden;
 }
 
