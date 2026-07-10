@@ -15,6 +15,12 @@ export type BombState =
 export const PLANT_TIME = 3.5;
 /** Seconds to hold F while defusing (no kit). */
 export const DEFUSE_TIME = 5;
+/**
+ * Defuse with kit would be 3.5s (B2). Catalog has **no** defuse kit item yet
+ * (gap — do not invent a $400 kit without product sign-off). When kit ships,
+ * pass this duration into `tickDefuse` instead of DEFUSE_TIME.
+ */
+export const DEFUSE_TIME_KIT = 3.5;
 /** Seconds until explosion after plant. */
 export const BOMB_TIMER = 40;
 

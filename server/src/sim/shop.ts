@@ -139,6 +139,151 @@ export function tryBuy(
   return { ok: false, reason: "Item inválido" };
 }
 
+export type KitTier = "ECO" | "FORCE" | "FULL";
+
+function catalogPrice(id: string): number {
+  return SHOP_CATALOG.find((i) => i.id === id)?.price ?? 0;
+}
+
+function priceOf(ids: string[]): number {
+  return ids.reduce((s, id) => s + catalogPrice(id), 0);
+}
+
+/** Mirror client suggestKits — keep affordable tiers only. */
+export function suggestKits(
+  money: number,
+): { tier: KitTier; itemIds: string[]; totalPrice: number }[] {
+  const out: { tier: KitTier; itemIds: string[]; totalPrice: number }[] = [];
+
+  // ECO
+  if (money < 2000) {
+    if (money >= 650) {
+      out.push({ tier: "ECO", itemIds: ["armor"], totalPrice: 650 });
+    } else {
+      for (const id of ["deagle", "usp", "glock"] as const) {
+        const p = catalogPrice(id);
+        if (p > 0 && money >= p) {
+          out.push({ tier: "ECO", itemIds: [id], totalPrice: p });
+          break;
+        }
+      }
+    }
+  } else {
+    const ecoIds: string[] = [];
+    if (money >= 650) ecoIds.push("armor");
+    const rest = money - priceOf(ecoIds);
+    if (rest >= 700) ecoIds.push("deagle");
+    else if (rest >= 200) ecoIds.push("glock");
+    if (ecoIds.length > 0 && priceOf(ecoIds) <= money) {
+      out.push({ tier: "ECO", itemIds: ecoIds, totalPrice: priceOf(ecoIds) });
+    }
+  }
+
+  // FORCE
+  if (money >= 1500) {
+    const primary = money >= 2000 ? "galil" : "mp5";
+    const ids =
+      money >= priceOf([primary, "armor"]) ? [primary, "armor"] : [primary];
+    if (money >= priceOf(ids)) {
+      out.push({ tier: "FORCE", itemIds: ids, totalPrice: priceOf(ids) });
+    }
+  }
+
+  // FULL
+  if (money >= 2700) {
+    let fullIds: string[];
+    if (money >= 4750 + 650) fullIds = ["awp", "armor"];
+    else if (money >= 4750) fullIds = ["awp"];
+    else if (money >= 2700 + 650) fullIds = ["ak47", "armor"];
+    else fullIds = ["ak47"];
+    if (priceOf(fullIds) <= money) {
+      out.push({ tier: "FULL", itemIds: fullIds, totalPrice: priceOf(fullIds) });
+    }
+  }
+
+  return out;
+}
+
+/** Buy items in sequence; skips failures (already owned / broke). */
+export function tryBuySequence(
+  player: BuyLoadout,
+  ammo: AmmoMap,
+  itemIds: readonly string[],
+): BuyResult & { player?: BuyLoadout; ammo?: AmmoMap; bought: string[] } {
+  let curP = player;
+  let curAmmo = ammo;
+  const bought: string[] = [];
+  for (const id of itemIds) {
+    const r = tryBuy(curP, id, curAmmo);
+    if (r.ok && r.player) {
+      curP = r.player;
+      if (r.ammo) curAmmo = r.ammo;
+      bought.push(id);
+    }
+  }
+  if (bought.length === 0) {
+    return { ok: false, reason: "Nada comprado", bought };
+  }
+  return {
+    ok: true,
+    money: curP.money,
+    message: `Kit: ${bought.join(", ")}`,
+    player: curP,
+    ammo: curAmmo,
+    bought,
+  };
+}
+
+export function tryBuyKit(
+  player: BuyLoadout,
+  ammo: AmmoMap,
+  tier: KitTier,
+): BuyResult & { player?: BuyLoadout; ammo?: AmmoMap; bought: string[] } {
+  const kit = suggestKits(player.money).find((k) => k.tier === tier);
+  if (!kit) return { ok: false, reason: "Kit indisponível", bought: [] };
+  if (kit.totalPrice > player.money) {
+    return { ok: false, reason: "Dinheiro insuficiente", bought: [] };
+  }
+  return tryBuySequence(player, ammo, kit.itemIds);
+}
+
+export function tryRebuy(
+  player: BuyLoadout,
+  ammo: AmmoMap,
+  itemIds: readonly string[],
+): BuyResult & { player?: BuyLoadout; ammo?: AmmoMap; bought: string[] } {
+  if (!itemIds.length) {
+    return { ok: false, reason: "Sem loadout anterior", bought: [] };
+  }
+  const r = tryBuySequence(player, ammo, itemIds);
+  if (!r.ok) return r;
+  return { ...r, message: `Rebuy: ${r.bought?.join(", ") ?? ""}` };
+}
+
+export function shopIdForWeapon(weaponId: string): string | null {
+  const found = SHOP_CATALOG.find((i) => i.weaponId === weaponId);
+  return found?.id ?? null;
+}
+
+export function snapshotRebuyItemIds(opts: {
+  primaryId?: string | null;
+  secondaryId?: string | null;
+  teamPistolId?: string | null;
+  armor: number;
+}): string[] {
+  const ids: string[] = [];
+  if (opts.primaryId) {
+    const sid = shopIdForWeapon(opts.primaryId);
+    if (sid) ids.push(sid);
+  }
+  if (opts.secondaryId && opts.secondaryId !== opts.teamPistolId) {
+    const sid = shopIdForWeapon(opts.secondaryId);
+    if (sid) ids.push(sid);
+  }
+  if (opts.armor >= 100) ids.push("armor");
+  return ids;
+}
+
 export function weaponIdForSlot(
   primaryId: string,
   secondaryId: string,

@@ -192,6 +192,8 @@ export function GameCanvas({
         if (snap.connected && !snap.hybridLocalCombat) {
           engine.setNetworked(true, snap.sessionId);
           engine.setBuySender((itemId) => client.sendBuy(itemId));
+          engine.setBuyKitSender((tier) => client.sendBuyKit(tier));
+          engine.setRebuySender(() => client.sendRebuy());
           engine.setChatSender((channel, text) =>
             client.sendChat(channel, text),
           );
@@ -217,9 +219,13 @@ export function GameCanvas({
         } else if (!snap.connected) {
           engine.setNetworked(false, null);
           engine.setBuySender(null);
+          engine.setBuyKitSender(null);
+          engine.setRebuySender(null);
           engine.setChatSender(null);
         } else {
           engine.setBuySender(null);
+          engine.setBuyKitSender(null);
+          engine.setRebuySender(null);
           engine.setChatSender(null);
         }
       }
@@ -304,6 +310,8 @@ export function GameCanvas({
         setNet(client.snapshot());
         engineRef.current?.setNetworked(false, null);
         engineRef.current?.setBuySender(null);
+        engineRef.current?.setBuyKitSender(null);
+        engineRef.current?.setRebuySender(null);
         engineRef.current?.setChatSender(null);
         console.warn("[room] Colyseus connect failed:", lastErr);
       }
@@ -362,6 +370,8 @@ export function GameCanvas({
       window.clearInterval(inputTimer);
       engineRef.current?.setNetworked(false, null);
       engineRef.current?.setBuySender(null);
+      engineRef.current?.setBuyKitSender(null);
+      engineRef.current?.setRebuySender(null);
       engineRef.current?.setChatSender(null);
       // Keep Colyseus seat alive across Strict remounts; leave on page exit.
     };
@@ -427,6 +437,8 @@ export function GameCanvas({
           onOpenHelp={() => engineRef.current?.openHelp()}
           onMatchContinue={onMatchContinue}
           onBuy={(id) => engineRef.current?.purchase(id)}
+          onBuyKit={(tier) => engineRef.current?.purchaseKit(tier)}
+          onRebuy={() => engineRef.current?.rebuyLastLoadout()}
           onCloseBuy={() => engineRef.current?.closeBuyMenu()}
           onDismissShowcase={onDismissShowcase}
           onSendChat={(channel, text) =>

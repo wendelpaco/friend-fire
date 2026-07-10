@@ -62,6 +62,8 @@ interface GameHudProps {
   onOpenHelp: () => void;
   onMatchContinue?: () => void;
   onBuy?: (itemId: string) => void;
+  onBuyKit?: (tier: import("@/domains/combat").KitTier) => void;
+  onRebuy?: () => void;
   onCloseBuy?: () => void;
   onDismissShowcase?: (opts: { openBuy: boolean }) => void;
   /** Meta-3 squad/team/all chat send. */
@@ -166,6 +168,8 @@ function GameHudImpl({
   onOpenHelp,
   onMatchContinue,
   onBuy,
+  onBuyKit,
+  onRebuy,
   onCloseBuy,
   onDismissShowcase,
   onSendChat,
@@ -829,6 +833,9 @@ function GameHudImpl({
           armor={hud.armor}
           message={hud.buyMessage}
           onBuy={onBuy}
+          onBuyKit={onBuyKit}
+          onRebuy={onRebuy}
+          canRebuy={hud.canRebuy}
           onClose={onCloseBuy}
         />
       )}

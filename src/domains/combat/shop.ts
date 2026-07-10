@@ -1,4 +1,6 @@
 import type { RoundPhase } from "@/domains/match";
+import type { KitTier } from "./kitSuggest";
+import { suggestKits } from "./kitSuggest";
 import type { WeaponId } from "./types";
 import { WEAPONS } from "./weapons";
 
@@ -180,3 +182,102 @@ export function tryBuy(
 
   return { ok: false, reason: "Item inválido" };
 }
+
+/**
+ * Buy multiple catalog items in order; skips unaffordable / already-owned gear.
+ * Partial success still returns ok when at least one item bought.
+ */
+export function tryBuySequence(
+  player: BuyPlayerSlice,
+  itemIds: readonly string[],
+): BuyResult & { player?: BuyPlayerSlice; bought: string[] } {
+  let cur = player;
+  const bought: string[] = [];
+  for (const id of itemIds) {
+    const r = tryBuy(cur, id);
+    if (r.ok && r.player) {
+      cur = r.player;
+      bought.push(id);
+    }
+  }
+  if (bought.length === 0) {
+    return { ok: false, reason: "Nada comprado", bought };
+  }
+  const names = bought
+    .map((id) => SHOP_CATALOG.find((c) => c.id === id)?.name ?? id)
+    .join(", ");
+  return {
+    ok: true,
+    money: cur.money,
+    message: `Kit: ${names}`,
+    player: cur,
+    bought,
+  };
+}
+
+/** One-click kit: resolve affordable items for tier from current money. */
+export function tryBuyKit(
+  player: BuyPlayerSlice,
+  tier: KitTier,
+): BuyResult & { player?: BuyPlayerSlice; bought: string[] } {
+  const kit = suggestKits(player.money).find((k) => k.tier === tier);
+  if (!kit || kit.itemIds.length === 0) {
+    return { ok: false, reason: "Kit indisponível", bought: [] };
+  }
+  if (kit.totalPrice > player.money) {
+    return { ok: false, reason: "Dinheiro insuficiente", bought: [] };
+  }
+  return tryBuySequence(player, kit.itemIds);
+}
+
+/**
+ * Rebuy last-round loadout item ids (weapons + armor).
+ * Skips items already owned / unaffordable.
+ */
+export function tryRebuy(
+  player: BuyPlayerSlice,
+  itemIds: readonly string[],
+): BuyResult & { player?: BuyPlayerSlice; bought: string[] } {
+  if (!itemIds.length) {
+    return { ok: false, reason: "Sem loadout anterior", bought: [] };
+  }
+  const r = tryBuySequence(player, itemIds);
+  if (!r.ok) return { ...r, reason: r.ok ? "Erro" : r.reason };
+  return {
+    ...r,
+    message: r.message.replace(/^Kit:/, "Rebuy:"),
+  };
+}
+
+/** Map weapon id → shop catalog id (same string for current catalog). */
+export function shopIdForWeapon(weaponId: string): string | null {
+  const found = SHOP_CATALOG.find((i) => i.weaponId === weaponId);
+  return found?.id ?? null;
+}
+
+/**
+ * Snapshot shop item ids worth rebuying next freezetime.
+ * Includes primary, upgraded secondary (non team-default), and full armor.
+ */
+export function snapshotRebuyItemIds(opts: {
+  primaryId?: string | null;
+  secondaryId?: string | null;
+  teamPistolId?: string | null;
+  armor: number;
+}): string[] {
+  const ids: string[] = [];
+  if (opts.primaryId) {
+    const sid = shopIdForWeapon(opts.primaryId);
+    if (sid) ids.push(sid);
+  }
+  if (opts.secondaryId && opts.secondaryId !== opts.teamPistolId) {
+    const sid = shopIdForWeapon(opts.secondaryId);
+    if (sid) ids.push(sid);
+  }
+  if (opts.armor >= 100) ids.push("armor");
+  return ids;
+}
+
+/** Optional: auto-open buy menu on freezetime (B still toggles). */
+export const AUTO_OPEN_BUY_ON_FREEZETIME = true;
+

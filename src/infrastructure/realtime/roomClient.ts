@@ -991,6 +991,26 @@ export class ColyseusRoomClient implements RoomClient {
     }
   }
 
+  /** One-click kit ECO | FORCE | FULL (server validates). */
+  sendBuyKit(tier: string): void {
+    if (!this.room || !tier) return;
+    try {
+      this.room.send("buyKit", { tier });
+    } catch {
+      /* drop if socket mid-close */
+    }
+  }
+
+  /** Rebuy last live loadout (server validates). */
+  sendRebuy(): void {
+    if (!this.room) return;
+    try {
+      this.room.send("rebuy", {});
+    } catch {
+      /* drop if socket mid-close */
+    }
+  }
+
   /**
    * Channel-filtered chat (Meta-3). Server rate-limits + fans out to recipients.
    */

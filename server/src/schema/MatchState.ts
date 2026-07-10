@@ -66,7 +66,7 @@ export class MatchState extends Schema {
   @type("number") round: number = 0;
   @type("number") scoreTR: number = 0;
   @type("number") scoreCT: number = 0;
-  @type("number") timeLeft: number = 20;
+  @type("number") timeLeft: number = 30;
   @type("string") code: string = "";
   /** Map id: dust | favela | yard */
   @type("string") mapId: string = "dust";

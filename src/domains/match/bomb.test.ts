@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BOMB_TIMER,
   DEFUSE_TIME,
+  DEFUSE_TIME_KIT,
   PLANT_TIME,
   canDefuse,
   canPlant,
@@ -26,9 +27,10 @@ function plantedAt(x = 0, z = 0): BombMatchState {
 }
 
 describe("bomb constants", () => {
-  it("matches Wave 5 timings", () => {
+  it("matches B2/F5 timings (no kit in catalog → DEFUSE_TIME_KIT reserved)", () => {
     expect(PLANT_TIME).toBe(3.5);
     expect(DEFUSE_TIME).toBe(5);
+    expect(DEFUSE_TIME_KIT).toBe(3.5);
     expect(BOMB_TIMER).toBe(40);
   });
 });

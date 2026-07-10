@@ -17,6 +17,7 @@ describe("suggestKits", () => {
     const kits = suggestKits(800);
     const eco = kits.find((k) => k.tier === "ECO");
     expect(eco).toBeDefined();
+    expect(eco!.label).toBe("ECO");
     expect(eco!.itemIds).toContain("armor");
     expect(eco!.totalPrice).toBe(650);
   });
@@ -30,10 +31,11 @@ describe("suggestKits", () => {
     );
   });
 
-  it("FORCE suggests SMG or Galil mid-buy", () => {
+  it("FORCE suggests SMG or Galil mid-buy with FORÇA label", () => {
     const kits = suggestKits(1600);
     const force = kits.find((k) => k.tier === "FORCE");
     expect(force).toBeDefined();
+    expect(force!.label).toBe("FORÇA");
     expect(
       force!.itemIds.includes("mp5") || force!.itemIds.includes("galil"),
     ).toBe(true);
@@ -51,9 +53,17 @@ describe("suggestKits", () => {
     const kits = suggestKits(3400);
     const full = kits.find((k) => k.tier === "FULL");
     expect(full).toBeDefined();
+    expect(full!.label).toBe("COMPLETO");
     expect(full!.itemIds).toContain("ak47");
     expect(full!.itemIds).not.toContain("awp");
     expect(full!.totalPrice).toBeLessThanOrEqual(3400);
+  });
+
+  it("offers three tiers when money is high", () => {
+    const kits = suggestKits(6000);
+    expect(kits.map((k) => k.tier).sort()).toEqual(
+      ["ECO", "FORCE", "FULL"].sort(),
+    );
   });
 
   it("FULL suggests AWP when money is high enough", () => {

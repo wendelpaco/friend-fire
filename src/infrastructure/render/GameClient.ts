@@ -5,6 +5,7 @@ import {
   applySpreadToYaw,
   applyWeaponPickup,
   beginReload,
+  AUTO_OPEN_BUY_ON_FREEZETIME,
   canOpenBuyMenu,
   completeReload,
   createDeathWeaponDrops,
@@ -17,11 +18,15 @@ import {
   knobsForWeapon,
   nextShotsInBurst,
   shotSpreadRadians,
+  snapshotRebuyItemIds,
   spreadWorldRadius,
   throwGrenade,
   tryBuy,
+  tryBuyKit,
+  tryRebuy,
   WEAPON_DROP_PICKUP_RADIUS,
   WEAPONS,
+  type KitTier,
   type WorldWeaponDrop,
 } from "@/domains/combat";
 import { Sfx } from "@/infrastructure/audio/Sfx";
@@ -44,13 +49,17 @@ import {
   isInsideSite,
   applyDefaultLoadout,
   applyRoundEconomy,
+  BOMB_EXPLODE_TEAM_REWARD,
   clampMoney,
+  isPostHalfBuyRound,
   nextLossBonus,
   onDefuseComplete,
   onPlantComplete,
   onRoundWin,
   pickBombCarrier,
+  PLANT_REWARD,
   shouldLiveTimerAwardCtWin,
+  teamPistol,
   tickBombTimer,
   tickDefuse,
   tickPhase,
@@ -63,7 +72,10 @@ import {
   upsertPlayerStats,
   type MatchResult,
 } from "@/domains/stats";
-import { pushImpression } from "@/infrastructure/analytics/queue";
+import {
+  pushImpression,
+  trackBuyTiming,
+} from "@/infrastructure/analytics/queue";
 import {
   BOT_LINES,
   BOT_NAMES,
@@ -419,6 +431,12 @@ export class GameClient {
   private networkSessionId: string | null = null;
   /** When set (room mode), purchases go to the server instead of local tryBuy. */
   private buySender: ((itemId: string) => void) | null = null;
+  private buyKitSender: ((tier: KitTier) => void) | null = null;
+  private rebuySender: (() => void) | null = null;
+  /** Last live loadout shop ids for local rebuy (R). */
+  private lastRebuyItemIds: string[] = [];
+  /** Buy menu open timestamp (performance.now) for telemetry. */
+  private buyMenuOpenedAt: number | null = null;
 
   /** Reused each frame to avoid allocating player snapshot arrays. */
   private renderPlayers: Array<{
@@ -473,9 +491,11 @@ export class GameClient {
   private matchConfig = {
     warmupTime: WARMUP_TIME,
     buyTime: DEFAULT_MATCH.buyTime,
+    firstBuyTime: DEFAULT_MATCH.firstBuyTime,
     roundTime: ROUND_TIME,
     endPause: DEFAULT_MATCH.endPause,
     roundsToWin: ROUNDS_TO_WIN,
+    halfAfterRound: DEFAULT_MATCH.halfAfterRound,
   };
   /** Client-side Rapier map (async init). Server still uses AABB motor. */
   private physics: RapierWorld | null = null;
@@ -589,6 +609,11 @@ export class GameClient {
         bomb = explodeBomb(bomb);
         this.writeBomb(bomb);
         this.syncBombVisual();
+        for (const pl of this.state.players) {
+          if (pl.team === "TR") {
+            pl.money = clampMoney(pl.money + BOMB_EXPLODE_TEAM_REWARD);
+          }
+        }
         this.endRound("TR", "bomb_exploded");
         return;
       }
@@ -631,9 +656,10 @@ export class GameClient {
       bomb = tickPlant(bomb, dt, holdingF, plantOk);
       if (bomb.plantProgress >= 1 && bomb.bombState === "planting") {
         bomb = onPlantComplete(bomb, p.x, p.z);
+        p.money = clampMoney(p.money + PLANT_REWARD);
         this.writeBomb(bomb);
         this.syncBombVisual();
-        this.addChat("SYSTEM", "C4 plantada!", "system");
+        this.addChat("SYSTEM", "C4 plantada! +$300", "system");
         Sfx.play("ui");
         return;
       }
@@ -915,11 +941,15 @@ export class GameClient {
       }
     } else if (was) {
       this.buySender = null;
+      this.buyKitSender = null;
+      this.rebuySender = null;
       this.chatSender = null;
       this.networkPlayerById.clear();
       this.networkSeenIds.clear();
     } else {
       this.buySender = null;
+      this.buyKitSender = null;
+      this.rebuySender = null;
       this.chatSender = null;
     }
   }
@@ -931,6 +961,18 @@ export class GameClient {
   /** Inject room.send("buy") from GameCanvas when Colyseus is connected. */
   setBuySender(sender: ((itemId: string) => void) | null) {
     this.buySender = sender;
+  }
+
+  setBuyKitSender(sender: ((tier: KitTier) => void) | null) {
+    this.buyKitSender = sender;
+  }
+
+  setRebuySender(sender: (() => void) | null) {
+    this.rebuySender = sender;
+  }
+
+  canRebuy(): boolean {
+    return this.lastRebuyItemIds.length > 0;
   }
 
   /** Inject room.send("chat") from GameCanvas when Colyseus is connected. */
@@ -1170,11 +1212,26 @@ export class GameClient {
       // Drop spectator free-cam as soon as freezetime starts (player may already
       // be alive from server respawn before live phase).
       this.clearSpectator();
-      this.pendingAutoBuyMenu = false;
+      this.pendingAutoBuyMenu = AUTO_OPEN_BUY_ON_FREEZETIME;
       this.startShopShowcaseIfNeeded();
+      if (
+        !this.showShopShowcase &&
+        this.pendingAutoBuyMenu &&
+        canOpenBuyMenu("buy")
+      ) {
+        this.openBuyMenu();
+        this.pendingAutoBuyMenu = false;
+      }
     } else if (this.state.phase !== "buy" && this.showShopShowcase) {
       this.showShopShowcase = false;
       this.pendingAutoBuyMenu = false;
+    }
+    if (
+      prevPhase === "buy" &&
+      this.state.phase === "live"
+    ) {
+      this.flushBuyTiming();
+      this.state.showBuyMenu = false;
     }
 
     const localId = net.sessionId ?? this.state.localPlayerId;
@@ -1815,8 +1872,12 @@ export class GameClient {
 
     if (this.input.wasPressed("KeyB")) {
       if (canOpenBuyMenu(this.state.phase) && !this.state.paused) {
-        this.state.showBuyMenu = !this.state.showBuyMenu;
-        Sfx.play("ui");
+        if (this.state.showBuyMenu) {
+          this.closeBuyMenu();
+        } else {
+          this.openBuyMenu();
+          Sfx.play("ui");
+        }
       } else if (!canOpenBuyMenu(this.state.phase)) {
         this.flashBuyMessage("Loja só no aquecimento ou na fase de compra");
         Sfx.play("deny");
@@ -1853,7 +1914,13 @@ export class GameClient {
     // Buy menu open: freeze local combat (network still receives external state)
     if (this.state.showBuyMenu) {
       if (!canOpenBuyMenu(this.state.phase)) {
-        this.state.showBuyMenu = false;
+        this.closeBuyMenu();
+      } else {
+        // F1–F3 kits / R rebuy while freezetime shop is open
+        if (this.input.wasPressed("F1")) this.purchaseKit("ECO");
+        if (this.input.wasPressed("F2")) this.purchaseKit("FORCE");
+        if (this.input.wasPressed("F3")) this.purchaseKit("FULL");
+        if (this.input.wasPressed("KeyR")) this.rebuyLastLoadout();
       }
       if (!this.networked) {
         this.updateBots(dt);
@@ -1976,6 +2043,33 @@ export class GameClient {
     }
   }
 
+  private localBuySlice(p: PlayerState) {
+    return {
+      money: p.money,
+      armor: p.armor,
+      weapons: p.weapons,
+      ammo: p.ammo,
+      weaponSlot: p.weaponSlot,
+      heCount: p.heCount ?? 0,
+    };
+  }
+
+  private applyLocalBuy(p: PlayerState, next: {
+    money: number;
+    armor: number;
+    weapons: PlayerState["weapons"];
+    ammo: PlayerState["ammo"];
+    weaponSlot: number;
+    heCount?: number;
+  }) {
+    p.money = next.money;
+    p.armor = next.armor;
+    p.weapons = next.weapons;
+    p.ammo = next.ammo;
+    p.weaponSlot = next.weaponSlot;
+    if (next.heCount != null) p.heCount = next.heCount;
+  }
+
   /** Called from BuyMenu UI */
   purchase(itemId: string) {
     const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
@@ -1994,35 +2088,97 @@ export class GameClient {
       return;
     }
 
-    const result = tryBuy(
-      {
-        money: p.money,
-        armor: p.armor,
-        weapons: p.weapons,
-        ammo: p.ammo,
-        weaponSlot: p.weaponSlot,
-        heCount: p.heCount ?? 0,
-      },
-      itemId,
-    );
+    const result = tryBuy(this.localBuySlice(p), itemId);
     if (!result.ok || !result.player) {
       this.flashBuyMessage(result.ok ? "Erro" : result.reason);
       Sfx.play("deny");
       return;
     }
-    p.money = result.player.money;
-    p.armor = result.player.armor;
-    p.weapons = result.player.weapons;
-    p.ammo = result.player.ammo;
-    p.weaponSlot = result.player.weaponSlot;
-    if (result.player.heCount != null) p.heCount = result.player.heCount;
+    this.applyLocalBuy(p, result.player);
     this.flashBuyMessage(result.message);
     Sfx.play("buy");
   }
 
+  /** One-click ECO / FORÇA / COMPLETO (F1–F3). */
+  purchaseKit(tier: KitTier) {
+    const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
+    if (!p || !this.state.showBuyMenu) return;
+    if (!canOpenBuyMenu(this.state.phase)) {
+      this.flashBuyMessage("Loja fechada");
+      Sfx.play("deny");
+      return;
+    }
+
+    if (this.networked && this.buyKitSender) {
+      this.buyKitSender(tier);
+      this.flashBuyMessage("Kit enviado…");
+      Sfx.play("buy");
+      return;
+    }
+
+    const result = tryBuyKit(this.localBuySlice(p), tier);
+    if (!result.ok || !result.player) {
+      this.flashBuyMessage(result.ok ? "Erro" : result.reason);
+      Sfx.play("deny");
+      return;
+    }
+    this.applyLocalBuy(p, result.player);
+    this.flashBuyMessage(result.message);
+    Sfx.play("buy");
+  }
+
+  /** Rebuy last live loadout (R). */
+  rebuyLastLoadout() {
+    const p = this.state.players.find((x) => x.id === this.state.localPlayerId);
+    if (!p || !this.state.showBuyMenu) return;
+    if (!canOpenBuyMenu(this.state.phase)) {
+      this.flashBuyMessage("Loja fechada");
+      Sfx.play("deny");
+      return;
+    }
+
+    if (this.networked && this.rebuySender) {
+      this.rebuySender();
+      this.flashBuyMessage("Rebuy enviado…");
+      Sfx.play("buy");
+      return;
+    }
+
+    const result = tryRebuy(this.localBuySlice(p), this.lastRebuyItemIds);
+    if (!result.ok || !result.player) {
+      this.flashBuyMessage(result.ok ? "Erro" : result.reason);
+      Sfx.play("deny");
+      return;
+    }
+    this.applyLocalBuy(p, result.player);
+    this.flashBuyMessage(result.message);
+    Sfx.play("buy");
+  }
+
+  openBuyMenu() {
+    if (!canOpenBuyMenu(this.state.phase) || this.state.paused) return;
+    if (!this.state.showBuyMenu) {
+      this.buyMenuOpenedAt = performance.now();
+    }
+    this.state.showBuyMenu = true;
+  }
+
   closeBuyMenu() {
+    if (this.state.showBuyMenu) this.flushBuyTiming();
     this.state.showBuyMenu = false;
     Sfx.play("ui");
+  }
+
+  /** Emit buy_open → close/live duration once per open. */
+  private flushBuyTiming() {
+    if (this.buyMenuOpenedAt == null) return;
+    const closeAt = performance.now();
+    trackBuyTiming({
+      round: this.state.round,
+      buyOpenMs: this.buyMenuOpenedAt,
+      buyCloseOrLiveMs: closeAt,
+    });
+    this.buyMenuOpenedAt = null;
   }
 
   private flashBuyMessage(msg: string) {
@@ -2260,33 +2416,45 @@ export class GameClient {
     }
   }
 
-  /** Start of buy freezetime: CS strip if died, spawn, shop unlocked. */
+  /** Start of buy freezetime: half if needed, CS strip if died, spawn, shop. */
   private beginBuyPhaseEffects() {
     this.state.bullets = [];
     this.state.weaponDrops = [];
     this.heProjectiles = [];
     this.clearSpectator();
-    this.addChat(
-      "SYSTEM",
-      `COMPRA · round ${this.state.round} · ${Math.ceil(this.state.timeLeft)}s · tecla B`,
-      "system",
-    );
-    for (const p of this.state.players) {
-      // CS: die → knife + team pistol next buy; survive → keep guns
-      if (p.diedThisRound) {
-        const stripped = applyDefaultLoadout(p);
-        p.weapons = stripped.weapons;
-        p.ammo = stripped.ammo;
-        p.weaponSlot = stripped.weaponSlot;
-        p.armor = stripped.armor;
-        p.heCount = stripped.heCount;
+
+    if (isPostHalfBuyRound(this.matchConfig, this.state.round)) {
+      this.applyHalfTimeLocal();
+      this.addChat(
+        "SYSTEM",
+        `INTERVALO · troca de lado · round ${this.state.round} · ${Math.ceil(this.state.timeLeft)}s`,
+        "system",
+      );
+    } else {
+      this.addChat(
+        "SYSTEM",
+        `COMPRA · round ${this.state.round} · ${Math.ceil(this.state.timeLeft)}s · F1–F3 kits · B`,
+        "system",
+      );
+      for (const p of this.state.players) {
+        // CS: die → knife + team pistol next buy; survive → keep guns
+        if (p.diedThisRound) {
+          const stripped = applyDefaultLoadout(p);
+          p.weapons = stripped.weapons;
+          p.ammo = stripped.ammo;
+          p.weaponSlot = stripped.weaponSlot;
+          p.armor = stripped.armor;
+          p.heCount = stripped.heCount;
+        }
+        p.diedThisRound = false;
+        this.respawnPlayer(p);
       }
-      p.diedThisRound = false;
-      this.respawnPlayer(p);
     }
+
     this.assignBombCarrier();
-    // Showcase first; solo auto-opens BuyMenu after dismiss (existing behavior).
-    this.pendingAutoBuyMenu = !this.networked && canOpenBuyMenu("buy");
+    // Showcase first; auto-open BuyMenu after dismiss (solo + room).
+    this.pendingAutoBuyMenu =
+      AUTO_OPEN_BUY_ON_FREEZETIME && canOpenBuyMenu("buy");
     this.state.showBuyMenu = false;
     this.startShopShowcaseIfNeeded();
     if (
@@ -2294,8 +2462,43 @@ export class GameClient {
       this.pendingAutoBuyMenu &&
       canOpenBuyMenu("buy")
     ) {
-      this.state.showBuyMenu = true;
+      this.openBuyMenu();
       this.pendingAutoBuyMenu = false;
+    }
+  }
+
+  /**
+   * Half (F3): side swap TR↔CT, money → START_MONEY, pistol defaults,
+   * loss streaks 0. Scores swap with teams.
+   */
+  private applyHalfTimeLocal() {
+    this.state.lossStreakTR = 0;
+    this.state.lossStreakCT = 0;
+    this.lastRebuyItemIds = [];
+    const scoreTR = this.state.scoreCT;
+    const scoreCT = this.state.scoreTR;
+    this.state.scoreTR = scoreTR;
+    this.state.scoreCT = scoreCT;
+    for (const p of this.state.players) {
+      p.team = p.team === "TR" ? "CT" : "TR";
+      p.color = TEAM_COLORS[p.team];
+      p.money = START_MONEY;
+      const stripped = applyDefaultLoadout(p);
+      p.weapons = stripped.weapons;
+      p.ammo = stripped.ammo;
+      p.weaponSlot = stripped.weaponSlot;
+      p.armor = stripped.armor;
+      p.heCount = stripped.heCount;
+      p.diedThisRound = false;
+      // Bots keep a modest primary after half for pressure
+      if (p.isBot) {
+        const primary: WeaponId = p.team === "TR" ? "ak47" : "mp5";
+        const def = WEAPONS[primary];
+        p.weapons[1] = primary;
+        p.ammo[primary] = { mag: def.magazine, reserve: def.reserve };
+        if (p.team === "CT") p.armor = 50;
+      }
+      this.respawnPlayer(p);
     }
   }
 
@@ -2314,7 +2517,7 @@ export class GameClient {
 
   /**
    * HUD timer/buttons or engine Space/Esc/B.
-   * Opens BuyMenu when `openBuy` or solo `pendingAutoBuyMenu` (existing auto-open).
+   * Opens BuyMenu when `openBuy` or `pendingAutoBuyMenu` (freezetime auto-open).
    */
   dismissShopShowcase(opts?: { openBuy?: boolean }) {
     if (!this.showShopShowcase) return;
@@ -2326,7 +2529,7 @@ export class GameClient {
       canOpenBuyMenu(this.state.phase) &&
       !this.state.paused
     ) {
-      this.state.showBuyMenu = true;
+      this.openBuyMenu();
     }
     Sfx.play("ui");
   }
@@ -2336,9 +2539,22 @@ export class GameClient {
     this.state.bullets = [];
     // Keep leftover drops from buy only if any; usually cleared at buy start.
     this.heProjectiles = [];
+    this.flushBuyTiming();
     this.state.showBuyMenu = false;
     this.showShopShowcase = false;
     this.pendingAutoBuyMenu = false;
+    // Snapshot local loadout for next freezetime rebuy
+    const local = this.state.players.find(
+      (x) => x.id === this.state.localPlayerId,
+    );
+    if (local) {
+      this.lastRebuyItemIds = snapshotRebuyItemIds({
+        primaryId: local.weapons[1],
+        secondaryId: local.weapons[2],
+        teamPistolId: teamPistol(local.team),
+        armor: local.armor,
+      });
+    }
     for (const p of this.state.players) {
       p.diedThisRound = false;
       // Clear any stuck reload / burst so first shot of the round always fires.
@@ -2346,9 +2562,6 @@ export class GameClient {
       p.shotsInBurst = 0;
       p.lastShotAt = 0;
     }
-    const local = this.state.players.find(
-      (x) => x.id === this.state.localPlayerId,
-    );
     if (local?.alive) this.restoreLocalCombatControl(local);
     else this.clearSpectator();
     this.addChat("SYSTEM", `ROUND ${this.state.round} — combate!`, "system");
@@ -3503,6 +3716,7 @@ export class GameClient {
       mapWidth: this.map.size.width,
       mapDepth: this.map.size.depth,
       buyMessage: this.buyMessage,
+      canRebuy: this.lastRebuyItemIds.length > 0,
       bombState: this.state.bombState,
       bombTimer: bombDown ? this.state.bombTimer : 0,
       plantProgress: this.state.plantProgress,

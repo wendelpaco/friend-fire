@@ -48,6 +48,7 @@ import {
 } from "../sim/he";
 import {
   createMatchPhase,
+  isPostHalfBuyRound,
   onRoundWin,
   tickPhase,
   type MatchPhaseState,
@@ -57,8 +58,12 @@ import {
   activeWeaponStats,
   canBuyInPhase,
   ownsSlot,
+  snapshotRebuyItemIds,
   tryBuy,
+  tryBuyKit,
+  tryRebuy,
   type AmmoMap,
+  type KitTier,
 } from "../sim/shop";
 import {
   applySpreadToYaw,
@@ -98,15 +103,20 @@ const MATCH_SIZE = 6;
 const TICK_MS = 50; // 20 Hz
 const BOT_NAMES = ["Lucão", "Pedrão", "Enzo", "Davi", "Theo", "Rafa"];
 const KILL_REWARD = 300;
+const PLANT_REWARD = 300;
+const BOMB_EXPLODE_TEAM_REWARD = 800;
 const ROUND_WIN_REWARD = 3250;
 const ROUND_LOSS_REWARD = 1400;
 const MAX_MONEY = 16_000;
+/** Post-round floor — keep in sync with domains/match/economy.ts */
+const MIN_MONEY_POST_ROUND = 1_000;
 /**
- * CS consecutive-loss bonus on top of ROUND_LOSS_REWARD for losses 1…5.
- * Totals: $1400, $1900, $2400, $2900, $3400 (classic CS ladder).
+ * CS consecutive-loss bonus on top of ROUND_LOSS_REWARD for losses 1…4.
+ * Totals: $1400, $1900, $2400, $2900 (design v2 cap).
  * Keep in sync with domains/match/economy.ts LOSS_BONUS_STEPS.
  */
-const LOSS_BONUS_STEPS = [0, 500, 1000, 1500, 2000] as const;
+const LOSS_BONUS_STEPS = [0, 500, 1000, 1500] as const;
+const MAX_LOSS_STREAK = 4;
 /** Warmup respawn delay — short so deaths don't feel like a soft-lock. */
 const WARMUP_RESPAWN_MS = 1200;
 
@@ -115,9 +125,17 @@ function clampMoney(n: number): number {
   return Math.max(0, Math.min(MAX_MONEY, Math.floor(n)));
 }
 
+function clampMoneyPostRound(n: number): number {
+  if (!Number.isFinite(n)) return MIN_MONEY_POST_ROUND;
+  return Math.max(
+    MIN_MONEY_POST_ROUND,
+    Math.min(MAX_MONEY, Math.floor(n)),
+  );
+}
+
 function lossPayout(consecutiveLosses: number): number {
-  const n = Math.max(1, Math.min(5, Math.floor(consecutiveLosses)));
-  return ROUND_LOSS_REWARD + (LOSS_BONUS_STEPS[n - 1] ?? 2000);
+  const n = Math.max(1, Math.min(MAX_LOSS_STREAK, Math.floor(consecutiveLosses)));
+  return ROUND_LOSS_REWARD + (LOSS_BONUS_STEPS[n - 1] ?? 1500);
 }
 
 /** Known maps for room create / browser metadata */
@@ -233,11 +251,13 @@ export class GameRoom extends Room<MatchState> {
   private heProjectiles: HeProjectile[] = [];
   private heSeq = 0;
   private dropSeq = 0;
-  /** CS consecutive-loss bonus (0–5) per team. */
+  /** CS consecutive-loss bonus (0–4) per team. */
   private lossStreakTR = 0;
   private lossStreakCT = 0;
   /** Session ids that died during the current live round. */
   private diedThisRound = new Set<string>();
+  /** Last live loadout shop ids for rebuy (R). */
+  private lastLoadout = new Map<string, string[]>();
   /** Collision + cover for current map (hitscan cannot ignore walls). */
   private walls: WallRect[] = wallsForMap("dust");
   /** Chat rate-limit: last message ms per session (Meta-3). */
@@ -307,6 +327,17 @@ export class GameRoom extends Room<MatchState> {
 
     this.onMessage("buy", (client, message: Partial<BuyMessage>) => {
       this.handleBuy(client, message?.itemId);
+    });
+
+    this.onMessage(
+      "buyKit",
+      (client, message: Partial<{ tier: KitTier | string }>) => {
+        this.handleBuyKit(client, message?.tier);
+      },
+    );
+
+    this.onMessage("rebuy", (client) => {
+      this.handleRebuy(client);
     });
 
     this.onMessage("chat", (client, message: Partial<ChatMessage>) => {
@@ -487,31 +518,25 @@ export class GameRoom extends Room<MatchState> {
     return false;
   }
 
-  private handleBuy(client: Client, itemId: unknown) {
-    if (typeof itemId !== "string" || !itemId) return;
-    if (!canBuyInPhase(this.phase.phase)) return;
-
-    const p = this.state.players.get(client.sessionId);
-    if (!p || p.isBot || !p.alive) return;
-
-    const ex = this.ensureExtra(p.id, p);
-    const result = tryBuy(
-      {
-        money: p.money,
-        armor: p.armor,
-        primaryId: p.primaryId,
-        secondaryId: p.secondaryId,
-        activeSlot: p.activeSlot,
-        mag: p.mag,
-        reserve: p.reserve,
-        heCount: p.heCount,
-      },
-      itemId,
-      ex.ammo,
-    );
-
+  private applyBuyResult(
+    p: PlayerState,
+    ex: RuntimeExtra,
+    result: {
+      ok: boolean;
+      player?: {
+        money: number;
+        armor: number;
+        primaryId: string;
+        secondaryId: string;
+        activeSlot: number;
+        mag: number;
+        reserve: number;
+        heCount: number;
+      };
+      ammo?: AmmoMap;
+    },
+  ) {
     if (!result.ok || !result.player) return;
-
     p.money = result.player.money;
     p.armor = result.player.armor;
     p.primaryId = result.player.primaryId;
@@ -521,6 +546,58 @@ export class GameRoom extends Room<MatchState> {
     p.reserve = result.player.reserve;
     p.heCount = result.player.heCount;
     if (result.ammo) ex.ammo = result.ammo;
+  }
+
+  private buyLoadoutSlice(p: PlayerState) {
+    return {
+      money: p.money,
+      armor: p.armor,
+      primaryId: p.primaryId,
+      secondaryId: p.secondaryId,
+      activeSlot: p.activeSlot,
+      mag: p.mag,
+      reserve: p.reserve,
+      heCount: p.heCount,
+    };
+  }
+
+  private handleBuy(client: Client, itemId: unknown) {
+    if (typeof itemId !== "string" || !itemId) return;
+    if (!canBuyInPhase(this.phase.phase)) return;
+
+    const p = this.state.players.get(client.sessionId);
+    if (!p || p.isBot || !p.alive) return;
+
+    const ex = this.ensureExtra(p.id, p);
+    const result = tryBuy(this.buyLoadoutSlice(p), itemId, ex.ammo);
+    this.applyBuyResult(p, ex, result);
+  }
+
+  private handleBuyKit(client: Client, tierRaw: unknown) {
+    if (typeof tierRaw !== "string") return;
+    const tier = tierRaw as KitTier;
+    if (tier !== "ECO" && tier !== "FORCE" && tier !== "FULL") return;
+    if (!canBuyInPhase(this.phase.phase)) return;
+
+    const p = this.state.players.get(client.sessionId);
+    if (!p || p.isBot || !p.alive) return;
+
+    const ex = this.ensureExtra(p.id, p);
+    const result = tryBuyKit(this.buyLoadoutSlice(p), ex.ammo, tier);
+    this.applyBuyResult(p, ex, result);
+  }
+
+  private handleRebuy(client: Client) {
+    if (!canBuyInPhase(this.phase.phase)) return;
+    const p = this.state.players.get(client.sessionId);
+    if (!p || p.isBot || !p.alive) return;
+
+    const ids = this.lastLoadout.get(p.id) ?? [];
+    if (ids.length === 0) return;
+
+    const ex = this.ensureExtra(p.id, p);
+    const result = tryRebuy(this.buyLoadoutSlice(p), ex.ammo, ids);
+    this.applyBuyResult(p, ex, result);
   }
 
   private tick(dt: number) {
@@ -550,9 +627,13 @@ export class GameRoom extends Room<MatchState> {
       this.syncBombToState();
     }
 
-    // Enter buy freezetime → strip dead loadouts, spawn + bomb carrier
+    // Enter buy freezetime → half (if post-round-4) + strip dead loadouts, spawn + bomb
     if (this.phase.phase === "buy" && prev !== "buy") {
-      this.stripDeadLoadouts();
+      if (isPostHalfBuyRound(this.phase, this.phase.round)) {
+        this.applyHalfTime();
+      } else {
+        this.stripDeadLoadouts();
+      }
       this.respawnAll();
       this.assignBombCarrier();
       this.heProjectiles = [];
@@ -560,8 +641,9 @@ export class GameRoom extends Room<MatchState> {
       this.diedThisRound.clear();
     }
 
-    // Buy → live combat (no re-buy)
+    // Buy → live combat (no re-buy): snapshot loadouts for next rebuy
     if (this.phase.phase === "live" && prev === "buy") {
+      this.snapshotAllRebuyLoadouts();
       this.heProjectiles = [];
       this.diedThisRound.clear();
     }
@@ -1062,18 +1144,58 @@ export class GameRoom extends Room<MatchState> {
   }
 
   private payoutRound(winner: Team) {
-    // CS: win $3250; loss $1400 + consecutive loss bonus; cap $16k
+    // B3: win $3250; loss ladder 1400→2900; post-round floor $1000
     this.lossStreakTR =
-      winner === "TR" ? 0 : Math.min(5, this.lossStreakTR + 1);
+      winner === "TR" ? 0 : Math.min(MAX_LOSS_STREAK, this.lossStreakTR + 1);
     this.lossStreakCT =
-      winner === "CT" ? 0 : Math.min(5, this.lossStreakCT + 1);
+      winner === "CT" ? 0 : Math.min(MAX_LOSS_STREAK, this.lossStreakCT + 1);
     const trPay =
       winner === "TR" ? ROUND_WIN_REWARD : lossPayout(this.lossStreakTR);
     const ctPay =
       winner === "CT" ? ROUND_WIN_REWARD : lossPayout(this.lossStreakCT);
     this.state.players.forEach((p) => {
       const add = p.team === "TR" ? trPay : ctPay;
-      p.money = clampMoney(p.money + add);
+      p.money = clampMoneyPostRound(p.money + add);
+    });
+  }
+
+  /**
+   * Half (F3): after round 4 — TR↔CT swap, eco reset to start money,
+   * loadout → team pistol defaults, loss streaks cleared.
+   */
+  private applyHalfTime() {
+    this.lossStreakTR = 0;
+    this.lossStreakCT = 0;
+    this.lastLoadout.clear();
+    this.state.players.forEach((p) => {
+      p.team = p.team === "TR" ? "CT" : "TR";
+      const ammo = p.isBot ? this.applyBotLoadout(p) : this.applyHumanLoadout(p);
+      const ex = this.extras.get(p.id);
+      if (ex) ex.ammo = ammo;
+      this.diedThisRound.delete(p.id);
+    });
+    // Swap scores so team labels stay meaningful (TR score ↔ CT score)
+    const tmp = this.phase.scoreTR;
+    this.phase = {
+      ...this.phase,
+      scoreTR: this.phase.scoreCT,
+      scoreCT: tmp,
+    };
+  }
+
+  private snapshotAllRebuyLoadouts() {
+    this.state.players.forEach((p) => {
+      if (p.isBot) return;
+      const teamPistol = starterSecondary(p.team as Team);
+      this.lastLoadout.set(
+        p.id,
+        snapshotRebuyItemIds({
+          primaryId: p.primaryId,
+          secondaryId: p.secondaryId,
+          teamPistolId: teamPistol,
+          armor: p.armor,
+        }),
+      );
     });
   }
 
@@ -1315,6 +1437,8 @@ export class GameRoom extends Room<MatchState> {
       bomb = tickPlant(bomb, dt, holding, plantOk);
       if (bomb.plantProgress >= 1 && bomb.bombState === "planting" && carrier) {
         bomb = onPlantComplete(bomb, carrier.x, carrier.z);
+        // Personal plant bonus (+$300)
+        carrier.money = clampMoney(carrier.money + PLANT_REWARD);
       }
       this.bomb = bomb;
       this.syncBombToState();
@@ -1327,6 +1451,12 @@ export class GameRoom extends Room<MatchState> {
       bomb = explode(bomb);
       this.bomb = bomb;
       this.syncBombToState();
+      // Team explode bonus (+$800 TR) before win payout
+      this.state.players.forEach((pl) => {
+        if (pl.team === "TR") {
+          pl.money = clampMoney(pl.money + BOMB_EXPLODE_TEAM_REWARD);
+        }
+      });
       this.finishRound("TR", "bomb_exploded");
       return;
     }

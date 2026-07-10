@@ -32,7 +32,7 @@ export const START_MONEY = 800;
 
 /**
  * QA: set NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN=1 (or any positive int) so match_over
- * is reachable without playing a full BO15-style series. Unset in production.
+ * is reachable without playing a full FT5 series. Unset in production.
  */
 function resolveRoundsToWin(): number {
   const raw = process.env.NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN;
@@ -92,10 +92,11 @@ export const CONTROLS_HELP = [
   { keys: "Space", action: "Pular" },
   { keys: "Mouse", action: "Mirar" },
   { keys: "Clique", action: "Atirar" },
-  { keys: "R", action: "Recarregar" },
+  { keys: "R", action: "Recarregar / rebuy (loja)" },
   { keys: "F", action: "Plantar / desarmar C4" },
   { keys: "G", action: "Arremessar HE" },
   { keys: "B", action: "Loja (aquecimento / compra)" },
+  { keys: "F1–F3", action: "Kits ECO / FORÇA / COMPLETO" },
   { keys: "C", action: "Câmera travada / livre" },
   { keys: "1–4", action: "Trocar arma" },
   { keys: "Tab", action: "Placar" },

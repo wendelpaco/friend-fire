@@ -19,18 +19,23 @@ export interface MatchPhaseState {
   scoreCT: number;
   warmupTime: number;
   buyTime: number;
+  firstBuyTime: number;
   roundTime: number;
   endPause: number;
   roundsToWin: number;
+  halfAfterRound: number;
 }
 
+/** Sprint 1 B2/F2/F3 — keep in sync with client DEFAULT_MATCH. */
 export const DEFAULT_MATCH = {
-  warmup: 20,
-  buyTime: 20,
-  round: 115,
-  roundsToWin: 13,
+  warmup: 30,
+  buyTime: 10,
+  firstBuyTime: 12,
+  round: 100,
+  roundsToWin: 5,
   endPause: 5,
   endMatchPause: 10,
+  halfAfterRound: 4,
 } as const;
 
 export function createMatchPhase(
@@ -39,9 +44,11 @@ export function createMatchPhase(
       MatchPhaseState,
       | "warmupTime"
       | "buyTime"
+      | "firstBuyTime"
       | "roundTime"
       | "endPause"
       | "roundsToWin"
+      | "halfAfterRound"
     >
   >,
 ): MatchPhaseState {
@@ -54,10 +61,30 @@ export function createMatchPhase(
     scoreCT: 0,
     warmupTime,
     buyTime: opts?.buyTime ?? DEFAULT_MATCH.buyTime,
+    firstBuyTime: opts?.firstBuyTime ?? DEFAULT_MATCH.firstBuyTime,
     roundTime: opts?.roundTime ?? DEFAULT_MATCH.round,
     endPause: opts?.endPause ?? DEFAULT_MATCH.endPause,
     roundsToWin: opts?.roundsToWin ?? DEFAULT_MATCH.roundsToWin,
+    halfAfterRound: opts?.halfAfterRound ?? DEFAULT_MATCH.halfAfterRound,
   };
+}
+
+export function buyTimeForRound(
+  m: Pick<MatchPhaseState, "buyTime" | "firstBuyTime" | "halfAfterRound">,
+  round: number,
+): number {
+  const r = Math.floor(round);
+  if (r === 1 || r === m.halfAfterRound + 1) {
+    return m.firstBuyTime;
+  }
+  return m.buyTime;
+}
+
+export function isPostHalfBuyRound(
+  m: Pick<MatchPhaseState, "halfAfterRound">,
+  round: number,
+): boolean {
+  return Math.floor(round) === m.halfAfterRound + 1;
 }
 
 export function enterBuyPhase(
@@ -68,7 +95,7 @@ export function enterBuyPhase(
     ...m,
     phase: "buy",
     round: nextRound,
-    timeLeft: m.buyTime,
+    timeLeft: buyTimeForRound(m, nextRound),
   };
 }
 

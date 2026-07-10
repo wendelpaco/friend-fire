@@ -212,6 +212,8 @@ export interface HudSnapshot {
   mapWidth: number;
   mapDepth: number;
   buyMessage: string | null;
+  /** True when previous-round loadout is available for R rebuy. */
+  canRebuy: boolean;
   /** C4 state for HUD (§2.1). */
   bombState: BombState;
   /** Seconds until explode when planted/defusing; 0 otherwise. */

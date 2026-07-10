@@ -23,6 +23,11 @@ export type RoundEndReason =
 export const PLANT_TIME = 3.5;
 /** Seconds to hold F while defusing (no kit). */
 export const DEFUSE_TIME = 5;
+/**
+ * Defuse with kit would be 3.5s (B2). No defuse kit in catalog yet — gap.
+ * Keep constant for when kit ships; tickDefuse still uses DEFUSE_TIME.
+ */
+export const DEFUSE_TIME_KIT = 3.5;
 /** Seconds until explosion after plant. */
 export const BOMB_TIMER = 40;
 /** Spec defuse reach. */

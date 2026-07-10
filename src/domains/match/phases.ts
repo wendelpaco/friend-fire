@@ -9,9 +9,11 @@ export function createMatchPhase(
       MatchPhaseState,
       | "warmupTime"
       | "buyTime"
+      | "firstBuyTime"
       | "roundTime"
       | "endPause"
       | "roundsToWin"
+      | "halfAfterRound"
     >
   >,
 ): MatchPhaseState {
@@ -24,14 +26,40 @@ export function createMatchPhase(
     scoreCT: 0,
     warmupTime,
     buyTime: opts?.buyTime ?? DEFAULT_MATCH.buyTime,
+    firstBuyTime: opts?.firstBuyTime ?? DEFAULT_MATCH.firstBuyTime,
     roundTime: opts?.roundTime ?? DEFAULT_MATCH.round,
     endPause: opts?.endPause ?? DEFAULT_MATCH.endPause,
     roundsToWin: opts?.roundsToWin ?? DEFAULT_MATCH.roundsToWin,
+    halfAfterRound: opts?.halfAfterRound ?? DEFAULT_MATCH.halfAfterRound,
   };
 }
 
 /**
+ * Freezetime length for a given round number.
+ * Round 1 and first post-half (halfAfterRound+1) use firstBuyTime (12s).
+ */
+export function buyTimeForRound(
+  m: Pick<MatchPhaseState, "buyTime" | "firstBuyTime" | "halfAfterRound">,
+  round: number,
+): number {
+  const r = Math.floor(round);
+  if (r === 1 || r === m.halfAfterRound + 1) {
+    return m.firstBuyTime;
+  }
+  return m.buyTime;
+}
+
+/** True when entering buy for the first round after half (side swap + eco reset). */
+export function isPostHalfBuyRound(
+  m: Pick<MatchPhaseState, "halfAfterRound">,
+  round: number,
+): boolean {
+  return Math.floor(round) === m.halfAfterRound + 1;
+}
+
+/**
  * Enter buy phase for the next round number (assigns money outside).
+ * Uses extended freezetime on round 1 and post-half.
  */
 export function enterBuyPhase(
   m: MatchPhaseState,
@@ -41,7 +69,7 @@ export function enterBuyPhase(
     ...m,
     phase: "buy",
     round: nextRound,
-    timeLeft: m.buyTime,
+    timeLeft: buyTimeForRound(m, nextRound),
   };
 }
 

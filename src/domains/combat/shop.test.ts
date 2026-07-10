@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canOpenBuyMenu, tryBuy } from "./shop";
+import {
+  canOpenBuyMenu,
+  snapshotRebuyItemIds,
+  tryBuy,
+  tryBuyKit,
+  tryRebuy,
+} from "./shop";
 
 describe("canOpenBuyMenu", () => {
   it("allows warmup and buy only", () => {
@@ -54,5 +60,50 @@ describe("tryBuy", () => {
     if (!r2.ok || !r2.player) return;
     expect(r2.player.heCount).toBe(2);
     expect(r2.player.money).toBe(3000 - 600);
+  });
+});
+
+describe("tryBuyKit / tryRebuy", () => {
+  const base = {
+    money: 4000,
+    armor: 0,
+    weapons: { 2: "glock" as const, 4: "knife" as const },
+    ammo: { glock: { mag: 20, reserve: 100 } },
+    weaponSlot: 2,
+  };
+
+  it("FULL kit buys rifle when affordable", () => {
+    const r = tryBuyKit(base, "FULL");
+    expect(r.ok).toBe(true);
+    if (!r.ok || !r.player) return;
+    expect(r.bought.length).toBeGreaterThan(0);
+    expect(r.player.money).toBeLessThan(base.money);
+    expect(
+      r.player.weapons[1] === "ak47" || r.player.weapons[1] === "awp",
+    ).toBe(true);
+  });
+
+  it("rejects kit when broke", () => {
+    const r = tryBuyKit({ ...base, money: 100 }, "FULL");
+    expect(r.ok).toBe(false);
+  });
+
+  it("rebuy purchases prior loadout items", () => {
+    const r = tryRebuy(base, ["ak47", "armor"]);
+    expect(r.ok).toBe(true);
+    if (!r.ok || !r.player) return;
+    expect(r.player.weapons[1]).toBe("ak47");
+    expect(r.player.armor).toBe(100);
+  });
+
+  it("snapshotRebuyItemIds captures primary + armor", () => {
+    expect(
+      snapshotRebuyItemIds({
+        primaryId: "ak47",
+        secondaryId: "glock",
+        teamPistolId: "glock",
+        armor: 100,
+      }),
+    ).toEqual(["ak47", "armor"]);
   });
 });
