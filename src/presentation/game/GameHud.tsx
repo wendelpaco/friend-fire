@@ -64,13 +64,13 @@ function fpsColorClass(fps: number): string {
   return "text-red-400";
 }
 
-/** Compact always-on counter — sits above killfeed in the top-right column. */
+/** Compact always-on counter — under minimap, same width as radar. */
 const MiniFps = memo(function MiniFps({ fps }: { fps: number }) {
   const ready = Number.isFinite(fps) && fps > 0;
   const n = ready ? Math.round(fps) : 0;
   return (
     <div
-      className={`rounded border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums shadow backdrop-blur-sm ${
+      className={`w-full rounded-md border border-white/10 bg-black/60 px-2.5 py-1 text-center font-mono text-[13px] font-bold tabular-nums tracking-wide shadow backdrop-blur-sm ${
         ready ? fpsColorClass(n) : "text-white/40"
       }`}
       title="Frames por segundo"
@@ -81,17 +81,19 @@ const MiniFps = memo(function MiniFps({ fps }: { fps: number }) {
   );
 });
 
-/** Full diagnostics — Settings → Overlay avançado (same column as killfeed). */
+/** Full diagnostics — Settings → Overlay avançado (under minimap). */
 const PerfOverlay = memo(function PerfOverlay({
   perf,
 }: {
   perf: NonNullable<HudSnapshot["perf"]>;
 }) {
   return (
-    <div className="pointer-events-auto max-w-[14rem] rounded border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[10px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
+    <div className="pointer-events-auto w-full rounded-md border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[11px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
       <div className="flex items-baseline justify-between gap-2">
-        <span className={fpsColorClass(perf.fps)}>{perf.fps} FPS</span>
-        <span className="text-[9px] text-amber-200/80">
+        <span className={`text-[13px] font-bold ${fpsColorClass(perf.fps)}`}>
+          {perf.fps} FPS
+        </span>
+        <span className="text-[10px] text-amber-200/80">
           {perf.autoEnabled
             ? perf.adaptReason === "degrade"
               ? "AUTO ↓"
