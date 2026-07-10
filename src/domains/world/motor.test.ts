@@ -109,6 +109,16 @@ describe("motor jump / crouch / ground", () => {
     expect(crouch.crouching).toBe(true);
   });
 
+  it("motor crouch input is state (not edge): true stays crouched", () => {
+    let s = createMotorState(0, 0);
+    s = tickMotor(s, { wishX: 0, wishZ: 0, jump: false, crouch: true, dt: 1/60, walls: emptyWalls });
+    expect(s.crouching).toBe(true);
+    s = tickMotor(s, { wishX: 0, wishZ: 0, jump: false, crouch: true, dt: 1/60, walls: emptyWalls });
+    expect(s.crouching).toBe(true);
+    s = tickMotor(s, { wishX: 0, wishZ: 0, jump: false, crouch: false, dt: 1/60, walls: emptyWalls });
+    expect(s.crouching).toBe(false);
+  });
+
   it("does not pass through walls while moving", () => {
     const wall: WallRect = { x: 2, z: 0, w: 1, d: 4 };
     let s = createMotorState(0, 0);
