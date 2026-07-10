@@ -97,10 +97,26 @@ export function resetBombForRound(carrierId: string): BombMatchState {
   return createBombState(carrierId || null);
 }
 
-export function pickBombCarrier(trIds: string[]): string {
-  if (trIds.length === 0) return "";
-  const i = Math.floor(Math.random() * trIds.length);
-  return trIds[i]!;
+export interface BombCarrierCandidate {
+  id: string;
+  /** Prefer non-bots when assigning / reassigning C4. */
+  isBot?: boolean;
+}
+
+/**
+ * Pick C4 carrier among living TR candidates.
+ * Prefers humans; falls back to bots. Empty → "".
+ * Keep in sync with src/domains/match/bomb.ts.
+ */
+export function pickBombCarrier(
+  candidates: BombCarrierCandidate[],
+  rng: () => number = Math.random,
+): string {
+  if (candidates.length === 0) return "";
+  const humans = candidates.filter((c) => !c.isBot);
+  const pool = humans.length > 0 ? humans : candidates;
+  const i = Math.floor(rng() * pool.length);
+  return pool[i]!.id;
 }
 
 function dist2(ax: number, az: number, bx: number, bz: number): number {
@@ -295,7 +311,15 @@ export function explode(bomb: BombMatchState): BombMatchState {
   };
 }
 
-/** True when bomb is on the ground and fuse is running. */
+/** True when bomb is on the ground and fuse is running (planted | defusing). */
 export function isBombPlantedActive(s: BombMatchState): boolean {
   return s.bombState === "planted" || s.bombState === "defusing";
+}
+
+/**
+ * Whether live round-clock expiry may award a CT win.
+ * False while planted/defusing — keep in sync with domains/match/bomb.ts.
+ */
+export function shouldLiveTimerAwardCtWin(bomb: BombMatchState): boolean {
+  return !isBombPlantedActive(bomb);
 }

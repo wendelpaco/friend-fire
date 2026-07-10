@@ -18,6 +18,7 @@ import {
   onPlantComplete,
   pickBombCarrier,
   resetBombForRound,
+  shouldLiveTimerAwardCtWin,
   tickBombTimer,
   tickDefuse,
   tickPlant,
@@ -366,10 +367,12 @@ export class GameRoom extends Room<MatchState> {
 
   private tick(dt: number) {
     const prev = this.phase.phase;
-    const bombActive = isBombPlantedActive(this.bomb);
 
-    // While bomb is planted, round clock does not CT-win on expiry (CS style).
-    if (this.phase.phase === "live" && bombActive) {
+    // While bomb is planted/defusing, round clock does not CT-win on expiry (CS style).
+    if (
+      this.phase.phase === "live" &&
+      !shouldLiveTimerAwardCtWin(this.bomb)
+    ) {
       const tl = this.phase.timeLeft - dt;
       this.phase = { ...this.phase, timeLeft: Math.max(0, tl) };
     } else {
@@ -832,12 +835,19 @@ export class GameRoom extends Room<MatchState> {
     });
   }
 
-  private assignBombCarrier() {
-    const trIds: string[] = [];
+  private livingTrBombCandidates() {
+    const out: { id: string; isBot: boolean }[] = [];
     this.state.players.forEach((p) => {
-      if (p.team === "TR" && p.alive) trIds.push(p.id);
+      if (p.team === "TR" && p.alive) {
+        out.push({ id: p.id, isBot: p.isBot });
+      }
     });
-    const carrierId = pickBombCarrier(trIds);
+    return out;
+  }
+
+  /** Assign C4 at buy start — prefer living non-bot TR. */
+  private assignBombCarrier() {
+    const carrierId = pickBombCarrier(this.livingTrBombCandidates());
     this.bomb = resetBombForRound(carrierId);
     this.state.roundEndReason = "";
     this.heProjectiles = [];
@@ -855,18 +865,14 @@ export class GameRoom extends Room<MatchState> {
     const sites = getBombSites(this.state.mapId);
     let bomb = this.bomb;
 
-    // Carrier died while holding → reassign to living TR
+    // Carrier died while holding → reassign to living TR (prefer human)
     if (
       (bomb.bombState === "carried" || bomb.bombState === "planting") &&
       bomb.bombCarrierId
     ) {
       const carrier = this.state.players.get(bomb.bombCarrierId);
       if (!carrier || !carrier.alive || carrier.team !== "TR") {
-        const trIds: string[] = [];
-        this.state.players.forEach((p) => {
-          if (p.team === "TR" && p.alive) trIds.push(p.id);
-        });
-        const next = pickBombCarrier(trIds);
+        const next = pickBombCarrier(this.livingTrBombCandidates());
         bomb = {
           ...bomb,
           bombState: "carried",

@@ -25,6 +25,7 @@ import {
   createBombState,
   createMatchPhase,
   explode as explodeBomb,
+  isBombPlantedActive,
   isInsideSite,
   applyDefaultLoadout,
   applyRoundEconomy,
@@ -32,6 +33,8 @@ import {
   onDefuseComplete,
   onPlantComplete,
   onRoundWin,
+  pickBombCarrier,
+  shouldLiveTimerAwardCtWin,
   tickBombTimer,
   tickDefuse,
   tickPhase,
@@ -465,13 +468,19 @@ export class GameClient {
     this.state.bombTimer = b.bombTimer;
   }
 
-  /** Assign C4 to a random TR at live-round start. */
+  /** Living TR candidates for C4 (prefer human via pickBombCarrier). */
+  private livingTrBombCandidates() {
+    return this.state.players
+      .filter((p) => p.team === "TR" && p.alive)
+      .map((p) => ({ id: p.id, isBot: p.isBot }));
+  }
+
+  /** Assign C4 at buy/live start — prefer living non-bot TR. */
   private assignBombCarrier() {
-    const trs = this.state.players.filter((p) => p.team === "TR");
-    const carrier =
-      trs.length > 0
-        ? trs[Math.floor(Math.random() * trs.length)]!
-        : null;
+    const carrierId = pickBombCarrier(this.livingTrBombCandidates());
+    const carrier = carrierId
+      ? this.state.players.find((p) => p.id === carrierId)
+      : null;
     this.writeBomb(createBombState(carrier?.id ?? null));
     this.syncBombVisual();
     if (carrier) {
@@ -487,8 +496,7 @@ export class GameClient {
   }
 
   private bombIsDown(): boolean {
-    const s = this.state.bombState;
-    return s === "planted" || s === "defusing";
+    return isBombPlantedActive(this.readBomb());
   }
 
   private syncBombVisual() {
@@ -507,6 +515,31 @@ export class GameClient {
     }
 
     let bomb = this.readBomb();
+
+    // Carrier died while holding (pre-plant) → reassign to living TR (prefer human)
+    if (
+      (bomb.bombState === "carried" || bomb.bombState === "planting") &&
+      bomb.bombCarrierId
+    ) {
+      const carrier = this.state.players.find((p) => p.id === bomb.bombCarrierId);
+      if (!carrier || !carrier.alive || carrier.team !== "TR") {
+        const nextId = pickBombCarrier(this.livingTrBombCandidates());
+        const prevId = bomb.bombCarrierId;
+        bomb = {
+          ...bomb,
+          bombState: "carried",
+          bombCarrierId: nextId || null,
+          plantProgress: 0,
+        };
+        this.writeBomb(bomb);
+        if (nextId && nextId !== prevId) {
+          const next = this.state.players.find((p) => p.id === nextId);
+          if (next) {
+            this.addChat("SYSTEM", `${next.name} carrega a C4`, "system");
+          }
+        }
+      }
+    }
 
     if (bomb.bombState === "planted" || bomb.bombState === "defusing") {
       bomb = tickBombTimer(bomb, dt);
@@ -1706,7 +1739,17 @@ export class GameClient {
 
   private updateTimer(dt: number) {
     const prev = this.toPhaseState();
-    const next = tickPhase(prev, dt);
+    // Parity with GameRoom.tick: planted/defusing bomb blocks live→CT on clock expiry.
+    const bomb = this.readBomb();
+    let next: MatchPhaseState;
+    if (prev.phase === "live" && !shouldLiveTimerAwardCtWin(bomb)) {
+      next = {
+        ...prev,
+        timeLeft: Math.max(0, prev.timeLeft - dt),
+      };
+    } else {
+      next = tickPhase(prev, dt);
+    }
     this.applyPhaseState(next);
 
     if (

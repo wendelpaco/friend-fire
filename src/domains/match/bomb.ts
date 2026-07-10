@@ -227,3 +227,37 @@ export function explode(bomb: BombMatchState): BombMatchState {
     bombTimer: 0,
   };
 }
+
+/** True when bomb is on the ground and fuse is running (planted | defusing). */
+export function isBombPlantedActive(bomb: BombMatchState): boolean {
+  return bomb.bombState === "planted" || bomb.bombState === "defusing";
+}
+
+/**
+ * Whether live round-clock expiry may award a CT win.
+ * False while planted/defusing — objective integrity (CS style).
+ */
+export function shouldLiveTimerAwardCtWin(bomb: BombMatchState): boolean {
+  return !isBombPlantedActive(bomb);
+}
+
+export interface BombCarrierCandidate {
+  id: string;
+  /** Prefer non-bots when assigning / reassigning C4. */
+  isBot?: boolean;
+}
+
+/**
+ * Pick C4 carrier among living TR candidates.
+ * Prefers humans; falls back to bots. Empty → "".
+ */
+export function pickBombCarrier(
+  candidates: BombCarrierCandidate[],
+  rng: () => number = Math.random,
+): string {
+  if (candidates.length === 0) return "";
+  const humans = candidates.filter((c) => !c.isBot);
+  const pool = humans.length > 0 ? humans : candidates;
+  const i = Math.floor(rng() * pool.length);
+  return pool[i]!.id;
+}
