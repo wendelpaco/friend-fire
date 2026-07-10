@@ -344,7 +344,8 @@ export class GameClient {
 
   private three: ThreeRenderer;
   private state: MatchState;
-  private clock = new THREE.Clock();
+  /** Frame timing (THREE.Clock deprecated since r183). */
+  private timer = new THREE.Timer();
   private raf = 0;
   private running = false;
   private onHud?: (hud: HudSnapshot) => void;
@@ -838,7 +839,11 @@ export class GameClient {
 
   setPaused(paused: boolean) {
     this.state.paused = paused;
-    if (!paused) this.clock.getDelta();
+    if (!paused) {
+      // Drop the pause gap so the next sim step is not a huge dt.
+      this.timer.update();
+      this.timer.getDelta();
+    }
   }
 
   togglePause() {
@@ -1186,15 +1191,19 @@ export class GameClient {
   start() {
     if (this.running) return;
     this.running = true;
-    this.clock.start();
+    if (typeof document !== "undefined") {
+      this.timer.connect(document);
+    }
+    this.timer.update();
     this.fpsLastT = performance.now();
     this.fpsFrames = 0;
     this.metricsPublishAt = performance.now();
     this.frameSampler.clear();
-    const loop = () => {
+    const loop = (timestamp: number) => {
       if (!this.running) return;
       this.raf = requestAnimationFrame(loop);
-      const dt = Math.min(this.clock.getDelta(), 0.05);
+      this.timer.update(timestamp);
+      const dt = Math.min(this.timer.getDelta(), 0.05);
       const t0 = performance.now();
       this.update(dt);
       const t1 = performance.now();
@@ -1268,7 +1277,7 @@ export class GameClient {
         this.metricsPublishAt = t2;
       }
     };
-    loop();
+    this.raf = requestAnimationFrame(loop);
   }
 
   stop() {
@@ -1278,6 +1287,7 @@ export class GameClient {
 
   dispose() {
     this.stop();
+    this.timer.dispose();
     this.input.unbind();
     if (typeof window !== "undefined") {
       window.removeEventListener(PREFS_EVENT, this.onPrefsEvent);

@@ -58,9 +58,28 @@ const CAPSULE_RADIUS_CROUCH = CROUCH_RADIUS;
 
 let rapierInit: Promise<void> | null = null;
 
+/**
+ * wasm-bindgen (bundled in rapier 0.19.x) still calls the low-level init with a
+ * bare Module/bytes arg and logs a deprecation. Prefer object form when present;
+ * otherwise swallow only that one known warn so the console stays clean.
+ */
 function ensureRapier(): Promise<void> {
   if (!rapierInit) {
-    rapierInit = RAPIER.init();
+    rapierInit = (async () => {
+      const warn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        const msg = typeof args[0] === "string" ? args[0] : "";
+        if (msg.includes("deprecated parameters for the initialization")) {
+          return;
+        }
+        warn.apply(console, args as []);
+      };
+      try {
+        await RAPIER.init();
+      } finally {
+        console.warn = warn;
+      }
+    })();
   }
   return rapierInit;
 }
