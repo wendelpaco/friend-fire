@@ -3,10 +3,13 @@ import { recordImpression } from "@/domains/ads";
 import {
   applyDamage as applyDamageToVitals,
   applySpreadToYaw,
+  applyWeaponPickup,
   beginReload,
   canOpenBuyMenu,
   completeReload,
+  createDeathWeaponDrops,
   explodeAt,
+  findNearestWeaponDrop,
   HE_FUSE,
   HE_GRAVITY,
   isDead,
@@ -15,7 +18,9 @@ import {
   shotSpreadRadians,
   throwGrenade,
   tryBuy,
+  WEAPON_DROP_PICKUP_RADIUS,
   WEAPONS,
+  type WorldWeaponDrop,
 } from "@/domains/combat";
 import { Sfx } from "@/infrastructure/audio/Sfx";
 import {
@@ -946,6 +951,15 @@ export class GameClient {
     plantProgress?: number;
     defuseProgress?: number;
     roundEndReason?: string;
+    weaponDrops?: Array<{
+      id: string;
+      x: number;
+      z: number;
+      weaponId: string;
+      ammoMag?: number;
+      ammoReserve?: number;
+      fromPlayerId?: string;
+    }>;
   }) {
     if (!this.networked) return;
     this.networkSessionId = net.sessionId;
@@ -988,6 +1002,26 @@ export class GameClient {
     this.state.plantProgress = net.plantProgress ?? 0;
     this.state.defuseProgress = net.defuseProgress ?? 0;
     this.syncBombVisual();
+
+    // Ground weapon drops (authoritative list)
+    if (net.weaponDrops) {
+      const next: WorldWeaponDrop[] = [];
+      for (let i = 0; i < net.weaponDrops.length; i++) {
+        const d = net.weaponDrops[i]!;
+        const wid = asWeaponId(d.weaponId);
+        if (!wid || wid === "knife") continue;
+        next.push({
+          id: d.id,
+          x: d.x,
+          z: d.z,
+          weaponId: wid,
+          ammoMag: d.ammoMag ?? 0,
+          ammoReserve: d.ammoReserve ?? 0,
+          fromPlayerId: d.fromPlayerId ?? "",
+        });
+      }
+      this.state.weaponDrops = next;
+    }
 
     // Round banner on live → ended (or score bump mid-sync)
     if (
@@ -1375,6 +1409,7 @@ export class GameClient {
       lossStreakCT: 0,
       players,
       bullets: [],
+      weaponDrops: [],
       killFeed: [],
       chat: [
         {
@@ -1782,6 +1817,7 @@ export class GameClient {
     this.three.sync({
       players: this.renderPlayers,
       bullets: this.state.bullets,
+      weaponDrops: this.state.weaponDrops,
       localPlayerId: this.state.localPlayerId,
       cameraMode: spectating ? "free" : this.state.cameraMode,
       freeCamX: this.freeCamX,
@@ -1916,6 +1952,7 @@ export class GameClient {
   /** Start of buy freezetime: CS strip if died, spawn, shop unlocked. */
   private beginBuyPhaseEffects() {
     this.state.bullets = [];
+    this.state.weaponDrops = [];
     this.heProjectiles = [];
     this.clearSpectator();
     this.addChat(
@@ -1945,6 +1982,7 @@ export class GameClient {
   /** Buy ended → combat starts (no re-buy until next buy phase). */
   private beginLiveRoundEffects() {
     this.state.bullets = [];
+    // Keep leftover drops from buy only if any; usually cleared at buy start.
     this.heProjectiles = [];
     this.clearSpectator();
     this.state.showBuyMenu = false;
@@ -1968,8 +2006,9 @@ export class GameClient {
     this.state.players = eco.players as PlayerState[];
     this.state.lossStreakTR = eco.lossStreakTR;
     this.state.lossStreakCT = eco.lossStreakCT;
-    // Freeze bomb/HE visuals until next live assign
+    // Freeze bomb/HE visuals until next live assign; clear floor guns
     this.heProjectiles = [];
+    this.state.weaponDrops = [];
     this.three.setBombVisual(null);
   }
 
@@ -2263,6 +2302,9 @@ export class GameClient {
       this.tryThrowHE(p);
     }
 
+    // Ground weapon pickup: E edge or walk-over within radius (C2b)
+    this.tryPickupWeaponDrop(p, this.input.wasPressed("KeyE"));
+
     // Combat only warmup + live (not buy freezetime / ended)
     if (
       this.input.isMouseDown(0) &&
@@ -2271,6 +2313,73 @@ export class GameClient {
     ) {
       this.tryShoot(p);
     }
+  }
+
+  /** Spawn primary/secondary on the ground when a player dies. */
+  private spawnDeathWeaponDrops(victim: PlayerState) {
+    const drops = createDeathWeaponDrops(
+      {
+        playerId: victim.id,
+        x: victim.x,
+        z: victim.z,
+        weapons: victim.weapons,
+        ammo: victim.ammo,
+      },
+      () => uid("wdrop"),
+    );
+    if (drops.length === 0) return;
+    this.state.weaponDrops = this.state.weaponDrops.concat(drops);
+  }
+
+  /**
+   * Pickup nearest ground gun if in range.
+   * Walk-over fills empty slots only; E always swaps (avoids thrash when old gun
+   * is dropped at feet).
+   */
+  private tryPickupWeaponDrop(p: PlayerState, force: boolean) {
+    if (!p.alive || this.networked) return;
+    if (this.state.weaponDrops.length === 0) return;
+    const near = findNearestWeaponDrop(
+      this.state.weaponDrops,
+      p.x,
+      p.z,
+      WEAPON_DROP_PICKUP_RADIUS,
+    );
+    if (!near) return;
+    const slot = WEAPONS[near.weaponId]?.slot;
+    if (slot == null) return;
+    if (!force && p.weapons[slot]) {
+      // Walk-over: only auto-grab if that slot is empty
+      return;
+    }
+    const result = applyWeaponPickup(
+      {
+        weapons: p.weapons,
+        ammo: p.ammo,
+        weaponSlot: p.weaponSlot,
+      },
+      near,
+      { x: p.x, z: p.z, id: p.id },
+    );
+    if (!result) return;
+
+    p.weapons = result.player.weapons;
+    p.ammo = result.player.ammo;
+    p.weaponSlot = result.player.weaponSlot;
+    p.reloadingUntil = 0;
+    p.shotsInBurst = 0;
+
+    this.state.weaponDrops = this.state.weaponDrops.filter(
+      (d) => d.id !== result.removeDropId,
+    );
+    if (result.swapDrop) {
+      const swap: WorldWeaponDrop = {
+        ...result.swapDrop,
+        id: uid("wdrop"),
+      };
+      this.state.weaponDrops.push(swap);
+    }
+    Sfx.play("ui");
   }
 
   private startReload(p: PlayerState) {
@@ -2347,6 +2456,9 @@ export class GameClient {
           target = e;
         }
       }
+
+      // Walk-over empty-slot pickup (no E for bots)
+      this.tryPickupWeaponDrop(bot, false);
 
       if (!target) continue;
 
@@ -2653,6 +2765,8 @@ export class GameClient {
         victim.diedThisRound = true;
         killer.money = clampMoney(killer.money + KILL_REWARD);
       }
+      // C2b: guns hit the floor for living players to pick up
+      this.spawnDeathWeaponDrops(victim);
 
       const entry: KillFeedEntry = {
         id: uid("kf"),

@@ -99,6 +99,13 @@ export interface RenderSnapshot {
     }
   >;
   bullets: ReadonlyArray<Pick<BulletState, "id" | "x" | "z">>;
+  /** Ground weapon drops (C2b). */
+  weaponDrops?: ReadonlyArray<{
+    id: string;
+    x: number;
+    z: number;
+    weaponId: string;
+  }>;
   localPlayerId: string;
   cameraMode?: "locked" | "free";
   /** When free cam: pan target on ground */
@@ -179,9 +186,18 @@ export class ThreeRenderer {
   private lastPos = new Map<string, { x: number; z: number; t: number }>();
   private shootFlags = new Set<string>();
   private bulletMeshes = new Map<string, THREE.Mesh>();
+  /** Ground weapon drop markers (C2b). */
+  private dropMeshes = new Map<string, THREE.Group>();
+  private dropPool: THREE.Group[] = [];
+  private dropBodyGeo!: THREE.BoxGeometry;
+  private dropRingGeo!: THREE.RingGeometry;
+  private dropMatPrimary!: THREE.MeshBasicMaterial;
+  private dropMatSecondary!: THREE.MeshBasicMaterial;
+  private dropRingMat!: THREE.MeshBasicMaterial;
   /** Reused each sync to avoid Set allocs (W2). */
   private syncAlivePlayers = new Set<string>();
   private syncAliveBullets = new Set<string>();
+  private syncAliveDrops = new Set<string>();
   private syncRemoveIds: string[] = [];
   /** Inactive bullet meshes ready for reuse (shared geo/mat). */
   private bulletPool: THREE.Mesh[] = [];
@@ -272,6 +288,26 @@ export class ThreeRenderer {
 
     this.bulletGeo = new THREE.SphereGeometry(0.08, 6, 6);
     this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xffee77 });
+    // Ground weapon markers — long body + glow ring (primary gold / secondary cyan)
+    this.dropBodyGeo = new THREE.BoxGeometry(0.55, 0.1, 0.16);
+    this.dropRingGeo = new THREE.RingGeometry(0.28, 0.42, 20);
+    this.dropMatPrimary = new THREE.MeshBasicMaterial({
+      color: 0xf0c040,
+      transparent: true,
+      opacity: 0.95,
+    });
+    this.dropMatSecondary = new THREE.MeshBasicMaterial({
+      color: 0x60d0ff,
+      transparent: true,
+      opacity: 0.95,
+    });
+    this.dropRingMat = new THREE.MeshBasicMaterial({
+      color: 0xffe08a,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
 
     // Larger maps need thinner fog so long angles stay readable (CS sightlines).
     const mapHalf = Math.max(map.size.width, map.size.depth) / 2;
@@ -727,6 +763,32 @@ export class ThreeRenderer {
       this.releaseBulletMesh(removeIds[i]!);
     }
 
+    // --- Weapon ground drops (C2b markers) ---
+    const aliveDropIds = this.syncAliveDrops;
+    aliveDropIds.clear();
+    const drops = snapshot.weaponDrops ?? [];
+    for (let i = 0; i < drops.length; i++) {
+      const d = drops[i]!;
+      aliveDropIds.add(d.id);
+      let group = this.dropMeshes.get(d.id);
+      if (!group) {
+        group = this.acquireDropMesh(d.weaponId);
+        this.dropMeshes.set(d.id, group);
+      } else {
+        this.tintDropMesh(group, d.weaponId);
+      }
+      group.position.set(d.x, 0.06, d.z);
+      group.rotation.y = (i * 0.7) % (Math.PI * 2);
+      group.visible = true;
+    }
+    removeIds.length = 0;
+    for (const id of this.dropMeshes.keys()) {
+      if (!aliveDropIds.has(id)) removeIds.push(id);
+    }
+    for (let i = 0; i < removeIds.length; i++) {
+      this.releaseDropMesh(removeIds[i]!);
+    }
+
     this.updateCamera(snapshot);
   }
 
@@ -769,6 +831,12 @@ export class ThreeRenderer {
     this.tracerFx.dispose();
     this.aimReticle.dispose();
     for (const id of [...this.characters.keys()]) this.removeCharacter(id);
+    for (const id of [...this.dropMeshes.keys()]) this.releaseDropMesh(id);
+    this.dropBodyGeo?.dispose();
+    this.dropRingGeo?.dispose();
+    this.dropMatPrimary?.dispose();
+    this.dropMatSecondary?.dispose();
+    this.dropRingMat?.dispose();
     this.renderer.dispose();
     this.sandTex.dispose();
     this.wallTex.dispose();
@@ -1908,6 +1976,59 @@ export class ThreeRenderer {
     mesh.visible = false;
     this.bulletPool.push(mesh);
     this.bulletMeshes.delete(id);
+  }
+
+  private isPrimaryWeaponId(weaponId: string): boolean {
+    return (
+      weaponId === "ak47" ||
+      weaponId === "galil" ||
+      weaponId === "mp5" ||
+      weaponId === "awp"
+    );
+  }
+
+  private tintDropMesh(group: THREE.Group, weaponId: string) {
+    const body = group.children[0] as THREE.Mesh | undefined;
+    if (body) {
+      body.material = this.isPrimaryWeaponId(weaponId)
+        ? this.dropMatPrimary
+        : this.dropMatSecondary;
+    }
+  }
+
+  private acquireDropMesh(weaponId: string): THREE.Group {
+    const pooled = this.dropPool.pop();
+    if (pooled) {
+      this.tintDropMesh(pooled, weaponId);
+      pooled.visible = true;
+      return pooled;
+    }
+    const group = new THREE.Group();
+    group.name = "WeaponDrop";
+    const body = new THREE.Mesh(
+      this.dropBodyGeo,
+      this.isPrimaryWeaponId(weaponId)
+        ? this.dropMatPrimary
+        : this.dropMatSecondary,
+    );
+    body.position.y = 0.08;
+    body.userData.sharedResource = true;
+    group.add(body);
+    const ring = new THREE.Mesh(this.dropRingGeo, this.dropRingMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.02;
+    ring.userData.sharedResource = true;
+    group.add(ring);
+    this.scene.add(group);
+    return group;
+  }
+
+  private releaseDropMesh(id: string) {
+    const group = this.dropMeshes.get(id);
+    if (!group) return;
+    group.visible = false;
+    this.dropPool.push(group);
+    this.dropMeshes.delete(id);
   }
 
   private updateCamera(snapshot: RenderSnapshot) {

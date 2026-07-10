@@ -5,3 +5,4 @@ export * from "./reload";
 export * from "./accuracy";
 export * from "./shop";
 export * from "./grenade";
+export * from "./drops";

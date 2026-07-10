@@ -1,5 +1,16 @@
 import { Schema, type, MapSchema } from "@colyseus/schema";
 
+/** Ground weapon after death / slot swap (C2b eco). */
+export class WeaponDropState extends Schema {
+  @type("string") id: string = "";
+  @type("number") x: number = 0;
+  @type("number") z: number = 0;
+  @type("string") weaponId: string = "";
+  @type("number") ammoMag: number = 0;
+  @type("number") ammoReserve: number = 0;
+  @type("string") fromPlayerId: string = "";
+}
+
 export class PlayerState extends Schema {
   @type("string") id: string = "";
   @type("string") name: string = "";
@@ -80,6 +91,8 @@ export class MatchState extends Schema {
   @type("string") roundEndReason: string = "";
 
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
+  /** Floor guns for pickup (synced to clients). */
+  @type({ map: WeaponDropState }) weaponDrops = new MapSchema<WeaponDropState>();
 }
 
 /** Client → server input message */
@@ -99,6 +112,8 @@ export interface InputMessage {
   jump: boolean;
   /** Hold bit for crouch (Ctrl); server edge-detects to toggle posture. */
   crouch: boolean;
+  /** Edge / hold: KeyE weapon pickup (also auto walk-over empty slot). */
+  pickup: boolean;
 }
 
 /** Client → server buy message */

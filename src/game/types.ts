@@ -4,8 +4,10 @@ export type { Vec2 } from "@/domains/world";
 export type { RoundPhase } from "@/domains/match";
 
 import type { Team } from "@/shared/types/team";
-import type { WeaponId } from "@/domains/combat";
+import type { WeaponId, WorldWeaponDrop } from "@/domains/combat";
 import type { RoundPhase } from "@/domains/match";
+
+export type { WorldWeaponDrop } from "@/domains/combat";
 
 /** C4 lifecycle (Wave 5 §2.1). */
 export type BombState =
@@ -104,6 +106,8 @@ export interface MatchState {
   lossStreakCT: number;
   players: PlayerState[];
   bullets: BulletState[];
+  /** Ground guns from death / slot swap (C2b eco). */
+  weaponDrops: WorldWeaponDrop[];
   killFeed: KillFeedEntry[];
   chat: ChatEntry[];
   localPlayerId: string;

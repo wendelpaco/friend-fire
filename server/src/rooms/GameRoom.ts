@@ -2,9 +2,17 @@ import { Room, Client } from "colyseus";
 import {
   MatchState,
   PlayerState,
+  WeaponDropState,
   type BuyMessage,
   type InputMessage,
 } from "../schema/MatchState";
+import {
+  applyWeaponPickupServer,
+  createDeathWeaponDropsFromIds,
+  findNearestWeaponDrop,
+  WEAPON_DROP_PICKUP_RADIUS,
+  type WorldWeaponDrop,
+} from "../sim/drops";
 import {
   canDefuse,
   canPlant,
@@ -223,6 +231,7 @@ export class GameRoom extends Room<MatchState> {
   private bomb: BombSimState = createBombState();
   private heProjectiles: HeProjectile[] = [];
   private heSeq = 0;
+  private dropSeq = 0;
   /** CS consecutive-loss bonus (0–5) per team. */
   private lossStreakTR = 0;
   private lossStreakCT = 0;
@@ -289,6 +298,7 @@ export class GameRoom extends Room<MatchState> {
         he: Boolean(message?.he),
         jump: Boolean(message?.jump),
         crouch: Boolean(message?.crouch),
+        pickup: Boolean(message?.pickup),
       });
     });
 
@@ -446,6 +456,7 @@ export class GameRoom extends Room<MatchState> {
       this.state.roundEndReason = "time";
       this.payoutRound("CT");
       this.heProjectiles = [];
+      this.clearWeaponDrops();
       this.syncBombToState();
     }
 
@@ -455,6 +466,7 @@ export class GameRoom extends Room<MatchState> {
       this.respawnAll();
       this.assignBombCarrier();
       this.heProjectiles = [];
+      this.clearWeaponDrops();
       this.diedThisRound.clear();
     }
 
@@ -556,6 +568,9 @@ export class GameRoom extends Room<MatchState> {
         this.tryFire(p, ex);
       }
 
+      // Ground weapon pickup (E or walk-over empty slot)
+      this.tryPickupWeapon(p, ex, Boolean(input.pickup));
+
       // HE throw (edge on he:true)
       if (input.he && !ex.heHeld) {
         this.tryThrowHe(p, ex);
@@ -594,6 +609,8 @@ export class GameRoom extends Room<MatchState> {
     for (const bot of list) {
       if (!bot.isBot || !bot.alive) continue;
       const ex = this.ensureExtra(bot.id, bot);
+      // Walk-over empty primary/secondary slots
+      this.tryPickupWeapon(bot, ex, false);
 
       let target: PlayerState | undefined;
       let best = Infinity;
@@ -885,6 +902,7 @@ export class GameRoom extends Room<MatchState> {
         this.diedThisRound.add(hit.id);
         shooter.money = clampMoney(shooter.money + KILL_REWARD);
       }
+      this.spawnDeathWeaponDrops(hit);
 
       if (this.phase.phase === "warmup") {
         const id = hit.id;
@@ -936,6 +954,7 @@ export class GameRoom extends Room<MatchState> {
     this.applyPhaseToState();
     this.payoutRound(winner);
     this.heProjectiles = [];
+    this.clearWeaponDrops();
     this.syncBombToState();
   }
 
@@ -953,6 +972,144 @@ export class GameRoom extends Room<MatchState> {
       const add = p.team === "TR" ? trPay : ctPay;
       p.money = clampMoney(p.money + add);
     });
+  }
+
+  private nextDropId(): string {
+    this.dropSeq += 1;
+    return `wd_${this.dropSeq}_${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  private clearWeaponDrops() {
+    this.state.weaponDrops.clear();
+  }
+
+  private listWeaponDrops(): WorldWeaponDrop[] {
+    const out: WorldWeaponDrop[] = [];
+    this.state.weaponDrops.forEach((d) => {
+      if (!d.weaponId) return;
+      out.push({
+        id: d.id,
+        x: d.x,
+        z: d.z,
+        weaponId: d.weaponId as WorldWeaponDrop["weaponId"],
+        ammoMag: d.ammoMag,
+        ammoReserve: d.ammoReserve,
+        fromPlayerId: d.fromPlayerId,
+      });
+    });
+    return out;
+  }
+
+  private addWeaponDrop(drop: WorldWeaponDrop) {
+    const s = new WeaponDropState();
+    s.id = drop.id;
+    s.x = drop.x;
+    s.z = drop.z;
+    s.weaponId = drop.weaponId;
+    s.ammoMag = drop.ammoMag;
+    s.ammoReserve = drop.ammoReserve;
+    s.fromPlayerId = drop.fromPlayerId;
+    this.state.weaponDrops.set(drop.id, s);
+  }
+
+  private spawnDeathWeaponDrops(victim: PlayerState) {
+    const ex = this.extras.get(victim.id);
+    const ammo = ex?.ammo ?? {};
+    // Include active mag/reserve if stored on player for current weapon
+    const ammoCopy: Record<string, { mag: number; reserve: number }> = {
+      ...ammo,
+    };
+    if (victim.primaryId) {
+      const bag = ammoCopy[victim.primaryId] ?? {
+        mag: 0,
+        reserve: 0,
+      };
+      if (victim.activeSlot === 1) {
+        bag.mag = victim.mag;
+        bag.reserve = victim.reserve;
+      }
+      ammoCopy[victim.primaryId] = bag;
+    }
+    if (victim.secondaryId) {
+      const bag = ammoCopy[victim.secondaryId] ?? {
+        mag: 0,
+        reserve: 0,
+      };
+      if (victim.activeSlot === 2) {
+        bag.mag = victim.mag;
+        bag.reserve = victim.reserve;
+      }
+      ammoCopy[victim.secondaryId] = bag;
+    }
+    const drops = createDeathWeaponDropsFromIds(
+      {
+        playerId: victim.id,
+        x: victim.x,
+        z: victim.z,
+        primaryId: victim.primaryId,
+        secondaryId: victim.secondaryId,
+        ammo: ammoCopy,
+      },
+      () => this.nextDropId(),
+    );
+    for (const d of drops) this.addWeaponDrop(d);
+  }
+
+  /**
+   * Walk-over fills empty slots; force (E) swaps even if slot occupied.
+   */
+  private tryPickupWeapon(
+    p: PlayerState,
+    ex: RuntimeExtra,
+    force: boolean,
+  ) {
+    if (!p.alive) return;
+    if (this.state.weaponDrops.size === 0) return;
+    const list = this.listWeaponDrops();
+    const near = findNearestWeaponDrop(
+      list,
+      p.x,
+      p.z,
+      WEAPON_DROP_PICKUP_RADIUS,
+    );
+    if (!near) return;
+    const w = getWeapon(near.weaponId);
+    if (!w) return;
+    const slot = w.slot;
+    if (!force) {
+      if (slot === 1 && p.primaryId) return;
+      if (slot === 2 && p.secondaryId) return;
+    }
+    const result = applyWeaponPickupServer(
+      {
+        id: p.id,
+        x: p.x,
+        z: p.z,
+        primaryId: p.primaryId,
+        secondaryId: p.secondaryId,
+        activeSlot: p.activeSlot,
+      },
+      ex.ammo,
+      near,
+    );
+    if (!result) return;
+
+    p.primaryId = result.primaryId;
+    p.secondaryId = result.secondaryId;
+    p.activeSlot = result.activeSlot;
+    p.mag = result.mag;
+    p.reserve = result.reserve;
+    ex.ammo = result.ammo;
+    ex.reloadingUntil = 0;
+    ex.shotsInBurst = 0;
+
+    this.state.weaponDrops.delete(result.removeDropId);
+    if (result.swapDrop) {
+      this.addWeaponDrop({
+        ...result.swapDrop,
+        id: this.nextDropId(),
+      });
+    }
   }
 
   /** CS: if you died last live round → knife + team pistol, no armor/HE. */
@@ -1179,6 +1336,7 @@ export class GameRoom extends Room<MatchState> {
             killer.money = clampMoney(killer.money + KILL_REWARD);
           }
         }
+        this.spawnDeathWeaponDrops(other);
         victims.push(other);
         if (this.phase.phase === "warmup") {
           const id = other.id;

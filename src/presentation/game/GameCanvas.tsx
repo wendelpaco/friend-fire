@@ -177,6 +177,7 @@ export function GameCanvas({
             plantProgress: snap.plantProgress,
             defuseProgress: snap.defuseProgress,
             roundEndReason: snap.roundEndReason,
+            weaponDrops: snap.weaponDrops,
           });
         } else if (!snap.connected) {
           engine.setNetworked(false, null);
@@ -265,6 +266,7 @@ export function GameCanvas({
         he: engine.input.isDown("KeyG"),
         jump: engine.input.isDown("Space"),
         crouch: engine.input.isCrouchDown(),
+        pickup: engine.input.isDown("KeyE"),
       });
     }, INPUT_MS);
 

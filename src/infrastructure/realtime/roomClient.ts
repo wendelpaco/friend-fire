@@ -162,6 +162,18 @@ export type NetworkRoomState = {
   defuseProgress: number;
   /** elimination | time | bomb_exploded | bomb_defused | "" */
   roundEndReason: string;
+  /** Ground weapon drops (C2b). */
+  weaponDrops: NetworkWeaponDrop[];
+};
+
+export type NetworkWeaponDrop = {
+  id: string;
+  x: number;
+  z: number;
+  weaponId: string;
+  ammoMag: number;
+  ammoReserve: number;
+  fromPlayerId: string;
 };
 
 export type NetworkPlayer = {
@@ -212,6 +224,8 @@ export type InputPayload = {
   jump: boolean;
   /** Hold bit: Control down (server rising-edge → toggle crouch). */
   crouch: boolean;
+  /** KeyE weapon pickup (server walk-over + E). */
+  pickup: boolean;
 };
 
 interface LocalRoomRecord {
@@ -374,6 +388,54 @@ function phaseFromState(state: unknown): string | null {
   if (!state || typeof state !== "object") return null;
   const phase = (state as { phase?: unknown }).phase;
   return typeof phase === "string" ? phase : null;
+}
+
+const networkDropsOut: NetworkWeaponDrop[] = [];
+
+function weaponDropsFromState(state: unknown): NetworkWeaponDrop[] {
+  if (!state || typeof state !== "object") return [];
+  const map = (state as { weaponDrops?: Map<string, unknown> | Record<string, unknown> })
+    .weaponDrops;
+  if (!map) return [];
+  let n = 0;
+  const visit = (raw: unknown, key: string) => {
+    if (!raw || typeof raw !== "object") return;
+    const o = raw as Record<string, unknown>;
+    const id = String(o.id ?? key);
+    const weaponId = typeof o.weaponId === "string" ? o.weaponId : "";
+    if (!id || !weaponId) return;
+    let row = networkDropsOut[n];
+    if (!row) {
+      row = {
+        id: "",
+        x: 0,
+        z: 0,
+        weaponId: "",
+        ammoMag: 0,
+        ammoReserve: 0,
+        fromPlayerId: "",
+      };
+      networkDropsOut[n] = row;
+    }
+    row.id = id;
+    row.x = Number(o.x) || 0;
+    row.z = Number(o.z) || 0;
+    row.weaponId = weaponId;
+    row.ammoMag = Number(o.ammoMag) || 0;
+    row.ammoReserve = Number(o.ammoReserve) || 0;
+    row.fromPlayerId =
+      typeof o.fromPlayerId === "string" ? o.fromPlayerId : "";
+    n += 1;
+  };
+  if (typeof (map as Map<string, unknown>).forEach === "function") {
+    (map as Map<string, unknown>).forEach((p, key) => visit(p, key));
+  } else {
+    for (const [key, p] of Object.entries(map as Record<string, unknown>)) {
+      visit(p, key);
+    }
+  }
+  networkDropsOut.length = n;
+  return networkDropsOut;
 }
 
 function stringFieldFromState(
@@ -914,6 +976,7 @@ export class ColyseusRoomClient implements RoomClient {
       defuseProgress: Number(state?.defuseProgress) || 0,
       roundEndReason:
         typeof state?.roundEndReason === "string" ? state.roundEndReason : "",
+      weaponDrops: weaponDropsFromState(state),
     };
   }
 
