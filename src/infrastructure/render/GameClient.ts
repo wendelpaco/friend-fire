@@ -389,6 +389,14 @@ export class GameClient {
 
   private buyMessage: string | null = null;
   private buyMessageUntil = 0;
+  /** Meta-2 full-screen shop showcase (once per buy phase). */
+  private showShopShowcase = false;
+  /** Round number for which showcase already ran (or was skipped). */
+  private showcaseShownForRound = -1;
+  /**
+   * After showcase dismiss, auto-open BuyMenu (solo only — existing behavior).
+   */
+  private pendingAutoBuyMenu = false;
   /** Fire `recordMatchResult` once per match_over transition. */
   private missionMatchRecorded = false;
   /** When true, combat/bots come from Colyseus; local only predicts movement. */
@@ -1042,6 +1050,17 @@ export class GameClient {
     if (this.state.phase === "live" && prevPhase !== "live") {
       this.clearSpectator();
       this.heProjectiles = [];
+      this.showShopShowcase = false;
+      this.pendingAutoBuyMenu = false;
+    }
+
+    // Meta-2: showcase once per buy phase (client overlay; money from server)
+    if (this.state.phase === "buy" && prevPhase !== "buy") {
+      this.pendingAutoBuyMenu = false;
+      this.startShopShowcaseIfNeeded();
+    } else if (this.state.phase !== "buy" && this.showShopShowcase) {
+      this.showShopShowcase = false;
+      this.pendingAutoBuyMenu = false;
     }
 
     const localId = net.sessionId ?? this.state.localPlayerId;
@@ -1541,6 +1560,33 @@ export class GameClient {
   // ─── update ──────────────────────────────────────────────
 
   private update(dt: number) {
+    // Meta-2 showcase: consume Space/Esc/B here so the same edge does not
+    // toggle BuyMenu or pause after dismiss.
+    if (this.showShopShowcase) {
+      if (this.state.phase !== "buy") {
+        this.showShopShowcase = false;
+        this.pendingAutoBuyMenu = false;
+      } else {
+        const skipB = this.input.wasPressed("KeyB");
+        const skipSpace = this.input.wasPressed("Space");
+        const skipEsc = this.input.wasPressed("Escape");
+        if (skipB || skipSpace || skipEsc) {
+          this.dismissShopShowcase({ openBuy: skipB });
+        }
+      }
+      if (!this.networked) {
+        this.updateTimer(dt);
+        this.updateBots(dt);
+        this.updateBullets(dt);
+      }
+      this.three.animateDust(dt);
+      this.three.updateFx(dt);
+      this.syncRender();
+      this.pushHud();
+      this.input.endFrame();
+      return;
+    }
+
     if (this.input.wasPressed("Escape")) {
       if (this.state.showBuyMenu) {
         this.closeBuyMenu();
@@ -1974,9 +2020,50 @@ export class GameClient {
       this.respawnPlayer(p);
     }
     this.assignBombCarrier();
-    if (!this.networked && canOpenBuyMenu("buy")) {
+    // Showcase first; solo auto-opens BuyMenu after dismiss (existing behavior).
+    this.pendingAutoBuyMenu = !this.networked && canOpenBuyMenu("buy");
+    this.state.showBuyMenu = false;
+    this.startShopShowcaseIfNeeded();
+    if (
+      !this.showShopShowcase &&
+      this.pendingAutoBuyMenu &&
+      canOpenBuyMenu("buy")
+    ) {
+      this.state.showBuyMenu = true;
+      this.pendingAutoBuyMenu = false;
+    }
+  }
+
+  /**
+   * Meta-2: full-screen shop showcase once per buy phase.
+   * Skip keys / timer are handled by ShopShowcase UI → dismissShopShowcase.
+   */
+  private startShopShowcaseIfNeeded() {
+    if (this.state.phase !== "buy") return;
+    if (this.showcaseShownForRound === this.state.round) return;
+    this.showcaseShownForRound = this.state.round;
+    this.showShopShowcase = true;
+    this.state.showBuyMenu = false;
+    Sfx.play("ui");
+  }
+
+  /**
+   * HUD timer/buttons or engine Space/Esc/B.
+   * Opens BuyMenu when `openBuy` or solo `pendingAutoBuyMenu` (existing auto-open).
+   */
+  dismissShopShowcase(opts?: { openBuy?: boolean }) {
+    if (!this.showShopShowcase) return;
+    this.showShopShowcase = false;
+    const shouldOpen = opts?.openBuy === true || this.pendingAutoBuyMenu;
+    this.pendingAutoBuyMenu = false;
+    if (
+      shouldOpen &&
+      canOpenBuyMenu(this.state.phase) &&
+      !this.state.paused
+    ) {
       this.state.showBuyMenu = true;
     }
+    Sfx.play("ui");
   }
 
   /** Buy ended → combat starts (no re-buy until next buy phase). */
@@ -1986,6 +2073,8 @@ export class GameClient {
     this.heProjectiles = [];
     this.clearSpectator();
     this.state.showBuyMenu = false;
+    this.showShopShowcase = false;
+    this.pendingAutoBuyMenu = false;
     for (const p of this.state.players) {
       p.diedThisRound = false;
     }
@@ -2882,6 +2971,7 @@ export class GameClient {
       showScoreboard: this.state.showScoreboard,
       showHelp: this.state.showHelp,
       showBuyMenu: this.state.showBuyMenu,
+      showShopShowcase: this.showShopShowcase,
       hitMarker,
       reloading,
       lowAmmo,
@@ -2995,6 +3085,7 @@ export class GameClient {
       showScoreboard: this.state.showScoreboard,
       showHelp: this.state.showHelp,
       showBuyMenu: this.state.showBuyMenu,
+      showShopShowcase: this.showShopShowcase,
       canBuy: canOpenBuyMenu(this.state.phase),
       cameraMode: this.state.cameraMode,
       reloading,

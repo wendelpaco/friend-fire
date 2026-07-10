@@ -11,6 +11,7 @@ import { EndMatchBreak } from "@/presentation/game/EndMatchBreak";
 import { RoundBanner } from "@/presentation/game/RoundBanner";
 import { SettingsPanel } from "@/presentation/game/SettingsPanel";
 import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
+import { ShopShowcase } from "@/presentation/session/ShopShowcase";
 import type { Team } from "@/shared/types/team";
 
 function formatTime(seconds: number) {
@@ -56,6 +57,7 @@ interface GameHudProps {
   onMatchContinue?: () => void;
   onBuy?: (itemId: string) => void;
   onCloseBuy?: () => void;
+  onDismissShowcase?: (opts: { openBuy: boolean }) => void;
 }
 
 function fpsColorClass(fps: number): string {
@@ -142,6 +144,7 @@ function GameHudImpl({
   onMatchContinue,
   onBuy,
   onCloseBuy,
+  onDismissShowcase,
 }: GameHudProps) {
   const [showSettings, setShowSettings] = useState(false);
   useEffect(() => {
@@ -518,14 +521,17 @@ function GameHudImpl({
       </div>
 
       {/* Subtle control strip */}
-      {!hud.paused && !hud.showHelp && !hud.showBuyMenu && (
+      {!hud.paused &&
+        !hud.showHelp &&
+        !hud.showBuyMenu &&
+        !hud.showShopShowcase && (
         <div className="absolute bottom-[5.5rem] left-1/2 -translate-x-1/2 text-[10px] tracking-wide text-white/30">
           B loja · C câmera ({hud.cameraMode === "free" ? "livre" : "travada"}) ·
           R recarregar · Tab placar · Esc pausar
         </div>
       )}
 
-      {hud.buyMessage && !hud.showBuyMenu && (
+      {hud.buyMessage && !hud.showBuyMenu && !hud.showShopShowcase && (
         <div className="absolute left-1/2 top-28 z-20 -translate-x-1/2 rounded-lg border border-amber-400/40 bg-black/75 px-4 py-1.5 text-sm text-amber-100 shadow-lg">
           {hud.buyMessage}
         </div>
@@ -695,8 +701,25 @@ function GameHudImpl({
         </div>
       )}
 
+      {/* Meta-2 shop showcase — once per buy phase, above BuyMenu */}
+      {hud.showShopShowcase &&
+        onDismissShowcase &&
+        !hud.paused &&
+        !hud.matchOver && (
+          <ShopShowcase
+            money={hud.money}
+            round={hud.round}
+            onDismiss={onDismissShowcase}
+          />
+        )}
+
       {/* Buy menu */}
-      {hud.showBuyMenu && onBuy && onCloseBuy && !hud.paused && !hud.matchOver && (
+      {hud.showBuyMenu &&
+        !hud.showShopShowcase &&
+        onBuy &&
+        onCloseBuy &&
+        !hud.paused &&
+        !hud.matchOver && (
         <BuyMenu
           money={hud.money}
           armor={hud.armor}
@@ -707,7 +730,11 @@ function GameHudImpl({
       )}
 
       {/* Pause menu / settings */}
-      {hud.paused && !hud.showHelp && !hud.matchOver && !hud.showBuyMenu && (
+      {hud.paused &&
+        !hud.showHelp &&
+        !hud.matchOver &&
+        !hud.showBuyMenu &&
+        !hud.showShopShowcase && (
         <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-black/75 backdrop-blur-md">
           {showSettings ? (
             <SettingsPanel onBack={() => setShowSettings(false)} />

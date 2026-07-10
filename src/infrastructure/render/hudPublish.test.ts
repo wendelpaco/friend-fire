@@ -25,6 +25,7 @@ const base: HudCriticalFields = {
   showScoreboard: false,
   showHelp: false,
   showBuyMenu: false,
+  showShopShowcase: false,
   hitMarker: false,
   reloading: false,
   lowAmmo: false,

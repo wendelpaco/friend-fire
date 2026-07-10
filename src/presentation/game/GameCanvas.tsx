@@ -61,6 +61,10 @@ export function GameCanvas({
     router.push("/");
   }, [router]);
 
+  const onDismissShowcase = useCallback((opts: { openBuy: boolean }) => {
+    engineRef.current?.dismissShopShowcase(opts);
+  }, []);
+
   // Boot local engine (always — hybrid combat even in room mode)
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -90,6 +94,7 @@ export function GameCanvas({
             snapshot.roundBanner ||
             snapshot.paused ||
             snapshot.showBuyMenu ||
+            snapshot.showShopShowcase ||
             snapshot.showHelp
           ) {
             setHud(snapshot);
@@ -336,6 +341,7 @@ export function GameCanvas({
           onMatchContinue={onMatchContinue}
           onBuy={(id) => engineRef.current?.purchase(id)}
           onCloseBuy={() => engineRef.current?.closeBuyMenu()}
+          onDismissShowcase={onDismissShowcase}
         />
       )}
       {mode === "room" && displayCode && !hud && !loading && (

@@ -4,5 +4,6 @@ export * from "./damage";
 export * from "./reload";
 export * from "./accuracy";
 export * from "./shop";
+export * from "./kitSuggest";
 export * from "./grenade";
 export * from "./drops";

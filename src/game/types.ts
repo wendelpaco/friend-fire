@@ -192,6 +192,8 @@ export interface HudSnapshot {
   showScoreboard: boolean;
   showHelp: boolean;
   showBuyMenu: boolean;
+  /** Full-screen shop showcase (Meta-2); once per buy phase. */
+  showShopShowcase: boolean;
   canBuy: boolean;
   cameraMode: "locked" | "free";
   reloading: boolean;

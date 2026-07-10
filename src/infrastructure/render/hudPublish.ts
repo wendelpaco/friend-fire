@@ -31,6 +31,7 @@ export type HudCriticalFields = {
   showScoreboard: boolean;
   showHelp: boolean;
   showBuyMenu: boolean;
+  showShopShowcase: boolean;
   hitMarker: boolean;
   reloading: boolean;
   lowAmmo: boolean;
@@ -72,6 +73,7 @@ export function hudCriticalSignature(f: HudCriticalFields): string {
     f.showScoreboard ? 1 : 0,
     f.showHelp ? 1 : 0,
     f.showBuyMenu ? 1 : 0,
+    f.showShopShowcase ? 1 : 0,
     f.hitMarker ? 1 : 0,
     f.reloading ? 1 : 0,
     f.lowAmmo ? 1 : 0,
