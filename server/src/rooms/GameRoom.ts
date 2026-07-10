@@ -19,6 +19,7 @@ import {
   canPlant,
   createBombState,
   DEFUSE_RADIUS,
+  DEFUSE_TIME,
   explode,
   findSiteAt,
   getBombSites,
@@ -1464,8 +1465,9 @@ export class GameRoom extends Room<MatchState> {
     }
 
     // --- Defuse (CT humans + bots near bomb) ---
-    let defuseHolding = false;
-    let defuseOk = false;
+    // Collect holders for sticky bombDefuserId (radial attaches to actual actor).
+    type DefuseCand = { id: string; isBot: boolean; dist2: number };
+    const defuseCands: DefuseCand[] = [];
     this.state.players.forEach((p) => {
       if (!p.alive || p.team !== "CT") return;
       if (
@@ -1480,19 +1482,43 @@ export class GameRoom extends Room<MatchState> {
       ) {
         return;
       }
+      const dx = p.x - bomb.bombX;
+      const dz = p.z - bomb.bombZ;
+      const dist2 = dx * dx + dz * dz;
       if (p.isBot) {
-        defuseHolding = true;
-        defuseOk = true;
+        defuseCands.push({ id: p.id, isBot: true, dist2 });
         return;
       }
       const input = this.inputs.get(p.id);
       if (input?.plant) {
-        defuseHolding = true;
-        defuseOk = true;
+        defuseCands.push({ id: p.id, isBot: false, dist2 });
       }
     });
 
-    bomb = tickDefuse(bomb, dt, defuseHolding, defuseOk);
+    const defuseHolding = defuseCands.length > 0;
+    const defuseOk = defuseHolding;
+    let defuserId: string | null = null;
+    if (defuseCands.length > 0) {
+      const prev = bomb.bombDefuserId;
+      if (prev && defuseCands.some((c) => c.id === prev)) {
+        defuserId = prev;
+      } else {
+        // Prefer human holders; among pool pick nearest to bomb.
+        const humans = defuseCands.filter((c) => !c.isBot);
+        const pool = humans.length > 0 ? humans : defuseCands;
+        pool.sort((a, b) => a.dist2 - b.dist2);
+        defuserId = pool[0]!.id;
+      }
+    }
+
+    bomb = tickDefuse(
+      bomb,
+      dt,
+      defuseHolding,
+      defuseOk,
+      DEFUSE_TIME,
+      defuserId,
+    );
     if (bomb.defuseProgress >= 1 && bomb.bombState === "defusing") {
       bomb = onDefuseComplete(bomb);
       this.bomb = bomb;
@@ -1606,6 +1632,7 @@ export class GameRoom extends Room<MatchState> {
     this.state.bombCarrierId = this.bomb.bombCarrierId ?? "";
     this.state.plantProgress = this.bomb.plantProgress;
     this.state.defuseProgress = this.bomb.defuseProgress;
+    this.state.bombDefuserId = this.bomb.bombDefuserId ?? "";
   }
 
   private respawnAll() {

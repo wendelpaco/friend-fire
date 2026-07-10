@@ -135,6 +135,8 @@ export interface MatchState {
   defuseProgress: number;
   /** Seconds remaining when planted / defusing. */
   bombTimer: number;
+  /** CT holding defuse (null when not defusing); mirrors server bombDefuserId. */
+  bombDefuserId: string | null;
 }
 
 export interface ScoreboardRow {

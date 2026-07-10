@@ -44,6 +44,11 @@ export interface BombMatchState {
   defuseProgress: number;
   /** Seconds remaining when planted / defusing. */
   bombTimer: number;
+  /**
+   * CT session id currently holding defuse (null when not defusing).
+   * Cosmetic + attribution; progress still advances from any valid CT hold.
+   */
+  bombDefuserId: string | null;
 }
 
 export interface BombSite {
@@ -94,6 +99,7 @@ export function createBombState(
     plantProgress: 0,
     defuseProgress: 0,
     bombTimer: BOMB_TIMER,
+    bombDefuserId: null,
   };
 }
 
@@ -244,6 +250,7 @@ export function tickPlant(
  * Advance or cancel defuse while holding F.
  * When progress reaches 1, caller should invoke `onDefuseComplete`.
  * @param defuseTime seconds — DEFUSE_TIME (5) or DEFUSE_TIME_KIT (3.5) when kit owned.
+ * @param defuserId CT id holding F (sticky attribution for world radial).
  */
 export function tickDefuse(
   bomb: BombMatchState,
@@ -251,6 +258,7 @@ export function tickDefuse(
   holding: boolean,
   defuseOk: boolean,
   defuseTime: number = DEFUSE_TIME,
+  defuserId: string | null = null,
 ): BombMatchState {
   if (bomb.bombState !== "planted" && bomb.bombState !== "defusing") {
     return bomb;
@@ -261,6 +269,7 @@ export function tickDefuse(
       ...bomb,
       bombState: "planted",
       defuseProgress: 0,
+      bombDefuserId: null,
     };
   }
   const duration =
@@ -270,6 +279,7 @@ export function tickDefuse(
     ...bomb,
     bombState: "defusing",
     defuseProgress,
+    bombDefuserId: defuserId ?? bomb.bombDefuserId,
   };
 }
 
@@ -299,6 +309,7 @@ export function onPlantComplete(
     defuseProgress: 0,
     bombTimer: BOMB_TIMER,
     bombCarrierId: null,
+    bombDefuserId: null,
   };
 }
 
@@ -308,6 +319,7 @@ export function onDefuseComplete(bomb: BombMatchState): BombMatchState {
     ...bomb,
     bombState: "defused",
     defuseProgress: 1,
+    bombDefuserId: null,
   };
 }
 
@@ -317,6 +329,7 @@ export function explode(bomb: BombMatchState): BombMatchState {
     ...bomb,
     bombState: "exploded",
     bombTimer: 0,
+    bombDefuserId: null,
   };
 }
 

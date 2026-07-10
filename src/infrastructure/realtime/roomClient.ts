@@ -192,6 +192,8 @@ export type NetworkRoomState = {
   bombCarrierId: string;
   plantProgress: number;
   defuseProgress: number;
+  /** CT session id currently defusing (empty if not). */
+  bombDefuserId: string;
   /** elimination | time | bomb_exploded | bomb_defused | "" */
   roundEndReason: string;
   /** Ground weapon drops (C2b). */
@@ -1082,6 +1084,8 @@ export class ColyseusRoomClient implements RoomClient {
         typeof state?.bombCarrierId === "string" ? state.bombCarrierId : "",
       plantProgress: Number(state?.plantProgress) || 0,
       defuseProgress: Number(state?.defuseProgress) || 0,
+      bombDefuserId:
+        typeof state?.bombDefuserId === "string" ? state.bombDefuserId : "",
       roundEndReason:
         typeof state?.roundEndReason === "string" ? state.roundEndReason : "",
       weaponDrops: weaponDropsFromState(state),

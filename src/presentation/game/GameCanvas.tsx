@@ -213,6 +213,7 @@ export function GameCanvas({
             bombCarrierId: snap.bombCarrierId,
             plantProgress: snap.plantProgress,
             defuseProgress: snap.defuseProgress,
+            bombDefuserId: snap.bombDefuserId,
             roundEndReason: snap.roundEndReason,
             weaponDrops: snap.weaponDrops,
           });

@@ -118,22 +118,26 @@ describe("tickPlant / onPlantComplete", () => {
 describe("tickDefuse / onDefuseComplete", () => {
   it("advances defuse and completes", () => {
     let b = plantedAt();
-    b = tickDefuse(b, DEFUSE_TIME / 2, true, true);
+    b = tickDefuse(b, DEFUSE_TIME / 2, true, true, DEFUSE_TIME, "ct1");
     expect(b.bombState).toBe("defusing");
     expect(b.defuseProgress).toBeCloseTo(0.5);
+    expect(b.bombDefuserId).toBe("ct1");
 
-    b = tickDefuse(b, DEFUSE_TIME / 2, true, true);
+    b = tickDefuse(b, DEFUSE_TIME / 2, true, true, DEFUSE_TIME, "ct1");
     expect(b.defuseProgress).toBe(1);
     b = onDefuseComplete(b);
     expect(b.bombState).toBe("defused");
+    expect(b.bombDefuserId).toBeNull();
   });
 
-  it("cancels defuse when interrupted", () => {
+  it("cancels defuse when interrupted and clears defuser id", () => {
     let b = plantedAt();
-    b = tickDefuse(b, 2, true, true);
+    b = tickDefuse(b, 2, true, true, DEFUSE_TIME, "ct1");
+    expect(b.bombDefuserId).toBe("ct1");
     b = tickDefuse(b, 0.1, false, true);
     expect(b.bombState).toBe("planted");
     expect(b.defuseProgress).toBe(0);
+    expect(b.bombDefuserId).toBeNull();
   });
 
   it("uses kit duration when provided (DEFUSE_TIME_KIT)", () => {
@@ -148,6 +152,13 @@ describe("tickDefuse / onDefuseComplete", () => {
     let b = plantedAt();
     b = tickDefuse(b, 5, true, true);
     expect(b.defuseProgress).toBe(1);
+  });
+
+  it("keeps sticky defuser when arg omitted mid-hold", () => {
+    let b = plantedAt();
+    b = tickDefuse(b, 1, true, true, DEFUSE_TIME, "ct-sticky");
+    b = tickDefuse(b, 1, true, true);
+    expect(b.bombDefuserId).toBe("ct-sticky");
   });
 });
 

@@ -517,6 +517,7 @@ export class GameClient {
       plantProgress: this.state.plantProgress,
       defuseProgress: this.state.defuseProgress,
       bombTimer: this.state.bombTimer,
+      bombDefuserId: this.state.bombDefuserId,
     };
   }
 
@@ -528,6 +529,7 @@ export class GameClient {
     this.state.plantProgress = b.plantProgress;
     this.state.defuseProgress = b.defuseProgress;
     this.state.bombTimer = b.bombTimer;
+    this.state.bombDefuserId = b.bombDefuserId;
   }
 
   /** Living TR candidates for C4 (prefer human via pickBombCarrier). */
@@ -572,10 +574,11 @@ export class GameClient {
 
   /**
    * World-space plant/defuse radial on the acting character.
-   * Visible to all (fake plant / defuse pressure). Kit color when kit exists.
+   * Ring visible to all (fake plant / defuse pressure); "SEGURE F" local actor only.
    */
   private syncBombActionRadial() {
     const s = this.state;
+    const localId = s.localPlayerId;
     if (s.bombState === "planting" && s.plantProgress > 0) {
       const carrier = s.players.find((p) => p.id === s.bombCarrierId);
       if (carrier?.alive) {
@@ -584,6 +587,7 @@ export class GameClient {
           z: carrier.z,
           progress: s.plantProgress,
           mode: "plant",
+          showLabel: carrier.id === localId,
         });
         return;
       }
@@ -599,6 +603,7 @@ export class GameClient {
           z: defuser.z,
           progress: s.defuseProgress,
           mode: this.playerHasDefuseKit(defuser) ? "defuse_kit" : "defuse",
+          showLabel: defuser.id === localId,
         });
         return;
       }
@@ -606,9 +611,24 @@ export class GameClient {
     this.three.setBombActionRadial(null);
   }
 
-  /** Nearest alive CT in defuse range (or local if holding). */
+  /**
+   * Prefer server/synced bombDefuserId; fallback nearest alive CT in range.
+   */
   private findDefusingPlayer(): PlayerState | null {
     const s = this.state;
+    if (s.bombDefuserId) {
+      const byId = s.players.find((p) => p.id === s.bombDefuserId);
+      if (byId?.alive && byId.team === "CT") return byId;
+    }
+    // Best-effort when id missing (legacy net / mid-sync): prefer local CT in range.
+    const local = s.players.find((p) => p.id === s.localPlayerId);
+    if (
+      local?.alive &&
+      local.team === "CT" &&
+      Math.hypot(local.x - s.bombX, local.z - s.bombZ) <= DEFUSE_RADIUS
+    ) {
+      return local;
+    }
     let best: PlayerState | null = null;
     let bestD = Infinity;
     for (const p of s.players) {
@@ -769,7 +789,16 @@ export class GameClient {
       }
       this.writeBomb(bomb);
     } else if (defuseOk || bomb.bombState === "defusing") {
-      bomb = tickDefuse(bomb, dt, holdingF, defuseOk);
+      const soloDefuserId =
+        holdingF && defuseOk && p.team === "CT" ? p.id : null;
+      bomb = tickDefuse(
+        bomb,
+        dt,
+        holdingF,
+        defuseOk,
+        undefined,
+        soloDefuserId,
+      );
       if (bomb.defuseProgress >= 1 && bomb.bombState === "defusing") {
         bomb = onDefuseComplete(bomb);
         this.writeBomb(bomb);
@@ -1209,6 +1238,7 @@ export class GameClient {
     bombCarrierId?: string;
     plantProgress?: number;
     defuseProgress?: number;
+    bombDefuserId?: string;
     roundEndReason?: string;
     weaponDrops?: Array<{
       id: string;
@@ -1260,6 +1290,7 @@ export class GameClient {
     this.state.bombCarrierId = net.bombCarrierId || null;
     this.state.plantProgress = net.plantProgress ?? 0;
     this.state.defuseProgress = net.defuseProgress ?? 0;
+    this.state.bombDefuserId = net.bombDefuserId || null;
     this.syncBombVisual();
 
     // Ground weapon drops (authoritative list)
@@ -1809,6 +1840,7 @@ export class GameClient {
       plantProgress: 0,
       defuseProgress: 0,
       bombTimer: 40,
+      bombDefuserId: null,
     };
   }
 

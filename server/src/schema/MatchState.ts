@@ -94,6 +94,8 @@ export class MatchState extends Schema {
   @type("string") bombCarrierId: string = "";
   @type("number") plantProgress: number = 0;
   @type("number") defuseProgress: number = 0;
+  /** CT session id currently holding defuse (empty if not defusing). */
+  @type("string") bombDefuserId: string = "";
   /**
    * Last round end reason for banners:
    * elimination | time | bomb_exploded | bomb_defused | ""

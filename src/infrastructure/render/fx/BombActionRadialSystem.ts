@@ -8,6 +8,11 @@ export type BombActionVisual = {
   /** 0–1 hold progress. */
   progress: number;
   mode: BombActionMode;
+  /**
+   * "SEGURE F" guidance for the local actor only.
+   * Enemies/spectators still see the ring (fake plant/defuse pressure).
+   */
+  showLabel?: boolean;
 };
 
 /** Base world radius of the action ring (feet). */
@@ -102,6 +107,7 @@ export class BombActionRadialSystem {
     this.active = true;
     this.root.visible = true;
     this.root.position.set(v.x, 0, v.z);
+    this.labelSprite.visible = v.showLabel === true;
 
     const key = `${v.mode}|${Math.round(v.progress * 48)}`;
     if (key !== this.lastKey) {
@@ -127,6 +133,11 @@ export class BombActionRadialSystem {
       r = Math.max(BASE_RADIUS, MIN_SCREEN_PX * worldPerPx);
     }
     this.ringMesh.scale.set(r, r, 1);
+    // Keep "SEGURE F" readable at the same min-px floor as the ring.
+    if (this.labelSprite.visible) {
+      const labelScale = Math.max(1, r / BASE_RADIUS);
+      this.labelSprite.scale.set(1.6 * labelScale, 0.42 * labelScale, 1);
+    }
   }
 
   dispose(): void {
