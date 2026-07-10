@@ -15,9 +15,16 @@ export class Input {
    */
   private suppressed = false;
 
-  /** True when typing in an input/textarea/contenteditable (or suppressed flag). */
-  isTypingTarget(target: EventTarget | null = null): boolean {
-    if (this.suppressed) return true;
+  /** True when combat input is suppressed (chat focus trap). */
+  isSuppressed(): boolean {
+    return this.suppressed;
+  }
+
+  /**
+   * True when focus is in a form field. Does **not** include the suppressed
+   * flag — so a stuck chatFocused cannot permanently block mouse forever.
+   */
+  isDomTyping(target: EventTarget | null = null): boolean {
     const el =
       (target as HTMLElement | null) ??
       (typeof document !== "undefined"
@@ -28,6 +35,12 @@ export class Input {
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
     if (el.isContentEditable) return true;
     return false;
+  }
+
+  /** @deprecated prefer isDomTyping / isSuppressed — kept for callers */
+  isTypingTarget(target: EventTarget | null = null): boolean {
+    if (this.suppressed) return true;
+    return this.isDomTyping(target);
   }
 
   setSuppressed(suppressed: boolean) {
@@ -42,7 +55,7 @@ export class Input {
 
   private onKeyDown = (e: KeyboardEvent) => {
     // Chat / form focus: do not capture game keys (Meta-3 input trap).
-    if (this.isTypingTarget(e.target)) {
+    if (this.suppressed || this.isDomTyping(e.target)) {
       return;
     }
     if (!this.keys.has(e.code)) {
@@ -92,7 +105,17 @@ export class Input {
   };
 
   private onMouseDown = (e: MouseEvent) => {
-    if (this.isTypingTarget(e.target)) return;
+    // Allow combat clicks on the canvas even if chat was focused —
+    // canvas mousedown should re-enable aim/fire (clears stuck trap).
+    const t = e.target as HTMLElement | null;
+    const onCanvas = t?.tagName === "CANVAS";
+    if (!onCanvas && (this.suppressed || this.isDomTyping(e.target))) {
+      return;
+    }
+    if (onCanvas && this.suppressed) {
+      // Caller (GameClient) should clear chatFocused; still register the click.
+      this.suppressed = false;
+    }
     if (!this.mouseButtons.has(e.button)) {
       this.mouseJustPressed.add(e.button);
     }

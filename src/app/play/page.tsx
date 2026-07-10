@@ -14,9 +14,16 @@ const GameCanvas = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-[#0a0c10] text-white/60">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500/30 border-t-amber-400" />
-        <span className="text-sm tracking-wide">Preparando partida…</span>
+      <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[#07090e] text-white">
+        <div className="text-[10px] font-bold tracking-[0.5em] text-amber-500/90">
+          FRIEND FIRE
+        </div>
+        <div className="h-1 w-40 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-gradient-to-r from-amber-600 to-amber-300" />
+        </div>
+        <span className="text-xs tracking-wide text-white/45">
+          Preparando protocolo de combate…
+        </span>
       </div>
     ),
   },
@@ -24,9 +31,16 @@ const GameCanvas = dynamic(
 
 function PlayLoading() {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-[#0a0c10] text-white/60">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500/30 border-t-amber-400" />
-      <span className="text-sm tracking-wide">Preparando partida…</span>
+    <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[#07090e] text-white">
+      <div className="text-[10px] font-bold tracking-[0.5em] text-amber-500/90">
+        FRIEND FIRE
+      </div>
+      <div className="h-1 w-40 overflow-hidden rounded-full bg-white/10">
+        <div className="h-full w-1/3 animate-pulse rounded-full bg-gradient-to-r from-amber-600 to-amber-300" />
+      </div>
+      <span className="text-xs tracking-wide text-white/45">
+        Entrando no setor…
+      </span>
     </div>
   );
 }

@@ -1635,11 +1635,26 @@ export class GameClient {
   // ─── update ──────────────────────────────────────────────
 
   private update(dt: number) {
-    // Chat focus trap: no combat / menu edge keys while typing (Meta-3).
-    if (this.chatFocused || this.input.isTypingTarget()) {
+    // Chat focus trap: only while a real form field is focused.
+    // If chatFocused stuck after unmount/blur, auto-clear so fire works again.
+    if (this.chatFocused) {
+      if (!this.input.isDomTyping()) {
+        this.setChatFocused(false);
+      } else {
+        this.pushHud();
+        this.input.endFrame();
+        return;
+      }
+    } else if (this.input.isDomTyping()) {
+      // Typing in any UI field (settings, etc.) — don't eat combat frame forever
+      // but skip key-driven combat for this frame.
       this.pushHud();
       this.input.endFrame();
       return;
+    }
+    // Canvas click clears residual suppress (see Input.onMouseDown)
+    if (this.input.isSuppressed() && this.input.isMouseDown(0)) {
+      this.setChatFocused(false);
     }
 
     // Meta-2 showcase: consume Space/Esc/B here so the same edge does not
@@ -1791,32 +1806,62 @@ export class GameClient {
     const dz = this.input.aimWorldZ - p.z;
     if (dx !== 0 || dz !== 0) p.rot = Math.atan2(dx, dz);
 
-    // Local fire SFX + cosmetic muzzle/wall FX (damage is server-side)
-    if (this.input.isMouseDown(0)) {
+    // Local fire SFX + cosmetic muzzle/wall FX (damage is server-side).
+    // Never early-return out of this method on empty mag (stuck-gun feel).
+    if (
+      this.input.isMouseDown(0) &&
+      p.reloadingUntil <= 0 &&
+      (this.state.phase === "live" || this.state.phase === "warmup")
+    ) {
       const now = performance.now();
       const wid = p.weapons[p.weaponSlot];
       const def = wid ? WEAPONS[wid] : null;
-      if (def?.isMelee) return;
-      const ammo = wid ? p.ammo[wid] : null;
-      // Respect weapon fire rate and local mag when present (sync may lag)
-      if (ammo && ammo.mag <= 0) return;
-      const cd = def?.fireRate ?? 140;
-      if (now - p.lastShotAt > cd) {
-        p.lastShotAt = now;
-        if (ammo) ammo.mag = Math.max(0, ammo.mag - 1);
-        Sfx.play("shoot");
-        this.three.spawnMuzzle(p.x, p.z, p.rot);
-        this.three.notifyShoot(p.id);
-        const reach = Math.min(def?.range ?? 50, 40);
-        this.three.spawnTracer(
-          p.x + Math.sin(p.rot) * 0.7,
-          1.15,
-          p.z + Math.cos(p.rot) * 0.7,
-          p.x + Math.sin(p.rot) * reach,
-          1.0,
-          p.z + Math.cos(p.rot) * reach,
-        );
-        this.cosmeticWallRay(p.x, p.z, p.rot, def?.range ?? 50);
+      if (def && !def.isMelee) {
+        const ammo = wid ? p.ammo[wid] : null;
+        if (ammo && ammo.mag <= 0) {
+          if (now - p.lastShotAt > 400) {
+            p.lastShotAt = now;
+            Sfx.play("deny");
+          }
+        } else {
+          const cd = def.fireRate ?? 140;
+          if (now - p.lastShotAt > cd) {
+            const prevShot = p.lastShotAt;
+            const msSinceLastShot =
+              prevShot > 0 ? now - prevShot : Number.POSITIVE_INFINITY;
+            const knobs = knobsForWeapon(wid!);
+            const spread = shotSpreadRadians({
+              weaponId: wid!,
+              speed: p.moveSpeed ?? 0,
+              standSpeed: PLAYER_SPEED,
+              airborne: !(p.onGround ?? true),
+              crouching: Boolean(p.crouching),
+              shotsInBurst: p.shotsInBurst ?? 0,
+              msSinceLastShot,
+            });
+            const angle = applySpreadToYaw(p.rot, spread);
+            p.lastShotAt = now;
+            p.shotsInBurst = nextShotsInBurst(
+              p.shotsInBurst ?? 0,
+              msSinceLastShot,
+              knobs.recoveryMs,
+            );
+            if (ammo) ammo.mag = Math.max(0, ammo.mag - 1);
+            Sfx.play("shoot");
+            this.three.spawnMuzzle(p.x, p.z, p.rot);
+            this.three.notifyShoot(p.id);
+            const reach = Math.min(def.range ?? 50, 40);
+            this.three.spawnTracer(
+              p.x + Math.sin(p.rot) * 0.7,
+              1.15,
+              p.z + Math.cos(p.rot) * 0.7,
+              p.x + Math.sin(angle) * reach,
+              1.0,
+              p.z + Math.cos(angle) * reach,
+            );
+            this.cosmeticWallRay(p.x, p.z, angle, def.range ?? 50);
+          }
+        }
       }
     }
   }
@@ -2522,12 +2567,20 @@ export class GameClient {
     this.tryPickupWeaponDrop(p, this.input.wasPressed("KeyE"));
 
     // Combat only warmup + live (not buy freezetime / ended)
-    if (
-      this.input.isMouseDown(0) &&
-      p.reloadingUntil <= 0 &&
-      (this.state.phase === "live" || this.state.phase === "warmup")
-    ) {
-      this.tryShoot(p);
+    if (this.input.isMouseDown(0)) {
+      if (this.state.phase === "buy") {
+        const now = performance.now();
+        if (now - p.lastShotAt > 900) {
+          p.lastShotAt = now;
+          this.flashBuyMessage("Freezetime — aguarde o round");
+          Sfx.play("deny");
+        }
+      } else if (
+        p.reloadingUntil <= 0 &&
+        (this.state.phase === "live" || this.state.phase === "warmup")
+      ) {
+        this.tryShoot(p);
+      }
     }
   }
 
@@ -2748,11 +2801,17 @@ export class GameClient {
 
     const ammo = p.ammo[wid];
     if (!ammo || ammo.mag <= 0) {
-      if (ammo && ammo.reserve > 0) this.startReload(p);
-      else if (p.weapons[2] && (p.ammo[p.weapons[2]]?.mag ?? 0) > 0) {
+      if (ammo && ammo.reserve > 0) {
+        this.startReload(p);
+      } else if (p.weapons[2] && (p.ammo[p.weapons[2]]?.mag ?? 0) > 0) {
         p.weaponSlot = 2;
-      } else {
+        Sfx.play("ui");
+      } else if (p.weapons[4]) {
         p.weaponSlot = 4;
+      } else if (!p.isBot && now - p.lastShotAt > 500) {
+        p.lastShotAt = now;
+        this.flashBuyMessage("Sem munição");
+        Sfx.play("deny");
       }
       return;
     }

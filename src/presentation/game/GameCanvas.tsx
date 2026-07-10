@@ -9,11 +9,13 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import type { HudSnapshot } from "@/game/types";
-import { setLastMapId } from "@/domains/world";
+import { getOperatorById, getOperatorPrefs } from "@/domains/operator";
+import { getMapById, setLastMapId } from "@/domains/world";
 import {
   getColyseusRoomClient,
   type NetworkRoomState,
 } from "@/infrastructure/realtime/roomClient";
+import { MatchLoadingScreen } from "@/presentation/session/MatchLoadingScreen";
 import { GameHud } from "./GameHud";
 
 export type PlayMode = "local" | "room";
@@ -56,8 +58,23 @@ export function GameCanvas({
   const router = useRouter();
   const [hud, setHud] = useState<HudSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  /** Engine constructed + started */
+  const [engineReady, setEngineReady] = useState(false);
+  /** Cinematic boot splash (min time + engine) */
+  const [bootSplash, setBootSplash] = useState(true);
   const [net, setNet] = useState<NetworkRoomState | null>(null);
+
+  const resolvedMapId = mapId || "dust";
+  const mapDisplayName =
+    getMapById(resolvedMapId)?.displayName ?? resolvedMapId;
+  const operatorName = (() => {
+    try {
+      const prefs = getOperatorPrefs();
+      return getOperatorById(prefs.operatorId)?.name ?? "Operador";
+    } catch {
+      return "Operador";
+    }
+  })();
 
   const onMatchContinue = useCallback(() => {
     void roomRef.current?.leave();
@@ -86,7 +103,6 @@ export function GameCanvas({
         );
         if (disposed) return;
 
-        const resolvedMapId = mapId || "dust";
         setLastMapId(resolvedMapId);
 
         const engine = new GameClient(canvas, resolvedMapId);
@@ -119,13 +135,14 @@ export function GameCanvas({
         resize();
         window.addEventListener("resize", resize);
         engine.start();
-        setLoading(false);
+        setEngineReady(true);
 
         return () => window.removeEventListener("resize", resize);
       } catch (e) {
         console.error(e);
         setError(e instanceof Error ? e.message : "Falha ao iniciar o jogo");
-        setLoading(false);
+        setEngineReady(true);
+        setBootSplash(false);
       }
     };
 
@@ -140,7 +157,7 @@ export function GameCanvas({
       engineRef.current?.dispose();
       engineRef.current = null;
     };
-  }, [mapId]);
+  }, [mapId, resolvedMapId]);
 
   // Colyseus session when mode=room (reuse lobby singleton seat when present).
   // IMPORTANT: do not leave() on every effect cleanup — React Strict Mode
@@ -368,16 +385,23 @@ export function GameCanvas({
         ref={canvasRef}
         className="block h-full w-full cursor-crosshair"
         tabIndex={0}
+        onMouseDown={() => {
+          // Clicking the arena clears stuck chat focus so fire always works.
+          engineRef.current?.setChatFocused(false);
+          canvasRef.current?.focus({ preventScroll: true });
+        }}
       />
-      {loading && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#0a0c10]">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500/30 border-t-amber-400" />
-          <p className="text-sm tracking-wide text-white/50">
-            Carregando arena…
-          </p>
-        </div>
+      {bootSplash && (
+        <MatchLoadingScreen
+          mapName={mapDisplayName}
+          operatorName={operatorName}
+          roomCode={mode === "room" ? displayCode : undefined}
+          engineReady={engineReady}
+          minMs={mode === "room" ? 3200 : 2600}
+          onFinished={() => setBootSplash(false)}
+        />
       )}
-      {hud && (
+      {hud && !bootSplash && (
         <GameHud
           hud={hud}
           roomCode={mode === "room" ? displayCode : undefined}
@@ -396,12 +420,12 @@ export function GameCanvas({
           }
         />
       )}
-      {mode === "room" && displayCode && !hud && !loading && (
+      {mode === "room" && displayCode && !hud && !bootSplash && (
         <div className="pointer-events-none absolute left-1/2 top-20 z-20 -translate-x-1/2 rounded-lg border border-amber-400/40 bg-black/70 px-4 py-1.5 font-mono text-sm font-bold tracking-[0.3em] text-amber-200 shadow-lg backdrop-blur-md">
           SALA {displayCode}
         </div>
       )}
-      {netBanner && !loading && (
+      {netBanner && !bootSplash && (
         <div
           className={`pointer-events-none absolute bottom-4 left-1/2 z-20 max-w-[min(92vw,28rem)] -translate-x-1/2 rounded-lg border px-3 py-2 text-center text-[11px] shadow-lg backdrop-blur-md ${
             net?.mode === "error" || (net && !net.connected && net.error)

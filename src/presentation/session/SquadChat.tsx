@@ -59,7 +59,7 @@ export function SquadChat({
     el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  // Enter opens chat focus when not typing elsewhere (death social).
+  // Enter opens chat focus when not typing elsewhere (death social only).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== "Enter" && e.key !== "Enter") return;
@@ -76,8 +76,12 @@ export function SquadChat({
       inputRef.current?.focus();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      // Critical: clear combat suppress when panel unmounts (respawn / round end)
+      onFocusChange?.(false);
+    };
+  }, [onFocusChange]);
 
   const submit = useCallback(() => {
     const text = draft.trim();
