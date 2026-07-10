@@ -1,6 +1,7 @@
 "use client";
 
 import { SHOP_CATALOG, type ShopCatalogItem } from "@/domains/combat";
+import { ShopItemIcon } from "./shopIcons";
 
 interface BuyMenuProps {
   money: number;
@@ -34,11 +35,11 @@ export function BuyMenu({
   onClose,
 }: BuyMenuProps) {
   return (
-    <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-amber-500/30 bg-[#0c0e14]/95 p-5 shadow-2xl">
+    <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-amber-500/35 bg-[#0a0c12]/96 p-5 shadow-2xl">
         <div className="mb-1 flex items-center justify-between">
           <div>
-            <div className="text-[10px] font-semibold tracking-[0.3em] text-amber-400/80">
+            <div className="text-[10px] font-semibold tracking-[0.3em] text-amber-400/90">
               // COMPRAR
             </div>
             <h2 className="text-xl font-black tracking-wide">Loja</h2>
@@ -53,9 +54,7 @@ export function BuyMenu({
           </div>
         </div>
         <p className="mb-4 text-xs text-white/45">
-          Aquecimento ou fase de compra (~18s) ·{" "}
-          <kbd className="text-amber-300">B</kbd> /{" "}
-          <kbd className="text-amber-300">Esc</kbd> fecha · colete: {armor}
+          Aquecimento ou fase de compra · colete: {armor}
         </p>
 
         {ORDER.map((cat) => {
@@ -66,7 +65,7 @@ export function BuyMenu({
               <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
                 {LABELS[cat]}
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                 {items.map((item) => {
                   const afford = money >= item.price;
                   return (
@@ -75,16 +74,14 @@ export function BuyMenu({
                       type="button"
                       disabled={!afford}
                       onClick={() => onBuy(item.id)}
-                      className={`rounded-xl border px-3 py-3 text-left transition ${
+                      className={`rounded-xl border px-2.5 py-2.5 text-left transition ${
                         afford
-                          ? "border-white/15 bg-white/5 hover:border-amber-400/50 hover:bg-amber-500/10"
-                          : "cursor-not-allowed border-white/5 bg-black/30 opacity-45"
+                          ? "border-white/15 bg-white/[0.06] hover:border-amber-400/55 hover:bg-amber-500/10"
+                          : "cursor-not-allowed border-white/5 bg-black/35 opacity-45"
                       }`}
                     >
-                      <div className="text-lg" aria-hidden>
-                        {item.emoji}
-                      </div>
-                      <div className="mt-1 text-sm font-bold tracking-wide">
+                      <ShopItemIcon itemId={item.id} dimmed={!afford} />
+                      <div className="mt-1.5 text-[11px] font-bold tracking-wide">
                         {item.name}
                       </div>
                       <div
@@ -108,12 +105,15 @@ export function BuyMenu({
           </div>
         )}
 
+        <p className="mb-2 text-center text-[10px] font-semibold tracking-[0.25em] text-white/35">
+          B PARA FECHAR
+        </p>
         <button
           type="button"
           onClick={onClose}
           className="w-full rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-semibold tracking-wide text-white/80 transition hover:bg-white/10"
         >
-          Fechar (B)
+          Fechar
         </button>
       </div>
     </div>

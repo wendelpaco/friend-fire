@@ -3,9 +3,13 @@ import * as THREE from "three";
 /** Max concurrent HE projectiles + explosion particle budget. Spec §2.4. */
 const MAX_PROJECTILES = 8;
 const MAX_PARTICLES = 96;
+const MAX_DEBRIS = 16;
 const PARTICLES_PER_EXPLOSION = 24;
+const DEBRIS_PER_EXPLOSION = 12;
 const PARTICLE_LIFE = 0.55;
+const DEBRIS_LIFE = 0.85;
 const GRAVITY = -6;
+const DEBRIS_GRAVITY = -14;
 
 const EXPLODE_COLORS = [0xff6622, 0xffaa33, 0xffee66, 0xff4411, 0xcc3300];
 
@@ -24,6 +28,18 @@ interface ParticleSlot {
   active: boolean;
 }
 
+interface DebrisSlot {
+  mesh: THREE.Mesh;
+  vx: number;
+  vy: number;
+  vz: number;
+  spinX: number;
+  spinZ: number;
+  age: number;
+  life: number;
+  active: boolean;
+}
+
 /**
  * Olive HE sphere in flight + warm explosion burst on detonate.
  * `spawn(x,y,z)` places/updates a projectile; `spawn(..., true)` explodes.
@@ -33,12 +49,18 @@ export class HESystem {
   private readonly root = new THREE.Group();
   private readonly projectiles: ProjectileSlot[] = [];
   private readonly particles: ParticleSlot[] = [];
+  private readonly debris: DebrisSlot[] = [];
   private readonly projGeo: THREE.BufferGeometry;
   private readonly partGeo: THREE.BufferGeometry;
+  private readonly debrisGeo: THREE.BufferGeometry;
   private readonly projMat: THREE.MeshStandardMaterial;
   private readonly partMat: THREE.MeshBasicMaterial;
+  private readonly debrisMat: THREE.MeshBasicMaterial;
   private projCursor = 0;
   private freeParticles: ParticleSlot[] = [];
+  private freeDebris: DebrisSlot[] = [];
+  /** Quality tier: low = flash only, medium/high = debris. */
+  private debrisCount = DEBRIS_PER_EXPLOSION;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -88,6 +110,39 @@ export class HESystem {
       this.particles.push(slot);
       this.freeParticles.push(slot);
     }
+
+    // Crate-like debris cubes (RUSH-B explosion read) — no shadows
+    this.debrisGeo = new THREE.BoxGeometry(0.18, 0.12, 0.16);
+    this.debrisMat = new THREE.MeshBasicMaterial({
+      color: 0x8b6914,
+      transparent: true,
+      opacity: 1,
+      depthWrite: true,
+    });
+    for (let i = 0; i < MAX_DEBRIS; i++) {
+      const mesh = new THREE.Mesh(this.debrisGeo, this.debrisMat.clone());
+      mesh.visible = false;
+      mesh.castShadow = false;
+      this.root.add(mesh);
+      const slot: DebrisSlot = {
+        mesh,
+        vx: 0,
+        vy: 0,
+        vz: 0,
+        spinX: 0,
+        spinZ: 0,
+        age: 0,
+        life: 0,
+        active: false,
+      };
+      this.debris.push(slot);
+      this.freeDebris.push(slot);
+    }
+  }
+
+  /** 0 = flash particles only; higher = more flying crate chunks. */
+  setDebrisBudget(count: number): void {
+    this.debrisCount = Math.max(0, Math.min(MAX_DEBRIS, Math.floor(count)));
   }
 
   /**
@@ -136,6 +191,29 @@ export class HESystem {
       mat.opacity = 1 - t * t;
       p.mesh.scale.setScalar(1.2 + t * 1.8);
     }
+
+    for (const d of this.debris) {
+      if (!d.active) continue;
+      d.age += dt;
+      if (d.age >= d.life) {
+        this.releaseDebris(d);
+        continue;
+      }
+      d.vy += DEBRIS_GRAVITY * dt;
+      d.mesh.position.x += d.vx * dt;
+      d.mesh.position.y += d.vy * dt;
+      d.mesh.position.z += d.vz * dt;
+      d.mesh.rotation.x += d.spinX * dt;
+      d.mesh.rotation.z += d.spinZ * dt;
+      if (d.mesh.position.y < 0.06) {
+        d.mesh.position.y = 0.06;
+        d.vy *= -0.2;
+        d.vx *= 0.65;
+        d.vz *= 0.65;
+      }
+      const t = d.age / d.life;
+      (d.mesh.material as THREE.MeshBasicMaterial).opacity = 1 - t * t;
+    }
   }
 
   dispose(): void {
@@ -147,13 +225,21 @@ export class HESystem {
       this.root.remove(p.mesh);
       (p.mesh.material as THREE.Material).dispose();
     }
+    for (const d of this.debris) {
+      this.root.remove(d.mesh);
+      (d.mesh.material as THREE.Material).dispose();
+    }
     this.projectiles.length = 0;
     this.particles.length = 0;
+    this.debris.length = 0;
     this.freeParticles.length = 0;
+    this.freeDebris.length = 0;
     this.projGeo.dispose();
     this.partGeo.dispose();
+    this.debrisGeo.dispose();
     this.projMat.dispose();
     this.partMat.dispose();
+    this.debrisMat.dispose();
     this.scene.remove(this.root);
   }
 
@@ -203,6 +289,58 @@ export class HESystem {
       p.mesh.scale.setScalar(0.8 + Math.random() * 0.8);
       p.mesh.visible = true;
     }
+
+    // Flying crate chunks (visual only)
+    const nDebris = this.debrisCount;
+    for (let i = 0; i < nDebris; i++) {
+      const d = this.acquireDebris();
+      if (!d) break;
+      d.active = true;
+      d.age = 0;
+      d.life = DEBRIS_LIFE * (0.75 + Math.random() * 0.4);
+      const ang = Math.random() * Math.PI * 2;
+      const speed = 3 + Math.random() * 6;
+      d.vx = Math.cos(ang) * speed;
+      d.vy = 3.5 + Math.random() * 4;
+      d.vz = Math.sin(ang) * speed;
+      d.spinX = (Math.random() - 0.5) * 12;
+      d.spinZ = (Math.random() - 0.5) * 12;
+      const mat = d.mesh.material as THREE.MeshBasicMaterial;
+      mat.color.setHex(
+        [0x8b6914, 0x7a5c12, 0x6e4f10, 0x5a4820][
+          Math.floor(Math.random() * 4)
+        ]!,
+      );
+      mat.opacity = 1;
+      d.mesh.position.set(
+        x + (Math.random() - 0.5) * 0.4,
+        y + 0.3 + Math.random() * 0.4,
+        z + (Math.random() - 0.5) * 0.4,
+      );
+      d.mesh.scale.setScalar(0.7 + Math.random() * 0.9);
+      d.mesh.rotation.set(Math.random(), Math.random(), Math.random());
+      d.mesh.visible = true;
+    }
+  }
+
+  private acquireDebris(): DebrisSlot | null {
+    const d = this.freeDebris.pop();
+    if (d) return d;
+    let oldest: DebrisSlot | null = null;
+    for (const q of this.debris) {
+      if (!q.active) continue;
+      if (!oldest || q.age > oldest.age) oldest = q;
+    }
+    if (!oldest) return null;
+    this.releaseDebris(oldest);
+    return this.freeDebris.pop() ?? null;
+  }
+
+  private releaseDebris(d: DebrisSlot): void {
+    if (!d.active) return;
+    d.active = false;
+    d.mesh.visible = false;
+    this.freeDebris.push(d);
   }
 
   private acquireParticle(): ParticleSlot | null {

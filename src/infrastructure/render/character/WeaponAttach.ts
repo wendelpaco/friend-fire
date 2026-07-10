@@ -59,38 +59,41 @@ export function buildWeaponMesh(category: WeaponCategory): THREE.Group {
   }
 
   if (category === "pistol") {
-    // compact gun: grip down, barrel +Z
-    const body = mesh(0.08, 0.12, 0.28, METAL());
-    body.position.set(0, 0.02, 0.1);
+    // compact gun: grip down, barrel +Z — slightly larger for iso read
+    const body = mesh(0.09, 0.13, 0.32, METAL());
+    body.position.set(0, 0.02, 0.12);
     g.add(body);
-    const grip = mesh(0.07, 0.16, 0.1, DARK());
-    grip.position.set(0, -0.08, -0.02);
+    const grip = mesh(0.08, 0.18, 0.11, DARK());
+    grip.position.set(0, -0.09, -0.02);
     g.add(grip);
-    const slide = mesh(0.07, 0.06, 0.22, METAL());
-    slide.position.set(0, 0.08, 0.12);
+    const slide = mesh(0.08, 0.07, 0.26, METAL());
+    slide.position.set(0, 0.09, 0.14);
     g.add(slide);
-    const barrel = mesh(0.04, 0.04, 0.1, METAL());
-    barrel.position.set(0, 0.04, 0.28);
+    const barrel = mesh(0.045, 0.045, 0.14, METAL());
+    barrel.position.set(0, 0.04, 0.34);
     g.add(barrel);
     return g;
   }
 
-  // rifle — longer silhouette, barrel +Z
-  const receiver = mesh(0.1, 0.12, 0.55, METAL());
-  receiver.position.set(0, 0.02, 0.2);
+  // rifle — longer silhouette, barrel +Z (readable from top-down)
+  const receiver = mesh(0.11, 0.13, 0.62, METAL());
+  receiver.position.set(0, 0.02, 0.22);
   g.add(receiver);
-  const stock = mesh(0.08, 0.14, 0.22, DARK());
-  stock.position.set(0, 0.0, -0.18);
+  const stock = mesh(0.09, 0.15, 0.26, DARK());
+  stock.position.set(0, 0.0, -0.22);
   g.add(stock);
-  const barrel = mesh(0.05, 0.05, 0.4, METAL());
-  barrel.position.set(0, 0.04, 0.55);
+  const barrel = mesh(0.05, 0.05, 0.52, METAL());
+  barrel.position.set(0, 0.05, 0.68);
   g.add(barrel);
-  const mag = mesh(0.06, 0.16, 0.1, DARK());
-  mag.position.set(0, -0.1, 0.08);
+  const mag = mesh(0.07, 0.18, 0.11, DARK());
+  mag.position.set(0, -0.12, 0.1);
   g.add(mag);
-  const handguard = mesh(0.09, 0.08, 0.28, DARK());
-  handguard.position.set(0, 0.0, 0.42);
+  const handguard = mesh(0.1, 0.09, 0.34, DARK());
+  handguard.position.set(0, 0.0, 0.48);
   g.add(handguard);
+  const optic = mesh(0.06, 0.08, 0.16, METAL());
+  optic.position.set(0, 0.12, 0.18);
+  g.add(optic);
   return g;
 }
 

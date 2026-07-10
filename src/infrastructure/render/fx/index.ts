@@ -7,6 +7,8 @@ export { WallDamageSystem } from "./WallDamageSystem";
 export { BombMarkerSystem } from "./BombMarkerSystem";
 export { HESystem } from "./HESystem";
 export { DamageNumberSystem } from "./DamageNumberSystem";
+export { TracerSystem } from "./TracerSystem";
+export { AimReticleSystem } from "./AimReticleSystem";
 
 /** Local FX event shapes (wire agent maps sim → these). Matches design §4.2. */
 export type FxEvent =

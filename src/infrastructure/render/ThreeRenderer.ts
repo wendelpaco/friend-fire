@@ -18,12 +18,14 @@ import {
   type WeaponCategory,
 } from "./character";
 import {
+  AimReticleSystem,
   BombMarkerSystem,
   DamageNumberSystem,
   HESystem,
   ImpactParticleSystem,
   type ImpactSurface,
   MuzzleFlashSystem,
+  TracerSystem,
   WallDamageSystem,
 } from "./fx";
 
@@ -140,6 +142,8 @@ export class ThreeRenderer {
   private bombMarkerFx: BombMarkerSystem;
   private heFx: HESystem;
   private damageNumberFx: DamageNumberSystem;
+  private tracerFx: TracerSystem;
+  private aimReticle: AimReticleSystem;
   private playerSpot!: THREE.SpotLight;
   private sunLight!: THREE.DirectionalLight;
   private dustParticles!: THREE.Points;
@@ -211,6 +215,8 @@ export class ThreeRenderer {
     this.bombMarkerFx = new BombMarkerSystem(this.scene);
     this.heFx = new HESystem(this.scene);
     this.damageNumberFx = new DamageNumberSystem(this.scene);
+    this.tracerFx = new TracerSystem(this.scene);
+    this.aimReticle = new AimReticleSystem(this.scene);
 
     // Apply DPR / shadows / dust after lights & dust exist.
     this.applyQuality(this.quality);
@@ -255,6 +261,12 @@ export class ThreeRenderer {
 
     this.applyPropShadowFlag(cfg.propCastShadow);
     this.configureDust(cfg.dustCount, cfg.dustUpdateHz);
+    // Tracers off on low for fill-rate; reticle always cheap
+    this.tracerFx?.setEnabled(cfg.quality !== "low");
+    // Explosion debris: low=0, med=8, high=16
+    const debris =
+      cfg.quality === "low" ? 0 : cfg.quality === "medium" ? 8 : 16;
+    this.heFx?.setDebrisBudget(debris);
   }
 
   getQuality(): GraphicsQualityConfig {
@@ -376,6 +388,25 @@ export class ThreeRenderer {
     this.bombMarkerFx.update(dt);
     this.heFx.update(dt);
     this.damageNumberFx.update(dt);
+    this.tracerFx.update(dt);
+  }
+
+  /** Bullet tracer muzzle → impact (or max range point). */
+  spawnTracer(
+    x0: number,
+    y0: number,
+    z0: number,
+    x1: number,
+    y1: number,
+    z1: number,
+  ) {
+    this.tracerFx.spawn(x0, y0, z0, x1, y1, z1);
+  }
+
+  /** Ground aim reticle (hide when dead / menus). */
+  setAimReticle(x: number, z: number, visible: boolean) {
+    this.aimReticle.setVisible(visible);
+    if (visible) this.aimReticle.setPosition(x, z);
   }
 
   /** Brief shoot recoil overlay on character next sync. */
@@ -536,6 +567,8 @@ export class ThreeRenderer {
     this.bombMarkerFx.dispose();
     this.heFx.dispose();
     this.damageNumberFx.dispose();
+    this.tracerFx.dispose();
+    this.aimReticle.dispose();
     for (const id of [...this.characters.keys()]) this.removeCharacter(id);
     this.renderer.dispose();
     this.sandTex.dispose();

@@ -52,6 +52,12 @@ export const MAP_YARD: GameMap = {
     { x: 0, z: 8, w: 1.5, d: 1.5, h: 1.3, color: 0x6e4f10, kind: "crate" },
     { x: 10, z: 2, w: 1.4, d: 1.4, h: 1.2, color: 0x8b6914, kind: "crate" },
     { x: -10, z: 0, w: 1.5, d: 1.5, h: 1.3, color: 0x7a5c12, kind: "crate" },
+    { x: -2, z: -4, w: 1.4, d: 1.4, h: 1.2, color: 0x8b6914, kind: "crate" },
+    { x: -0.8, z: -3.2, w: 1.3, d: 1.3, h: 1.1, color: 0x6e4f10, kind: "crate" },
+    { x: -1.5, z: -5, w: 0.85, d: 0.85, h: 1.25, color: 0x3d5c3a, kind: "barrel" },
+    { x: 3, z: 6, w: 1.4, d: 1.4, h: 1.25, color: 0x7a5c12, kind: "crate" },
+    { x: 4.2, z: 7, w: 1.2, d: 1.2, h: 1.1, color: 0x8b6914, kind: "crate" },
+    { x: 2, z: -8, w: 0.5, d: 0.5, h: 0.3, color: 0x5a4a30, kind: "debris" },
 
     // barrels
     { x: -18, z: 6, w: 0.9, d: 0.9, h: 1.35, color: 0x3d5c3a, kind: "barrel" },

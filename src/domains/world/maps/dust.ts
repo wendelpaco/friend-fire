@@ -59,6 +59,18 @@ export const MAP_DUST: GameMap = {
     { x: 9, z: 7, w: 0.55, d: 0.55, h: 0.4, color: 0x6b5535, kind: "debris" },
     { x: -2, z: 5, w: 0.15, d: 0.15, h: 3.2, color: 0x333333, kind: "pole" },
     { x: 15, z: -8, w: 0.15, d: 0.15, h: 3.0, color: 0x333333, kind: "pole" },
+    // Mid-map clusters (visual density — shared geo path)
+    { x: -4, z: -6, w: 1.4, d: 1.4, h: 1.2, color: 0x8b6914, kind: "crate" },
+    { x: -2.8, z: -5.2, w: 1.3, d: 1.3, h: 1.15, color: 0x7a5c12, kind: "crate" },
+    { x: -3.5, z: -7, w: 0.85, d: 0.85, h: 1.25, color: 0x3d5c3a, kind: "barrel" },
+    { x: 4, z: 2, w: 1.5, d: 1.4, h: 1.3, color: 0x6e4f10, kind: "crate" },
+    { x: 5.2, z: 3, w: 1.3, d: 1.3, h: 1.15, color: 0x8b6914, kind: "crate" },
+    { x: 3.5, z: 3.2, w: 0.9, d: 0.9, h: 1.3, color: 0x4a3b1a, kind: "barrel" },
+    { x: 0, z: 12, w: 1.4, d: 1.4, h: 1.2, color: 0x7a5c12, kind: "crate" },
+    { x: 1.3, z: 12.8, w: 1.2, d: 1.2, h: 1.1, color: 0x6e4f10, kind: "crate" },
+    { x: -12, z: 2, w: 0.55, d: 0.55, h: 0.35, color: 0x5a4a30, kind: "debris" },
+    { x: 8, z: -3, w: 0.5, d: 0.6, h: 0.3, color: 0x6a5a40, kind: "debris" },
+    { x: 0, z: -2, w: 0.15, d: 0.15, h: 3.0, color: 0x333333, kind: "pole" },
   ],
   spawns: [
     { team: "TR", x: -18, z: -18 },

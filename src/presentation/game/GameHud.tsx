@@ -187,17 +187,24 @@ export function GameHud({
               {hud.scoreTR}
             </span>
           </div>
-          <div className="flex min-w-[120px] flex-col items-center justify-center border-x border-white/10 px-5 py-1.5">
-            <span className="text-lg font-bold tabular-nums tracking-wide text-amber-50">
+          <div className="flex min-w-[140px] flex-col items-center justify-center border-x border-amber-500/25 bg-gradient-to-b from-amber-950/40 to-transparent px-6 py-2">
+            <span className="text-xl font-black tabular-nums tracking-wide text-amber-50 drop-shadow">
               {phaseLabel(hud)}
             </span>
-            {(hud.phase === "live" || hud.phase === "buy") && (
-              <span className="text-[9px] tracking-[0.25em] text-white/40">
-                {hud.phase === "buy" ? "COMPRA" : "ROUND"} {hud.round}
+            {(hud.phase === "live" ||
+              hud.phase === "buy" ||
+              hud.phase === "warmup") && (
+              <span className="text-[9px] font-semibold tracking-[0.28em] text-amber-200/50">
+                {hud.phase === "buy"
+                  ? "COMPRA"
+                  : hud.phase === "warmup"
+                    ? "WARMUP"
+                    : "ROUND"}{" "}
+                {hud.round}
               </span>
             )}
-            {hud.canBuy && !hud.showBuyMenu && hud.phase === "buy" && (
-              <span className="mt-0.5 text-[9px] font-semibold tracking-wide text-amber-300/90">
+            {hud.canBuy && !hud.showBuyMenu && (
+              <span className="mt-0.5 text-[9px] font-bold tracking-wide text-amber-300">
                 B · LOJA ABERTA
               </span>
             )}

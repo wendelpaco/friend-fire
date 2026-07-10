@@ -959,6 +959,14 @@ export class GameClient {
     this.three.spawnMuzzle(event.x, event.z, event.rot);
     this.three.notifyShoot(event.ownerId);
     if (event.impact) {
+      this.three.spawnTracer(
+        event.x,
+        1.15,
+        event.z,
+        event.impact.x,
+        event.impact.y,
+        event.impact.z,
+      );
       this.three.spawnImpact(
         event.impact.x,
         event.impact.y,
@@ -1311,6 +1319,15 @@ export class GameClient {
         Sfx.play("shoot");
         this.three.spawnMuzzle(p.x, p.z, p.rot);
         this.three.notifyShoot(p.id);
+        const reach = Math.min(def?.range ?? 50, 40);
+        this.three.spawnTracer(
+          p.x + Math.sin(p.rot) * 0.7,
+          1.15,
+          p.z + Math.cos(p.rot) * 0.7,
+          p.x + Math.sin(p.rot) * reach,
+          1.0,
+          p.z + Math.cos(p.rot) * reach,
+        );
         this.cosmeticWallRay(p.x, p.z, p.rot, def?.range ?? 50);
       }
     }
@@ -1377,6 +1394,18 @@ export class GameClient {
     const spectating =
       !!local && !local.alive && this.state.phase === "live";
     const now = performance.now();
+    // Ground reticle (RUSH-B style) — hide in menus / dead
+    const showReticle =
+      !!local &&
+      local.alive &&
+      !this.state.paused &&
+      !this.state.showBuyMenu &&
+      !this.state.showHelp;
+    this.three.setAimReticle(
+      this.input.aimWorldX,
+      this.input.aimWorldZ,
+      showReticle,
+    );
     const n = this.state.players.length;
     // Grow buffer once; mutate slots in place (no per-frame map alloc).
     while (this.renderPlayers.length < n) {
@@ -2017,6 +2046,16 @@ export class GameClient {
     this.state.bullets.push(bullet);
     this.three.spawnMuzzle(p.x, p.z, p.rot);
     this.three.notifyShoot(p.id);
+    // Cosmetic tracer toward aim (range estimate)
+    const reach = Math.min(def.range, 40);
+    this.three.spawnTracer(
+      p.x + Math.sin(p.rot) * 0.7,
+      1.15,
+      p.z + Math.cos(p.rot) * 0.7,
+      p.x + Math.sin(angle) * reach,
+      1.0,
+      p.z + Math.cos(angle) * reach,
+    );
   }
 
   private meleeAttack(p: PlayerState, damage: number, range: number) {

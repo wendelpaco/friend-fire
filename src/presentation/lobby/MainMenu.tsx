@@ -212,7 +212,7 @@ export function MainMenu() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#07090e] text-white">
-      {/* cinematic bg */}
+      {/* cinematic bg — poster energy (RUSH-B-inspired, original geometry) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_70%_30%,#3b1a08_0%,transparent_50%),radial-gradient(ellipse_at_15%_85%,#0a1628_0%,transparent_45%),linear-gradient(180deg,#12151c_0%,#07090e_100%)]" />
         <div
@@ -222,8 +222,17 @@ export function MainMenu() {
               "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
           }}
         />
-        {/* floating particles hint */}
         <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-orange-950/40 to-transparent" />
+        {/* Soldier silhouette (CSS shapes — no external art) */}
+        <div className="absolute bottom-0 right-[4%] hidden h-[78%] w-[min(42vw,420px)] opacity-[0.22] lg:block">
+          <div className="absolute bottom-[18%] left-1/2 h-[42%] w-[38%] -translate-x-1/2 rounded-t-[40%] bg-gradient-to-b from-amber-700/80 to-stone-900" />
+          <div className="absolute bottom-[52%] left-1/2 h-[14%] w-[22%] -translate-x-1/2 rounded-full bg-amber-800/90" />
+          <div className="absolute bottom-[58%] left-[58%] h-[8%] w-[48%] origin-left rotate-[-8deg] rounded-sm bg-stone-600" />
+          <div className="absolute bottom-0 left-[28%] h-[22%] w-[14%] rounded-t-md bg-stone-800" />
+          <div className="absolute bottom-0 right-[28%] h-[22%] w-[14%] rounded-t-md bg-stone-800" />
+        </div>
+        {/* Muzzle flash hint */}
+        <div className="absolute right-[18%] top-[38%] hidden h-24 w-24 rounded-full bg-orange-400/20 blur-2xl lg:block" />
       </div>
 
       {/* top sponsor strip */}

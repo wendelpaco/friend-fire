@@ -63,6 +63,12 @@ export const MAP_FAVELA: GameMap = {
     // stacked colorful crates near B
     { x: -15, z: 14, w: 1.6, d: 1.6, h: 1.5, color: 0xf0c040, kind: "crate" },
     { x: 14, z: -16, w: 1.5, d: 1.5, h: 1.4, color: 0x50b8c8, kind: "crate" },
+    { x: -2, z: 0, w: 1.4, d: 1.4, h: 1.2, color: 0xe85a5a, kind: "crate" },
+    { x: -0.7, z: 0.9, w: 1.3, d: 1.3, h: 1.1, color: 0xf0c040, kind: "crate" },
+    { x: -1.5, z: -1, w: 0.85, d: 0.85, h: 1.25, color: 0x3d5c3a, kind: "barrel" },
+    { x: 5, z: 4, w: 1.4, d: 1.3, h: 1.2, color: 0x5a9ae8, kind: "crate" },
+    { x: 6.2, z: 5, w: 1.2, d: 1.2, h: 1.1, color: 0x6ac86a, kind: "crate" },
+    { x: 2, z: -6, w: 0.55, d: 0.55, h: 0.35, color: 0x6a5a40, kind: "debris" },
   ],
   spawns: [
     { team: "TR", x: -18, z: -18 },
