@@ -50,10 +50,15 @@ export const MAP_FAVELA: GameMap = {
     { x: -18, z: 2, w: 0.9, d: 0.9, h: 1.35, color: 0x3d5c3a, kind: "barrel" },
     { x: -17, z: 3, w: 0.9, d: 0.9, h: 1.35, color: 0x5c3a3a, kind: "barrel" },
     { x: 18, z: -10, w: 0.85, d: 0.85, h: 1.3, color: 0x2f4f3a, kind: "barrel" },
-    // cars / dumpsters
+    // cars / dumpsters — denser RUSH-B courtyard read
     { x: -18, z: -10, w: 3.0, d: 1.4, h: 1.15, color: 0xc41e3a, kind: "car" },
     { x: 17, z: 6, w: 2.8, d: 1.35, h: 1.1, color: 0x1e6fc4, kind: "car" },
+    { x: -8, z: -16, w: 2.9, d: 1.35, h: 1.1, color: 0xe8e0d0, kind: "car" },
+    { x: 8, z: -14, w: 2.7, d: 1.3, h: 1.05, color: 0x6a7a88, kind: "car" },
+    { x: -14, z: 4, w: 2.6, d: 1.25, h: 1.05, color: 0x2a4a6a, kind: "car" },
+    { x: 12, z: 12, w: 2.8, d: 1.3, h: 1.1, color: 0xb8a090, kind: "car" },
     { x: 4, z: -18, w: 2.0, d: 1.3, h: 1.45, color: 0x3f6a3a, kind: "dumpster" },
+    { x: -6, z: 10, w: 1.9, d: 1.2, h: 1.4, color: 0x3a5040, kind: "dumpster" },
     // pitch posts / debris
     { x: -3.5, z: 16, w: 0.2, d: 0.2, h: 2.2, color: 0xffffff, kind: "pole" },
     { x: 3.5, z: 16, w: 0.2, d: 0.2, h: 2.2, color: 0xffffff, kind: "pole" },

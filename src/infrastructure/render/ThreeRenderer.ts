@@ -652,14 +652,15 @@ export class ThreeRenderer {
   // ─── world ───────────────────────────────────────────────
 
   private buildWorld() {
-    const hemi = new THREE.HemisphereLight(0xb8d4f0, 0x8b6914, 0.45);
+    // Brighter sky fill — RUSH-B sun-baked look
+    const hemi = new THREE.HemisphereLight(0xc8e4ff, 0x9a7040, 0.55);
     this.scene.add(hemi);
 
-    const ambient = new THREE.AmbientLight(0xffe8cc, 0.28);
+    const ambient = new THREE.AmbientLight(0xffe8cc, 0.38);
     this.scene.add(ambient);
 
-    const sun = new THREE.DirectionalLight(0xffe2b0, 1.55);
-    sun.position.set(28, 36, 14);
+    const sun = new THREE.DirectionalLight(0xffe8c8, 1.85);
+    sun.position.set(32, 42, 18);
     sun.castShadow = this.quality.shadowsEnabled;
     sun.shadow.mapSize.set(
       this.quality.shadowMapSize,
@@ -689,9 +690,9 @@ export class ThreeRenderer {
     );
     const groundMat = new THREE.MeshStandardMaterial({
       map: this.sandTex,
-      roughness: 0.95,
+      roughness: 0.92,
       metalness: 0.0,
-      color: 0xe8d0a8,
+      color: this.map.id === "favela" ? 0xc9a882 : 0xe8d0a8,
     });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
@@ -701,6 +702,13 @@ export class ThreeRenderer {
     // asphalt path strips (mid corridors feel)
     this.addRoad(-2, 0, 5, 40, 0);
     this.addRoad(0, -8, 28, 4.5, 0);
+    this.addRoad(10, 4, 4, 22, 0);
+    this.addRoad(-12, 6, 18, 4, 0);
+
+    // Favela: open pitch (soccer field) — big RUSH-B visual anchor
+    if (this.map.id === "favela") {
+      this.addSoccerPitch(0, 14.5, 9, 7.5);
+    }
 
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(24.2, 40, 64),
@@ -735,30 +743,7 @@ export class ThreeRenderer {
     this.scene.add(ocean);
 
     for (const w of this.map.walls) {
-      const h = w.h ?? 2.5;
-      const color = w.color ?? 0xb89a6e;
-      const mat = new THREE.MeshStandardMaterial({
-        map: this.wallTex,
-        color,
-        roughness: 0.9,
-        metalness: 0.03,
-      });
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w.w, h, w.d), mat);
-      mesh.position.set(w.x, h / 2, w.z);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      this.wallGroup.add(mesh);
-
-      const cap = new THREE.Mesh(
-        new THREE.BoxGeometry(w.w + 0.14, 0.14, w.d + 0.14),
-        new THREE.MeshStandardMaterial({
-          color: 0x8a7048,
-          roughness: 0.7,
-        }),
-      );
-      cap.position.set(w.x, h + 0.06, w.z);
-      cap.castShadow = true;
-      this.wallGroup.add(cap);
+      this.wallGroup.add(this.createBuildingBlock(w));
     }
     this.scene.add(this.wallGroup);
 
@@ -845,6 +830,191 @@ export class ThreeRenderer {
     this.dustActiveCount = count;
   }
 
+  /**
+   * Playable wall → house-like block: plaster walls + terracotta roof + windows.
+   * Reads as favela/desert buildings instead of bare boxes (RUSH-B density).
+   */
+  private createBuildingBlock(w: {
+    x: number;
+    z: number;
+    w: number;
+    d: number;
+    h?: number;
+    color?: number;
+  }): THREE.Group {
+    const g = new THREE.Group();
+    const h = w.h ?? 2.5;
+    const color = w.color ?? 0xb89a6e;
+    const isCover = h < 2.0;
+
+    const mat = new THREE.MeshStandardMaterial({
+      map: this.wallTex,
+      color,
+      roughness: 0.88,
+      metalness: 0.02,
+    });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w.w, h, w.d), mat);
+    body.position.set(w.x, h / 2, w.z);
+    body.castShadow = true;
+    body.receiveShadow = true;
+    g.add(body);
+
+    if (isCover) {
+      // low cover — simple dark cap only
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(w.w + 0.08, 0.1, w.d + 0.08),
+        new THREE.MeshStandardMaterial({ color: 0x4a4030, roughness: 0.85 }),
+      );
+      cap.position.set(w.x, h + 0.05, w.z);
+      g.add(cap);
+      return g;
+    }
+
+    // Terracotta / dark metal roof slab (overhang)
+    const roofH = 0.28;
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(w.w + 0.45, roofH, w.d + 0.45),
+      new THREE.MeshStandardMaterial({
+        color: 0x6b3a28,
+        roughness: 0.75,
+        metalness: 0.08,
+      }),
+    );
+    roof.position.set(w.x, h + roofH / 2 + 0.02, w.z);
+    roof.castShadow = true;
+    g.add(roof);
+
+    // Ridge beam
+    const ridge = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        Math.max(w.w, w.d) * 0.15,
+        0.12,
+        Math.min(w.w, w.d) + 0.2,
+      ),
+      new THREE.MeshStandardMaterial({ color: 0x4a2818, roughness: 0.8 }),
+    );
+    if (w.w >= w.d) {
+      ridge.scale.set(w.w / Math.max(w.w, w.d) + 0.5, 1, 1);
+    }
+    ridge.position.set(w.x, h + roofH + 0.08, w.z);
+    g.add(ridge);
+
+    // Window bands on long faces (cosmetic)
+    const winMat = new THREE.MeshBasicMaterial({
+      color: 0x1a2838,
+      transparent: true,
+      opacity: 0.65,
+    });
+    const longX = w.w >= w.d;
+    const faceLen = longX ? w.w : w.d;
+    const faceDepth = longX ? w.d : w.w;
+    if (faceLen > 2.2 && h > 2.2) {
+      const cols = Math.min(4, Math.max(1, Math.floor(faceLen / 2.2)));
+      const rows = h > 3.2 ? 2 : 1;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const ww = Math.min(0.7, faceLen / (cols + 1));
+          const wh = 0.45;
+          const win = new THREE.Mesh(
+            new THREE.PlaneGeometry(ww, wh),
+            winMat,
+          );
+          const along =
+            -faceLen / 2 + (c + 1) * (faceLen / (cols + 1));
+          const y = 1.1 + r * 1.15;
+          if (longX) {
+            win.position.set(w.x + along, y, w.z + faceDepth / 2 + 0.02);
+          } else {
+            win.rotation.y = Math.PI / 2;
+            win.position.set(w.x + faceDepth / 2 + 0.02, y, w.z + along);
+          }
+          g.add(win);
+        }
+      }
+    }
+
+    // Door hint on wider buildings
+    if (Math.min(w.w, w.d) > 1.5 && h > 2.4) {
+      const door = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.55, 1.1),
+        new THREE.MeshBasicMaterial({
+          color: 0x2a2018,
+          transparent: true,
+          opacity: 0.7,
+        }),
+      );
+      if (w.w >= w.d) {
+        door.position.set(w.x, 0.55, w.z + w.d / 2 + 0.02);
+      } else {
+        door.rotation.y = Math.PI / 2;
+        door.position.set(w.x + w.w / 2 + 0.02, 0.55, w.z);
+      }
+      g.add(door);
+    }
+
+    return g;
+  }
+
+  /** Green pitch with white lines (favela campo). */
+  private addSoccerPitch(x: number, z: number, w: number, d: number) {
+    const grass = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, d),
+      new THREE.MeshStandardMaterial({
+        color: 0x4a9a3a,
+        roughness: 0.95,
+      }),
+    );
+    grass.rotation.x = -Math.PI / 2;
+    grass.position.set(x, 0.04, z);
+    grass.receiveShadow = true;
+    this.scene.add(grass);
+
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xe8e8e0 });
+    // outer box
+    const mkLine = (lw: number, ld: number, lx: number, lz: number) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(lw, ld), lineMat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(x + lx, 0.05, z + lz);
+      this.scene.add(m);
+    };
+    mkLine(w - 0.3, 0.08, 0, -d / 2 + 0.15);
+    mkLine(w - 0.3, 0.08, 0, d / 2 - 0.15);
+    mkLine(0.08, d - 0.3, -w / 2 + 0.15, 0);
+    mkLine(0.08, d - 0.3, w / 2 - 0.15, 0);
+    // center line + circle (approx)
+    mkLine(0.08, d - 0.4, 0, 0);
+    const circle = new THREE.Mesh(
+      new THREE.RingGeometry(1.1, 1.22, 32),
+      lineMat,
+    );
+    circle.rotation.x = -Math.PI / 2;
+    circle.position.set(x, 0.05, z);
+    this.scene.add(circle);
+
+    // goals
+    const postMat = new THREE.MeshStandardMaterial({
+      color: 0xe8e8e8,
+      roughness: 0.5,
+    });
+    for (const side of [-1, 1] as const) {
+      const gz = z + side * (d / 2 - 0.2);
+      for (const sx of [-1.1, 1.1]) {
+        const post = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.06, 0.06, 1.4, 6),
+          postMat,
+        );
+        post.position.set(x + sx, 0.7, gz);
+        this.scene.add(post);
+      }
+      const cross = new THREE.Mesh(
+        new THREE.BoxGeometry(2.3, 0.08, 0.08),
+        postMat,
+      );
+      cross.position.set(x, 1.4, gz);
+      this.scene.add(cross);
+    }
+  }
+
   private addRoad(x: number, z: number, w: number, d: number, y: number) {
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(w, d),
@@ -876,62 +1046,85 @@ export class ThreeRenderer {
     }
   }
 
-  /** Tropical horizon: palms + pastel buildings (backdrop only, no collision) */
+  /** Tropical horizon: multi-block houses with roofs + palms (backdrop). */
   private buildScenery() {
-    const buildingColors = [0xd4a574, 0xc97b63, 0x7a9eb5, 0xe8d5b0, 0xa8b89a];
-    for (let i = 0; i < 14; i++) {
-      const ang = (i / 14) * Math.PI * 2 + 0.2;
-      const dist = 32 + (i % 3) * 3;
+    const buildingColors = [
+      0xd4a574, 0xc97b63, 0x7a9eb5, 0xe8d5b0, 0xa8b89a, 0xe07060, 0x6a9a70,
+    ];
+    const roofColors = [0x5c3828, 0x6b4030, 0x4a3020, 0x703828];
+    for (let i = 0; i < 20; i++) {
+      const ang = (i / 20) * Math.PI * 2 + 0.15;
+      const dist = 31 + (i % 4) * 2.5;
       const bx = Math.cos(ang) * dist;
       const bz = Math.sin(ang) * dist;
-      const bh = 4 + (i % 5) * 1.4;
-      const bw = 2.5 + (i % 3);
-      const bd = 2.2 + (i % 2);
+      const bh = 3.5 + (i % 5) * 1.2;
+      const bw = 2.8 + (i % 3) * 0.8;
+      const bd = 2.4 + (i % 2) * 0.6;
+      const wallCol = buildingColors[i % buildingColors.length]!;
       const b = new THREE.Mesh(
         new THREE.BoxGeometry(bw, bh, bd),
         new THREE.MeshStandardMaterial({
-          color: buildingColors[i % buildingColors.length],
+          color: wallCol,
           roughness: 0.85,
         }),
       );
-      b.position.set(bx, bh / 2 - 0.2, bz);
+      b.position.set(bx, bh / 2 - 0.15, bz);
       b.castShadow = true;
       this.sceneryGroup.add(b);
 
-      // simple window row
+      // roof
+      const roof = new THREE.Mesh(
+        new THREE.BoxGeometry(bw + 0.5, 0.32, bd + 0.5),
+        new THREE.MeshStandardMaterial({
+          color: roofColors[i % roofColors.length],
+          roughness: 0.7,
+        }),
+      );
+      roof.position.set(bx, bh + 0.05, bz);
+      roof.castShadow = true;
+      this.sceneryGroup.add(roof);
+
+      // windows
       const winMat = new THREE.MeshBasicMaterial({
         color: 0x1a3040,
         transparent: true,
         opacity: 0.55,
       });
-      for (let wy = 1; wy < bh - 0.5; wy += 1.1) {
-        const win = new THREE.Mesh(new THREE.PlaneGeometry(bw * 0.7, 0.35), winMat);
-        win.position.set(bx, wy, bz + bd / 2 + 0.02);
+      for (let wy = 1.1; wy < bh - 0.6; wy += 1.15) {
+        const win = new THREE.Mesh(
+          new THREE.PlaneGeometry(bw * 0.55, 0.4),
+          winMat,
+        );
+        win.position.set(bx, wy, bz + bd / 2 + 0.03);
         this.sceneryGroup.add(win);
       }
     }
 
     // palm trees around rim
-    for (let i = 0; i < 18; i++) {
-      const ang = (i / 18) * Math.PI * 2;
-      const dist = 28 + (i % 4);
+    for (let i = 0; i < 22; i++) {
+      const ang = (i / 22) * Math.PI * 2;
+      const dist = 27.5 + (i % 5) * 0.8;
       this.sceneryGroup.add(
-        this.makePalm(Math.cos(ang) * dist, Math.sin(ang) * dist, 0.85 + (i % 3) * 0.12),
+        this.makePalm(
+          Math.cos(ang) * dist,
+          Math.sin(ang) * dist,
+          0.9 + (i % 3) * 0.15,
+        ),
       );
     }
 
-    // flowering bush blobs (favela vibe accents)
-    for (let i = 0; i < 10; i++) {
-      const ang = (i / 10) * Math.PI * 2 + 0.4;
-      const dist = 26.5;
+    // flowering bush blobs
+    for (let i = 0; i < 14; i++) {
+      const ang = (i / 14) * Math.PI * 2 + 0.4;
+      const dist = 26 + (i % 3) * 0.4;
       const bush = new THREE.Mesh(
-        new THREE.SphereGeometry(0.9 + (i % 3) * 0.2, 8, 6),
+        new THREE.SphereGeometry(0.85 + (i % 3) * 0.25, 8, 6),
         new THREE.MeshStandardMaterial({
-          color: i % 2 === 0 ? 0xd45a8a : 0x4a8a3a,
+          color: i % 2 === 0 ? 0xd45a8a : 0x3d8a38,
           roughness: 0.9,
         }),
       );
-      bush.position.set(Math.cos(ang) * dist, 0.6, Math.sin(ang) * dist);
+      bush.position.set(Math.cos(ang) * dist, 0.55, Math.sin(ang) * dist);
       this.sceneryGroup.add(bush);
     }
 
@@ -1139,36 +1332,51 @@ export class ThreeRenderer {
       body.receiveShadow = true;
       group.add(body);
     } else if (kind === "car") {
+      // Body + cabin read better from iso cam (RUSH-B parked cars)
       const chassis = this.markShared(
         new THREE.Mesh(
           boxGeo,
           this.sharedPropMat(`car:${colorKey}`, {
             color: p.color,
-            roughness: 0.4,
-            metalness: 0.45,
+            roughness: 0.38,
+            metalness: 0.5,
           }),
         ),
       );
-      chassis.scale.set(p.w, p.h * 0.55, p.d);
-      chassis.position.y = p.h * 0.35;
+      chassis.scale.set(p.w, p.h * 0.48, p.d);
+      chassis.position.y = p.h * 0.32;
       chassis.castShadow = cast;
       group.add(chassis);
       const cabin = this.markShared(
         new THREE.Mesh(
           boxGeo,
           this.sharedPropMat("car:cabin", {
-            color: 0x1a202c,
-            roughness: 0.25,
-            metalness: 0.2,
+            color: 0x152030,
+            roughness: 0.2,
+            metalness: 0.35,
             transparent: true,
-            opacity: 0.85,
+            opacity: 0.9,
           }),
         ),
       );
-      cabin.scale.set(p.w * 0.55, p.h * 0.45, p.d * 0.9);
-      cabin.position.set(-p.w * 0.05, p.h * 0.72, 0);
+      cabin.scale.set(p.w * 0.5, p.h * 0.5, p.d * 0.85);
+      cabin.position.set(-p.w * 0.08, p.h * 0.78, 0);
       cabin.castShadow = cast;
       group.add(cabin);
+      // hood stripe
+      const hood = this.markShared(
+        new THREE.Mesh(
+          boxGeo,
+          this.sharedPropMat(`car:hood:${colorKey}`, {
+            color: p.color,
+            roughness: 0.35,
+            metalness: 0.55,
+          }),
+        ),
+      );
+      hood.scale.set(p.w * 0.42, p.h * 0.12, p.d * 0.9);
+      hood.position.set(p.w * 0.22, p.h * 0.52, 0);
+      group.add(hood);
       const wheelMat = this.sharedPropMat("car:wheel", {
         color: 0x111111,
         roughness: 0.9,
