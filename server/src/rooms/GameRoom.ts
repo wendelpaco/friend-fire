@@ -81,8 +81,20 @@ const BOT_NAMES = ["Lucão", "Pedrão", "Enzo", "Davi", "Theo", "Rafa"];
 const KILL_REWARD = 300;
 const ROUND_WIN_REWARD = 3250;
 const ROUND_LOSS_REWARD = 1400;
+const MAX_MONEY = 16_000;
+const LOSS_BONUS_STEPS = [500, 1000, 1500, 1900, 2400] as const;
 /** Warmup respawn delay — short so deaths don't feel like a soft-lock. */
 const WARMUP_RESPAWN_MS = 1200;
+
+function clampMoney(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(MAX_MONEY, Math.floor(n)));
+}
+
+function lossPayout(consecutiveLosses: number): number {
+  const n = Math.max(1, Math.min(5, Math.floor(consecutiveLosses)));
+  return ROUND_LOSS_REWARD + (LOSS_BONUS_STEPS[n - 1] ?? 2400);
+}
 
 /** Known maps for room create / browser metadata */
 const MAPS: Record<string, string> = {
@@ -161,6 +173,11 @@ export class GameRoom extends Room<MatchState> {
   private bomb: BombSimState = createBombState();
   private heProjectiles: HeProjectile[] = [];
   private heSeq = 0;
+  /** CS consecutive-loss bonus (0–5) per team. */
+  private lossStreakTR = 0;
+  private lossStreakCT = 0;
+  /** Session ids that died during the current live round. */
+  private diedThisRound = new Set<string>();
   /** Collision + cover for current map (hitscan cannot ignore walls). */
   private walls: WallRect[] = wallsForMap("dust");
 
@@ -370,16 +387,19 @@ export class GameRoom extends Room<MatchState> {
       this.syncBombToState();
     }
 
-    // Enter buy freezetime → spawn + bomb carrier
+    // Enter buy freezetime → strip dead loadouts, spawn + bomb carrier
     if (this.phase.phase === "buy" && prev !== "buy") {
+      this.stripDeadLoadouts();
       this.respawnAll();
       this.assignBombCarrier();
       this.heProjectiles = [];
+      this.diedThisRound.clear();
     }
 
     // Buy → live combat (no re-buy)
     if (this.phase.phase === "live" && prev === "buy") {
       this.heProjectiles = [];
+      this.diedThisRound.clear();
     }
 
     if (this.phase.phase === "match_over") {
@@ -713,7 +733,8 @@ export class GameRoom extends Room<MatchState> {
       hit.deaths += 1;
       shooter.kills += 1;
       if (this.phase.phase === "live") {
-        shooter.money += KILL_REWARD;
+        this.diedThisRound.add(hit.id);
+        shooter.money = clampMoney(shooter.money + KILL_REWARD);
       }
 
       if (this.phase.phase === "warmup") {
@@ -770,8 +791,39 @@ export class GameRoom extends Room<MatchState> {
   }
 
   private payoutRound(winner: Team) {
+    // CS: win $3250; loss $1400 + consecutive loss bonus; cap $16k
+    this.lossStreakTR =
+      winner === "TR" ? 0 : Math.min(5, this.lossStreakTR + 1);
+    this.lossStreakCT =
+      winner === "CT" ? 0 : Math.min(5, this.lossStreakCT + 1);
+    const trPay =
+      winner === "TR" ? ROUND_WIN_REWARD : lossPayout(this.lossStreakTR);
+    const ctPay =
+      winner === "CT" ? ROUND_WIN_REWARD : lossPayout(this.lossStreakCT);
     this.state.players.forEach((p) => {
-      p.money += p.team === winner ? ROUND_WIN_REWARD : ROUND_LOSS_REWARD;
+      const add = p.team === "TR" ? trPay : ctPay;
+      p.money = clampMoney(p.money + add);
+    });
+  }
+
+  /** CS: if you died last live round → knife + team pistol, no armor/HE. */
+  private stripDeadLoadouts() {
+    this.state.players.forEach((p) => {
+      if (!this.diedThisRound.has(p.id)) return;
+      const secondary = starterSecondary(p.team);
+      const def = WEAPONS[secondary];
+      const pack = fullAmmo(def);
+      p.primaryId = "";
+      p.secondaryId = secondary;
+      p.activeSlot = 2;
+      p.mag = pack.mag;
+      p.reserve = pack.reserve;
+      p.armor = 0;
+      p.heCount = 0;
+      const ex = this.extras.get(p.id);
+      if (ex) {
+        ex.ammo = { [secondary]: { ...pack } };
+      }
     });
   }
 
@@ -965,11 +1017,14 @@ export class GameRoom extends Room<MatchState> {
         other.hp = 0;
         other.alive = false;
         other.deaths += 1;
+        if (this.phase.phase === "live") {
+          this.diedThisRound.add(other.id);
+        }
         const killer = this.state.players.get(proj.ownerId);
         if (killer) {
           killer.kills += 1;
           if (this.phase.phase === "live") {
-            killer.money += KILL_REWARD;
+            killer.money = clampMoney(killer.money + KILL_REWARD);
           }
         }
         victims.push(other);

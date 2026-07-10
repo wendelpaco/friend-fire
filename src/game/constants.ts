@@ -4,6 +4,8 @@ export {
   KILL_REWARD,
   ROUND_WIN_REWARD,
   ROUND_LOSS_REWARD,
+  MAX_MONEY,
+  START_MONEY as MATCH_START_MONEY,
 } from "@/domains/match";
 import { DEFAULT_MATCH } from "@/domains/match";
 

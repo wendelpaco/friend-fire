@@ -26,11 +26,11 @@ export interface MatchPhaseState {
 
 export const DEFAULT_MATCH = {
   warmup: 20,
-  buyTime: 18,
-  round: 90,
-  roundsToWin: 8,
-  endPause: 4,
-  endMatchPause: 8,
+  buyTime: 20,
+  round: 115,
+  roundsToWin: 13,
+  endPause: 5,
+  endMatchPause: 10,
 } as const;
 
 export function createMatchPhase(

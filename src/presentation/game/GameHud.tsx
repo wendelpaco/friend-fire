@@ -202,29 +202,29 @@ export function GameHud({
 
       {/* Top score bar */}
       <div className="absolute left-1/2 top-4 flex -translate-x-1/2 flex-col items-center gap-1">
-        <div className="flex items-stretch overflow-hidden rounded-lg border border-white/10 bg-black/65 shadow-2xl backdrop-blur-md">
-          <div className="flex min-w-[72px] items-center justify-center gap-2 bg-orange-600/25 px-4 py-2">
-            <span className="text-[10px] font-bold tracking-widest text-orange-300">
+        <div className="flex items-stretch overflow-hidden rounded-lg border border-white/15 bg-[#0a0e16]/90 shadow-2xl backdrop-blur-md">
+          <div className="flex min-w-[78px] items-center justify-center gap-2 bg-orange-700/35 px-4 py-2.5">
+            <span className="text-[10px] font-bold tracking-widest text-orange-200">
               TR
             </span>
-            <span className="text-2xl font-black tabular-nums">
+            <span className="text-3xl font-black tabular-nums text-white">
               {hud.scoreTR}
             </span>
           </div>
-          <div className="flex min-w-[140px] flex-col items-center justify-center border-x border-amber-500/25 bg-gradient-to-b from-amber-950/40 to-transparent px-6 py-2">
-            <span className="text-xl font-black tabular-nums tracking-wide text-amber-50 drop-shadow">
+          <div className="flex min-w-[150px] flex-col items-center justify-center border-x border-white/10 bg-[#0d121c] px-7 py-2">
+            <span className="text-2xl font-black tabular-nums tracking-wide text-white">
               {phaseLabel(hud)}
             </span>
             {(hud.phase === "live" ||
               hud.phase === "buy" ||
               hud.phase === "warmup") && (
-              <span className="text-[9px] font-semibold tracking-[0.28em] text-amber-200/50">
+              <span className="text-[9px] font-semibold tracking-[0.28em] text-white/40">
                 {hud.phase === "buy"
                   ? "COMPRA"
                   : hud.phase === "warmup"
                     ? "WARMUP"
                     : "ROUND"}{" "}
-                {hud.round}
+                {hud.round > 0 ? hud.round : "—"}
               </span>
             )}
             {hud.canBuy && !hud.showBuyMenu && (
@@ -233,11 +233,11 @@ export function GameHud({
               </span>
             )}
           </div>
-          <div className="flex min-w-[72px] items-center justify-center gap-2 bg-sky-600/25 px-4 py-2">
-            <span className="text-2xl font-black tabular-nums">
+          <div className="flex min-w-[78px] items-center justify-center gap-2 bg-sky-700/35 px-4 py-2.5">
+            <span className="text-3xl font-black tabular-nums text-white">
               {hud.scoreCT}
             </span>
-            <span className="text-[10px] font-bold tracking-widest text-sky-300">
+            <span className="text-[10px] font-bold tracking-widest text-sky-200">
               CT
             </span>
           </div>

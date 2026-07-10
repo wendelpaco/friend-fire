@@ -25,15 +25,17 @@ export interface MatchPhaseState {
   roundsToWin: number;
 }
 
-/** Default match timing / win condition (seconds, rounds). */
+/** Default match timing / win condition (seconds, rounds). CS-like. */
 export const DEFAULT_MATCH = {
   warmup: 20,
-  /** CS-style freezetime / buy window before live combat. */
-  buyTime: 18,
-  round: 90,
-  roundsToWin: 8,
+  /** Freezetime / buy window before live combat (~CS 20s). */
+  buyTime: 20,
+  /** Live round length (~CS 1:55). */
+  round: 115,
+  /** First to this many rounds (MR24 → 13). */
+  roundsToWin: 13,
   /** Short post-round banner before next buy. */
-  endPause: 4,
+  endPause: 5,
   /** Match-finished pause (`match_over` phase) length. */
-  endMatchPause: 8,
+  endMatchPause: 10,
 } as const;
