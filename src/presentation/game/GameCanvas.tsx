@@ -256,6 +256,14 @@ export function GameCanvas({
           })
         : () => {};
 
+    const unsubHit =
+      typeof client.onHitFx === "function"
+        ? client.onHitFx((event) => {
+            if (cancelled) return;
+            engineRef.current?.applyNetworkHitFx(event);
+          })
+        : () => {};
+
     const unsubChat =
       typeof client.onChat === "function"
         ? client.onChat((event) => {
@@ -349,6 +357,7 @@ export function GameCanvas({
       unsub();
       unsubHe();
       unsubShot();
+      unsubHit();
       unsubChat();
       window.clearInterval(inputTimer);
       engineRef.current?.setNetworked(false, null);

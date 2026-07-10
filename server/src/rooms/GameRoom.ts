@@ -981,11 +981,13 @@ export class GameRoom extends Room<MatchState> {
     );
     hit.hp = dmg.hp;
     hit.armor = dmg.armor;
+    let killed = false;
     if (hit.hp <= 0) {
       hit.hp = 0;
       hit.alive = false;
       hit.deaths += 1;
       shooter.kills += 1;
+      killed = true;
       if (this.phase.phase === "live") {
         this.diedThisRound.add(hit.id);
         shooter.money = clampMoney(shooter.money + KILL_REWARD);
@@ -1002,6 +1004,19 @@ export class GameRoom extends Room<MatchState> {
         }, WARMUP_RESPAWN_MS);
       }
     }
+
+    // Authoritative hit / kill FX (damage arc source + kill confirm)
+    this.broadcast("fx_hit", {
+      attackerId: shooter.id,
+      victimId: hit.id,
+      attackerX: shooter.x,
+      attackerZ: shooter.z,
+      victimX: hit.x,
+      victimZ: hit.z,
+      damage: Math.round(damage),
+      weaponId: weapon.id,
+      killed,
+    });
   }
 
   private checkWipe() {
@@ -1399,7 +1414,6 @@ export class GameRoom extends Room<MatchState> {
 
   private applyHeBlast(proj: HeProjectile) {
     this.broadcast("he_explode", { id: proj.id, x: proj.x, z: proj.z });
-    const victims: PlayerState[] = [];
     this.state.players.forEach((other) => {
       if (!other.alive || other.id === proj.ownerId) return;
       // Friendly fire off
@@ -1410,10 +1424,12 @@ export class GameRoom extends Room<MatchState> {
       const dmg = applyDamage(other.hp, other.armor, raw);
       other.hp = dmg.hp;
       other.armor = dmg.armor;
+      let killed = false;
       if (other.hp <= 0) {
         other.hp = 0;
         other.alive = false;
         other.deaths += 1;
+        killed = true;
         if (this.phase.phase === "live") {
           this.diedThisRound.add(other.id);
         }
@@ -1425,7 +1441,6 @@ export class GameRoom extends Room<MatchState> {
           }
         }
         this.spawnDeathWeaponDrops(other);
-        victims.push(other);
         if (this.phase.phase === "warmup") {
           const id = other.id;
           this.clock.setTimeout(() => {
@@ -1436,8 +1451,19 @@ export class GameRoom extends Room<MatchState> {
           }, WARMUP_RESPAWN_MS);
         }
       }
+      // Damage origin = blast center (grenade), not thrower position
+      this.broadcast("fx_hit", {
+        attackerId: proj.ownerId,
+        victimId: other.id,
+        attackerX: proj.x,
+        attackerZ: proj.z,
+        victimX: other.x,
+        victimZ: other.z,
+        damage: Math.round(raw),
+        weaponId: "he",
+        killed,
+      });
     });
-    void victims;
   }
 
   private syncBombToState() {

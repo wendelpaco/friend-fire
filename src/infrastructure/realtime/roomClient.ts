@@ -127,6 +127,23 @@ export type ShotFxEvent = {
   } | null;
 };
 
+/**
+ * Authoritative hit / kill FX from GameRoom (gunfeel pack B).
+ * Damage arc uses attacker XZ; kill confirm uses killer id + weaponId.
+ */
+export type HitFxEvent = {
+  attackerId: string;
+  victimId: string;
+  attackerX: number;
+  attackerZ: number;
+  victimX: number;
+  victimZ: number;
+  damage: number;
+  /** Weapon id (e.g. ak47) or "he" for grenade. */
+  weaponId: string;
+  killed: boolean;
+};
+
 /** Chat broadcast from GameRoom (Meta-3 channel-filtered). */
 export type ChatFxEvent = {
   id: string;
@@ -701,6 +718,7 @@ export class ColyseusRoomClient implements RoomClient {
   private readonly listeners = new Set<(state: unknown) => void>();
   private readonly heFxListeners = new Set<(event: HeFxEvent) => void>();
   private readonly shotFxListeners = new Set<(event: ShotFxEvent) => void>();
+  private readonly hitFxListeners = new Set<(event: HitFxEvent) => void>();
   private readonly chatListeners = new Set<(event: ChatFxEvent) => void>();
   private unbindRoom: (() => void) | null = null;
   /** Serialize create/join/connect so Strict Mode / double-click can't race. */
@@ -1066,6 +1084,14 @@ export class ColyseusRoomClient implements RoomClient {
     };
   }
 
+  /** Authoritative hit / kill (damage arc source + kill confirm). */
+  onHitFx(cb: (event: HitFxEvent) => void): () => void {
+    this.hitFxListeners.add(cb);
+    return () => {
+      this.hitFxListeners.delete(cb);
+    };
+  }
+
   private bindRoom(room: Room) {
     this.unbindRoom?.();
     this.room = room;
@@ -1118,9 +1144,26 @@ export class ColyseusRoomClient implements RoomClient {
       };
       for (const cb of this.shotFxListeners) cb(event);
     };
+    const onFxHit = (data: unknown) => {
+      const o = data as Record<string, unknown>;
+      const event: HitFxEvent = {
+        attackerId: String(o?.attackerId ?? ""),
+        victimId: String(o?.victimId ?? ""),
+        attackerX: Number(o?.attackerX) || 0,
+        attackerZ: Number(o?.attackerZ) || 0,
+        victimX: Number(o?.victimX) || 0,
+        victimZ: Number(o?.victimZ) || 0,
+        damage: Number(o?.damage) || 0,
+        weaponId: String(o?.weaponId ?? ""),
+        killed: Boolean(o?.killed),
+      };
+      if (!event.attackerId || !event.victimId) return;
+      for (const cb of this.hitFxListeners) cb(event);
+    };
     room.onMessage("he_throw", onHeThrow);
     room.onMessage("he_explode", onHeExplode);
     room.onMessage("fx_shot", onFxShot);
+    room.onMessage("fx_hit", onFxHit);
 
     const onChatMsg = (data: unknown) => {
       const o = data as Record<string, unknown>;

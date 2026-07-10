@@ -171,6 +171,13 @@ function asWeaponId(id: string | undefined | null): WeaponId | null {
   return id in WEAPONS ? (id as WeaponId) : null;
 }
 
+/** Display name for killfeed from network weaponId (incl. HE). */
+function networkWeaponLabel(weaponId: string): string {
+  if (weaponId === "he") return "GRANADA HE";
+  const wid = asWeaponId(weaponId);
+  return wid ? WEAPONS[wid].name : "ARMA";
+}
+
 function pointInWall(
   x: number,
   z: number,
@@ -1181,9 +1188,6 @@ export class GameClient {
       }
     }
 
-    const localP = this.networkPlayerById.get(localId) ?? null;
-    const localTeam = localP?.team;
-
     const seen = this.networkSeenIds;
     seen.clear();
     const nextList = this.state.players;
@@ -1202,60 +1206,9 @@ export class GameClient {
 
       const isLocal = np.id === localId;
       const prevAlive = p.alive;
-      const prevHp = p.hp;
 
-      // Network hit feedback (gunfeel B)
-      if (!isNew && np.hp < prevHp) {
-        if (
-          !isLocal &&
-          localP &&
-          p.team !== localTeam &&
-          performance.now() - localP.lastShotAt < 250
-        ) {
-          // Local scored a hit — flash enemy; skip damage numbers in live
-          this.three.flashHit(np.id);
-          this.state.hitMarkerUntil = performance.now() + 120;
-          if (this.state.phase !== "live") {
-            const dealt = Math.round(prevHp - np.hp);
-            if (dealt > 0) {
-              this.three.spawnDamageNumber(np.x, 1.4, np.z, `-${dealt}`);
-            }
-          }
-          // Kill confirm when enemy dies from our recent shot
-          if (prevAlive && !np.alive) {
-            Sfx.play("kill");
-            this.state.killFeed.unshift({
-              id: uid("kf"),
-              killer: localP.name,
-              victim: np.name,
-              weapon: "ARMA",
-              at: performance.now(),
-              localKiller: true,
-            });
-            this.state.killFeed = this.state.killFeed.slice(0, 6);
-          }
-        }
-        if (isLocal && localP) {
-          // Directional arc: nearest living enemy as damage source proxy
-          let bestDx = 0;
-          let bestDz = 1;
-          let bestD = Number.POSITIVE_INFINITY;
-          for (const other of net.players) {
-            if (other.id === np.id || !other.alive) continue;
-            if (normalizeTeam(other.team) === localTeam) continue;
-            const d = Math.hypot(other.x - np.x, other.z - np.z);
-            if (d < bestD) {
-              bestD = d;
-              bestDx = other.x;
-              bestDz = other.z;
-            }
-          }
-          this.three.spawnDamageArc(np.x, np.z, bestDx, bestDz);
-          this.state.damageFlashUntil = performance.now() + 220;
-          this.state.lastDamageAmount = Math.round(prevHp - np.hp);
-          Sfx.play("hit");
-        }
-      }
+      // Hit flash / damage arc / kill confirm come from authoritative `fx_hit`
+      // (applyNetworkHitFx). HP deltas alone cannot name the real attacker.
 
       // Enter spectator when local dies mid-live
       if (
@@ -1417,6 +1370,74 @@ export class GameClient {
         event.impact.nz,
         event.impact.surface,
       );
+    }
+  }
+
+  /**
+   * Authoritative hit / kill from server `fx_hit` (gunfeel pack B).
+   * Damage arc points at real attacker; kill confirm uses killer id + weapon.
+   */
+  applyNetworkHitFx(event: {
+    attackerId: string;
+    victimId: string;
+    attackerX: number;
+    attackerZ: number;
+    victimX: number;
+    victimZ: number;
+    damage: number;
+    weaponId: string;
+    killed: boolean;
+  }) {
+    if (!this.networked) return;
+    const localId = this.networkSessionId ?? this.state.localPlayerId;
+    const weaponName = networkWeaponLabel(event.weaponId);
+
+    if (event.victimId === localId) {
+      this.three.spawnDamageArc(
+        event.victimX,
+        event.victimZ,
+        event.attackerX,
+        event.attackerZ,
+      );
+      this.state.damageFlashUntil = performance.now() + 220;
+      this.state.lastDamageAmount = Math.max(0, Math.round(event.damage));
+      Sfx.play("hit");
+    }
+
+    if (event.attackerId === localId) {
+      this.three.flashHit(event.victimId);
+      this.state.hitMarkerUntil = performance.now() + 120;
+      Sfx.play("hit");
+      if (this.state.phase !== "live" && event.damage > 0) {
+        this.three.spawnDamageNumber(
+          event.victimX,
+          1.4,
+          event.victimZ,
+          `-${Math.round(event.damage)}`,
+        );
+      }
+    }
+
+    if (event.killed) {
+      const attacker =
+        this.networkPlayerById.get(event.attackerId) ??
+        this.state.players.find((p) => p.id === event.attackerId);
+      const victim =
+        this.networkPlayerById.get(event.victimId) ??
+        this.state.players.find((p) => p.id === event.victimId);
+      const localKiller = event.attackerId === localId;
+      this.state.killFeed.unshift({
+        id: uid("kf"),
+        killer: attacker?.name ?? "Player",
+        victim: victim?.name ?? "Player",
+        weapon: weaponName,
+        at: performance.now(),
+        localKiller,
+      });
+      this.state.killFeed = this.state.killFeed.slice(0, 6);
+      if (localKiller) {
+        Sfx.play("kill");
+      }
     }
   }
 

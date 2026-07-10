@@ -7,6 +7,15 @@ const OUTER_R = 0.95;
 const ARC_SPAN = Math.PI * 0.55; // ~100° wedge toward damage source
 
 /**
+ * RingGeometry sector is centered on local +X. After mesh.rotation.x = −π/2
+ * the wedge still faces world +X at rotation.z = 0. Map that center to (dx, dz)
+ * on the ground plane (Euler XYZ: rot.z spins the flat ring in XZ).
+ */
+export function damageArcRotationZ(dx: number, dz: number): number {
+  return -Math.atan2(dz, dx);
+}
+
+/**
  * World-space red damage direction indicator around the local player.
  * Only one arc at a time — newest hit replaces the previous.
  */
@@ -33,7 +42,7 @@ export class DamageArcSystem {
       side: THREE.DoubleSide,
     });
 
-    // Ring sector in XZ; rotation.y aims the wedge
+    // Ring sector in XY; laid flat with rotation.x, aimed with rotation.z
     const geo = new THREE.RingGeometry(
       INNER_R,
       OUTER_R,
@@ -63,18 +72,37 @@ export class DamageArcSystem {
     const dz = fromZ - playerZ;
     if (dx * dx + dz * dz < 1e-8) return;
 
-    // Yaw so wedge faces the attacker (RingGeometry spans around +X by default
-    // in XY; after rot.x=-90, local +Y of ring → world −Z… use atan2 for XZ).
-    const yaw = Math.atan2(dx, dz);
     this.root.position.set(playerX, 0, playerZ);
-    // Mesh is flat on XZ; rotate around Y so arc center points at attacker.
-    this.mesh.rotation.z = -yaw;
+    // Sector center is +X; aim that axis at the attacker on XZ.
+    this.mesh.rotation.z = damageArcRotationZ(dx, dz);
 
     this.age = 0;
     this.life = ARC_LIFE;
     this.active = true;
     this.mesh.visible = true;
     this.mat.opacity = 0.75;
+  }
+
+  /** True while an arc is visible (tests / debug). */
+  get isActive(): boolean {
+    return this.active;
+  }
+
+  /**
+   * Horizontal unit direction of the wedge center in world XZ, or null if inactive.
+   * Used by tests to assert orientation toward the damage source.
+   */
+  wedgeDirectionXZ(): { x: number; z: number } | null {
+    if (!this.active) return null;
+    this.root.updateMatrixWorld(true);
+    const r = (INNER_R + OUTER_R) / 2;
+    const p = new THREE.Vector3(r, 0, 0);
+    this.mesh.localToWorld(p);
+    const wx = p.x - this.root.position.x;
+    const wz = p.z - this.root.position.z;
+    const len = Math.hypot(wx, wz);
+    if (len < 1e-8) return null;
+    return { x: wx / len, z: wz / len };
   }
 
   /** Keep arc under moving player while alive. */
