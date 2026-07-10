@@ -128,6 +128,10 @@ export class ThreeRenderer {
   private lastPos = new Map<string, { x: number; z: number; t: number }>();
   private shootFlags = new Set<string>();
   private bulletMeshes = new Map<string, THREE.Mesh>();
+  /** Reused each sync to avoid Set allocs (W2). */
+  private syncAlivePlayers = new Set<string>();
+  private syncAliveBullets = new Set<string>();
+  private syncRemoveIds: string[] = [];
   /** Inactive bullet meshes ready for reuse (shared geo/mat). */
   private bulletPool: THREE.Mesh[] = [];
   private bulletGeo!: THREE.SphereGeometry;
@@ -542,8 +546,10 @@ export class ThreeRenderer {
   }
 
   sync(snapshot: RenderSnapshot) {
-    const aliveBulletIds = new Set<string>();
-    const alivePlayerIds = new Set<string>();
+    const alivePlayerIds = this.syncAlivePlayers;
+    const aliveBulletIds = this.syncAliveBullets;
+    alivePlayerIds.clear();
+    aliveBulletIds.clear();
     const now = performance.now() * 0.001;
     const local = snapshot.players.find((x) => x.id === snapshot.localPlayerId);
 
@@ -556,20 +562,7 @@ export class ThreeRenderer {
         this.scene.add(handle.group);
       }
 
-      const cat = weaponCategoryOf(p.weaponId, p.weaponSlot);
-      handle.setWeapon(cat);
-
-      const last = this.lastPos.get(p.id);
-      const dt = last ? Math.max(1 / 120, now - last.t) : 1 / 60;
-      // World velocity from position delta (WASD result after collision).
-      const moveX = last ? (p.x - last.x) / dt : 0;
-      const moveZ = last ? (p.z - last.z) / dt : 0;
-      this.lastPos.set(p.id, { x: p.x, z: p.z, t: now });
-
-      const shooting = this.shootFlags.has(p.id);
       const rootY = p.y ?? 0;
-      const crouching = Boolean(p.crouching);
-      const airborne = p.onGround === false;
 
       // Fog of war: local + same team always visible (if alive); enemies only within radius when on.
       let inVision = true;
@@ -594,8 +587,42 @@ export class ThreeRenderer {
         distToLocal,
       );
 
+      // Far: position only (frozen pose) — skip weapon swap / controller / animator.
+      if (lod === "far") {
+        let lastFar = this.lastPos.get(p.id);
+        if (!lastFar) {
+          lastFar = { x: p.x, z: p.z, t: now };
+          this.lastPos.set(p.id, lastFar);
+        } else {
+          lastFar.x = p.x;
+          lastFar.z = p.z;
+          lastFar.t = now;
+        }
+        handle.group.position.set(p.x, rootY, p.z);
+        continue;
+      }
+
+      const cat = weaponCategoryOf(p.weaponId, p.weaponSlot);
+      handle.setWeapon(cat);
+
+      const last = this.lastPos.get(p.id);
+      const dt = last ? Math.max(1 / 120, now - last.t) : 1 / 60;
+      // World velocity from position delta (WASD result after collision).
+      const moveX = last ? (p.x - last.x) / dt : 0;
+      const moveZ = last ? (p.z - last.z) / dt : 0;
+      if (last) {
+        last.x = p.x;
+        last.z = p.z;
+        last.t = now;
+      } else {
+        this.lastPos.set(p.id, { x: p.x, z: p.z, t: now });
+      }
+
+      const shooting = this.shootFlags.has(p.id);
+      const crouching = Boolean(p.crouching);
+      const airborne = p.onGround === false;
+
       // CharacterController: body faces velocity when moving, aim when idle.
-      // Yaw uses horizontal move only (moveX/moveZ) — jump Y never enters facing.
       const foot = handle.update(dt, {
         moveX,
         moveZ,
@@ -615,12 +642,16 @@ export class ThreeRenderer {
       }
 
       handle.group.position.set(p.x, rootY, p.z);
-      // visual yaw applied inside handle.update via CharacterController
     }
     this.shootFlags.clear();
 
-    for (const id of [...this.characters.keys()]) {
-      if (!alivePlayerIds.has(id)) this.removeCharacter(id);
+    const removeIds = this.syncRemoveIds;
+    removeIds.length = 0;
+    for (const id of this.characters.keys()) {
+      if (!alivePlayerIds.has(id)) removeIds.push(id);
+    }
+    for (let i = 0; i < removeIds.length; i++) {
+      this.removeCharacter(removeIds[i]!);
     }
 
     for (const b of snapshot.bullets) {
@@ -634,8 +665,12 @@ export class ThreeRenderer {
       mesh.position.set(b.x, 1.0, b.z);
     }
 
-    for (const id of [...this.bulletMeshes.keys()]) {
-      if (!aliveBulletIds.has(id)) this.releaseBulletMesh(id);
+    removeIds.length = 0;
+    for (const id of this.bulletMeshes.keys()) {
+      if (!aliveBulletIds.has(id)) removeIds.push(id);
+    }
+    for (let i = 0; i < removeIds.length; i++) {
+      this.releaseBulletMesh(removeIds[i]!);
     }
 
     this.updateCamera(snapshot);

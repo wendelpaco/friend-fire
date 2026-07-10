@@ -93,6 +93,7 @@ import {
   parseGraphicsQuality,
   type GraphicsQuality,
 } from "@/domains/prefs";
+import { botAccumStep, botSimInterval } from "./botTick";
 import { Input } from "./input";
 import { ThreeRenderer } from "./ThreeRenderer";
 
@@ -284,6 +285,10 @@ export class GameClient {
     string,
     { nextShot: number; nextChat: number }
   >();
+  /** Accumulated dt per bot for reduced-rate AI (W2). */
+  private botAccum = new Map<string, number>();
+  /** Reused alive-player list for bot targeting (no per-bot filter alloc). */
+  private alivePlayersScratch: PlayerState[] = [];
   private collisionWalls: WallRect[];
   private helpSeenKey = "ff_help_seen";
   private sessionId = "server";
@@ -2040,23 +2045,50 @@ export class GameClient {
 
   private updateBots(dt: number) {
     const now = performance.now();
-    for (const bot of this.state.players) {
+    const players = this.state.players;
+    const local = players.find((p) => p.id === this.state.localPlayerId);
+    const lx = local?.x ?? 0;
+    const lz = local?.z ?? 0;
+
+    // Single pass: collect alive once (avoid per-bot .filter alloc).
+    const alive = this.alivePlayersScratch;
+    alive.length = 0;
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i]!;
+      if (p.alive) alive.push(p);
+    }
+
+    for (let i = 0; i < players.length; i++) {
+      const bot = players[i]!;
       if (!bot.isBot || !bot.alive) continue;
+
+      // Reload completion always full-rate (cheap + correctness)
       if (bot.reloadingUntil > 0 && now >= bot.reloadingUntil) {
         this.finishReload(bot);
       }
 
-      const timer = this.botTimers.get(bot.id) ?? {
-        nextShot: 0,
-        nextChat: now + 5000,
-      };
+      const distLocal = Math.hypot(bot.x - lx, bot.z - lz);
+      const interval = botSimInterval(distLocal);
+      const prevAccum = this.botAccum.get(bot.id) ?? 0;
+      const stepped = botAccumStep(prevAccum, dt, interval);
+      if (!stepped) {
+        this.botAccum.set(bot.id, prevAccum + dt);
+        continue;
+      }
+      this.botAccum.set(bot.id, stepped.nextAccum);
+      const stepDt = stepped.stepDt;
 
-      const enemies = this.state.players.filter(
-        (p) => p.alive && p.team !== bot.team,
-      );
+      let timer = this.botTimers.get(bot.id);
+      if (!timer) {
+        timer = { nextShot: 0, nextChat: now + 5000 };
+        this.botTimers.set(bot.id, timer);
+      }
+
       let target: PlayerState | undefined;
       let best = Infinity;
-      for (const e of enemies) {
+      for (let j = 0; j < alive.length; j++) {
+        const e = alive[j]!;
+        if (e.team === bot.team) continue;
         const d = (e.x - bot.x) ** 2 + (e.z - bot.z) ** 2;
         if (d < best) {
           best = d;
@@ -2064,56 +2096,54 @@ export class GameClient {
         }
       }
 
-      if (target) {
-        const dx = target.x - bot.x;
-        const dz = target.z - bot.z;
-        const dist = Math.hypot(dx, dz);
-        bot.rot = Math.atan2(dx, dz);
+      if (!target) continue;
 
-        let mx = 0;
-        let mz = 0;
-        if (dist > 9) {
-          mx = (dx / dist) * BOT_SPEED * dt;
-          mz = (dz / dist) * BOT_SPEED * dt;
-        } else if (dist < 4.5) {
-          mx = (-dx / dist) * BOT_SPEED * 0.55 * dt;
-          mz = (-dz / dist) * BOT_SPEED * 0.55 * dt;
-        } else {
-          mx = (-dz / dist) * BOT_SPEED * 0.65 * dt;
-          mz = (dx / dist) * BOT_SPEED * 0.65 * dt;
-        }
-        const resolved = resolveCircleWalls(
-          bot.x + mx,
-          bot.z + mz,
-          PLAYER_RADIUS,
-          this.collisionWalls,
-        );
-        bot.x = resolved.x;
-        bot.z = resolved.z;
+      const dx = target.x - bot.x;
+      const dz = target.z - bot.z;
+      const dist = Math.hypot(dx, dz);
+      bot.rot = Math.atan2(dx, dz);
 
-        const wid = bot.weapons[bot.weaponSlot];
-        const ammo = wid ? bot.ammo[wid] : null;
-        if (ammo && ammo.mag === 0 && ammo.reserve > 0) {
-          this.startReload(bot);
-        }
+      let mx = 0;
+      let mz = 0;
+      if (dist > 9) {
+        mx = (dx / dist) * BOT_SPEED * stepDt;
+        mz = (dz / dist) * BOT_SPEED * stepDt;
+      } else if (dist < 4.5) {
+        mx = (-dx / dist) * BOT_SPEED * 0.55 * stepDt;
+        mz = (-dz / dist) * BOT_SPEED * 0.55 * stepDt;
+      } else {
+        mx = (-dz / dist) * BOT_SPEED * 0.65 * stepDt;
+        mz = (dx / dist) * BOT_SPEED * 0.65 * stepDt;
+      }
+      const resolved = resolveCircleWalls(
+        bot.x + mx,
+        bot.z + mz,
+        PLAYER_RADIUS,
+        this.collisionWalls,
+      );
+      bot.x = resolved.x;
+      bot.z = resolved.z;
 
-        if (dist < 22 && now >= timer.nextShot && bot.reloadingUntil <= 0) {
-          this.tryShoot(bot);
-          const def = wid ? WEAPONS[wid] : WEAPONS.glock;
-          timer.nextShot = now + def.fireRate + Math.random() * 140;
-        }
-
-        if (now >= timer.nextChat) {
-          if (dist < 12 && Math.random() < 0.5) {
-            this.addChat(bot.name, pick(BOT_LINES.enemySpotted), "radio");
-          } else if (Math.random() < 0.3) {
-            this.addChat(bot.name, pick(BOT_LINES.taunt), "all");
-          }
-          timer.nextChat = now + 7000 + Math.random() * 9000;
-        }
+      const wid = bot.weapons[bot.weaponSlot];
+      const ammo = wid ? bot.ammo[wid] : null;
+      if (ammo && ammo.mag === 0 && ammo.reserve > 0) {
+        this.startReload(bot);
       }
 
-      this.botTimers.set(bot.id, timer);
+      if (dist < 22 && now >= timer.nextShot && bot.reloadingUntil <= 0) {
+        this.tryShoot(bot);
+        const def = wid ? WEAPONS[wid] : WEAPONS.glock;
+        timer.nextShot = now + def.fireRate + Math.random() * 140;
+      }
+
+      if (now >= timer.nextChat) {
+        if (dist < 12 && Math.random() < 0.5) {
+          this.addChat(bot.name, pick(BOT_LINES.enemySpotted), "radio");
+        } else if (Math.random() < 0.3) {
+          this.addChat(bot.name, pick(BOT_LINES.taunt), "all");
+        }
+        timer.nextChat = now + 7000 + Math.random() * 9000;
+      }
     }
   }
 
@@ -2401,6 +2431,7 @@ export class GameClient {
     const def = wid ? WEAPONS[wid] : null;
     const ammo = wid ? p.ammo[wid] : null;
 
+    // Fresh arrays each push — React state must not share mutable buffers.
     const weapons: HudSnapshot["weapons"] = [];
     for (const [slotStr, w] of Object.entries(p.weapons)) {
       if (!w) continue;

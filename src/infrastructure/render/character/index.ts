@@ -111,6 +111,17 @@ export function createCharacter(teamColor: number): CharacterHandle {
 
       const lod: CharacterLod = input.lod ?? "full";
 
+      if (input.rootY != null && Number.isFinite(input.rootY)) {
+        rig.group.position.y = input.rootY;
+      }
+
+      // Far: frozen last pose — skip orientation + bones (W2 CPU).
+      if (lod === "far") {
+        midAnimAccum = 0;
+        midFrame = 0;
+        return null;
+      }
+
       const ctrlIn: CharacterControllerInput = {
         moveX: input.moveX,
         moveZ: input.moveZ,
@@ -121,16 +132,6 @@ export function createCharacter(teamColor: number): CharacterHandle {
 
       // Body faces velocity when moving — anti-moonwalk
       rig.group.rotation.y = state.visualYaw;
-
-      if (input.rootY != null && Number.isFinite(input.rootY)) {
-        rig.group.position.y = input.rootY;
-      }
-
-      if (lod === "far") {
-        midAnimAccum = 0;
-        midFrame = 0;
-        return null;
-      }
 
       const animIn: AnimatorInput = {
         speed: state.speed,
