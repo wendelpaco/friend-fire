@@ -181,7 +181,11 @@ export function GameCanvas({
 
     const connect = async () => {
       try {
-        await client.connect(roomCode, { host: isHost });
+        await client.connect(roomCode, {
+          host: isHost,
+          // Host create must send map so server walls/spawns match client.
+          mapId: mapId || "dust",
+        });
       } catch (e) {
         if (!cancelled) {
           setNet(client.snapshot());
@@ -224,7 +228,7 @@ export function GameCanvas({
       void client.leave();
       if (roomRef.current === client) roomRef.current = null;
     };
-  }, [mode, roomCode, isHost]);
+  }, [mode, roomCode, isHost, mapId]);
 
   const displayCode =
     (net?.code && net.code.length > 0 ? net.code : roomCode) ?? undefined;

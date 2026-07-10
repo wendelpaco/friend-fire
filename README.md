@@ -19,7 +19,8 @@ Shooter tático **top-down** no navegador, inspirado no vibe do [RUSH B](https:/
 | Command | What it does |
 |---------|----------------|
 | `npm run dev` | Next.js client (http://localhost:3000) |
-| `npm run dev:server` | Colyseus multiplayer server (ws://localhost:2567) |
+| `npm run dev:server` | Colyseus multiplayer server (ws://127.0.0.1:2567) |
+| `npm run dev:all` | Next + Colyseus (two processes; prefer two terminals) |
 | `npm test` | Vitest unit tests (domains + infra) |
 | `npm run test:watch` | Vitest watch mode |
 | `npm run build` | Production Next.js build |
@@ -38,12 +39,12 @@ npm run dev
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `NEXT_PUBLIC_COLYSEUS_URL` | `ws://localhost:2567` | WebSocket URL for Colyseus (`src/infrastructure/realtime/roomClient.ts`) |
+| `NEXT_PUBLIC_COLYSEUS_URL` | `ws://127.0.0.1:2567` | WebSocket URL for Colyseus (`src/infrastructure/realtime/roomClient.ts`) |
 | `NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN` | *(unset)* | QA only. Positive integer overrides `roundsToWin` (prod default **8**). Example: `1` to force `match_over` quickly. Unset in production. |
 
 ```bash
 # optional .env.local
-NEXT_PUBLIC_COLYSEUS_URL=ws://localhost:2567
+NEXT_PUBLIC_COLYSEUS_URL=ws://127.0.0.1:2567
 # NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN=1   # QA only
 ```
 
@@ -126,8 +127,9 @@ Wave 5 (C4, HE, spectator, ranks, banners): [`docs/wave5.md`](docs/wave5.md) · 
 # terminal A — Next.js
 npm run dev
 
-# terminal B — Colyseus
+# terminal B — Colyseus (required for multiplayer / room mode)
 npm run dev:server
+# health check: curl http://127.0.0.1:2567/health
 # or: cd server && npm run dev
 ```
 

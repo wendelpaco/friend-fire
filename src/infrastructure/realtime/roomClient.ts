@@ -16,9 +16,13 @@ export {
   type LastRoom,
 } from "@/infrastructure/realtime/lastRoom";
 
-/** WebSocket URL for the Colyseus game server (Task 10). */
+/**
+ * WebSocket URL for the Colyseus game server.
+ * Prefer 127.0.0.1 over `localhost` — on macOS, localhost→::1 often yields
+ * opaque browser `ProgressEvent` failures while IPv4 works.
+ */
 export const COLYSEUS_URL =
-  process.env.NEXT_PUBLIC_COLYSEUS_URL || "ws://localhost:2567";
+  process.env.NEXT_PUBLIC_COLYSEUS_URL || "ws://127.0.0.1:2567";
 
 /** HTTP base derived from COLYSEUS_URL (ws:// → http://, wss:// → https://). */
 export const HTTP_URL = COLYSEUS_URL.replace(/^ws/i, "http");
@@ -199,19 +203,31 @@ export type LocalRoomState = {
 };
 
 function friendlyConnectError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err ?? "unknown");
+  // Browser fetch/XHR network failures often surface as ProgressEvent
+  // (`Error: [object ProgressEvent]`), not a useful message string.
+  const isProgressEvent =
+    typeof ProgressEvent !== "undefined" && err instanceof ProgressEvent;
+  const raw = isProgressEvent
+    ? "network progress event"
+    : err instanceof Error
+      ? err.message
+      : String(err ?? "unknown");
   const lower = raw.toLowerCase();
   if (
+    isProgressEvent ||
+    lower.includes("[object progressevent]") ||
+    lower.includes("progressevent") ||
     lower.includes("failed to fetch") ||
     lower.includes("network") ||
     lower.includes("load failed") ||
     lower.includes("econnrefused") ||
     lower.includes("websocket") ||
-    lower.includes("connection")
+    lower.includes("connection") ||
+    lower.includes("fetch")
   ) {
     return (
-      "Servidor multiplayer indisponível. Rode `npm run dev:server` " +
-      `(${COLYSEUS_URL}) e tente de novo.`
+      "Servidor multiplayer indisponível. Em outro terminal rode " +
+      "`bun run dev:server` (ws://127.0.0.1:2567) e recarregue a página."
     );
   }
   if (
