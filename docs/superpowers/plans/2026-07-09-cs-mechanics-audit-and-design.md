@@ -45,9 +45,9 @@ Write `docs/superpowers/specs/YYYY-MM-DD-cs-mechanics-v1-design.md`:
 ## Success criteria
 
 - [x] Audit memo with file-backed findings → `docs/superpowers/specs/2026-07-09-cs-mechanics-audit.md`  
-- [ ] Design approved → `docs/superpowers/specs/2026-07-09-cs-mechanics-v1-design.md`  
-- [ ] P0 code + tests (C0 + C1)  
-- [ ] Checklist: “feels more CS” on buy→live→eco  
+- [x] Design approved → worktree multi-agent C0+C1 (user: worktrees)  
+- [x] P0 code + tests (C0 + C1) merged to main  
+- [ ] Manual checklist: “feels more CS” on buy→live→eco (playtest)  
 
 ## Phase A status (2026-07-09)
 
