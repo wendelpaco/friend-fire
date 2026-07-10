@@ -79,7 +79,7 @@ export function ShopShowcase({
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="text-[11px] font-bold tracking-[0.4em] text-amber-400">
-              // LOADOUT
+              {"// LOADOUT"}
             </div>
             <h2 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
               LOJA · ROUND {round > 0 ? round : "—"}

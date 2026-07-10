@@ -1,6 +1,6 @@
 # Friend Fire — Session Meta Flow Design (Wave D)
 
-**Status:** Meta-1 implemented; Meta-3 death social + squad chat implemented; Meta-2 pending  
+**Status:** Complete (Meta-1 + Meta-2 + Meta-3 on main)  
 **Date:** 2026-07-09  
 **Codename:** session-meta  
 **Pipeline:** Meta-1 (capa + personagem) → Meta-2 (loja showcase + DS) → Meta-3 (morte social + squad chat)  

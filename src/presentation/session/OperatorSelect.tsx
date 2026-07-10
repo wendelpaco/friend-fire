@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
+  defaultOperatorPrefs,
   getOperatorById,
   getOperatorPrefs,
   getSkinById,
@@ -24,6 +25,8 @@ export type OperatorSelectProps = {
   next?: string | null;
 };
 
+const emptySubscribe = () => () => {};
+
 /**
  * Character + skin select (Meta-1 Path B).
  * Confirm → setOperatorPrefs + router.push(next).
@@ -32,18 +35,19 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
   const router = useRouter();
   const operators = listOperators();
 
-  const [filter, setFilter] = useState<GenderFilter>("all");
-  const [operatorId, setOperatorId] = useState<OperatorId>("brick");
-  const [skinId, setSkinId] = useState("brick-default");
-  const [ready, setReady] = useState(false);
+  // SSR-safe prefs snapshot (no setState-in-effect).
+  const stored = useSyncExternalStore(
+    emptySubscribe,
+    getOperatorPrefs,
+    defaultOperatorPrefs,
+  );
 
-  // Hydrate prefs from localStorage after mount (SSR-safe).
-  useEffect(() => {
-    const prefs = getOperatorPrefs();
-    setOperatorId(prefs.operatorId);
-    setSkinId(prefs.skinId);
-    setReady(true);
-  }, []);
+  const [filter, setFilter] = useState<GenderFilter>("all");
+  // Seed from prefs snapshot (client: localStorage; SSR: catalog default).
+  const [operatorId, setOperatorId] = useState<OperatorId>(
+    () => stored.operatorId,
+  );
+  const [skinId, setSkinId] = useState(() => stored.skinId);
 
   const filtered = useMemo(() => {
     if (filter === "all") return [...operators];
@@ -51,13 +55,13 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
   }, [operators, filter]);
 
   const selectedOp: OperatorDef =
-    getOperatorById(operatorId) ?? operators[0];
+    getOperatorById(operatorId) ?? operators[0]!;
   const skins = listSkinsForOperator(selectedOp.id);
   const skinCandidate = getSkinById(skinId);
   const selectedSkin: SkinDef =
     skinCandidate && skinCandidate.operatorId === selectedOp.id
       ? skinCandidate
-      : skins[0];
+      : skins[0]!;
 
   const pickOperator = (op: OperatorDef) => {
     setOperatorId(op.id);
@@ -198,7 +202,6 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
             <Button
               variant="primary"
               onClick={confirm}
-              disabled={!ready}
               className="w-full py-3.5 tracking-[0.2em]"
             >
               CONFIRMAR

@@ -1,6 +1,6 @@
 # Friend Fire — CS Mechanics v1 Design
 
-**Status:** Approved + implemented (C0 + C1 via multi-agent worktrees)  
+**Status:** Complete (C0 + C1 + C2a freezetime/loss + C2b drops on main)  
 **Date:** 2026-07-09  
 **Prior:** `2026-07-09-cs-mechanics-audit.md` (multi-agent Phase A)  
 **Product frame:** CS-lite **top-down** (not CS2 first-person clone)

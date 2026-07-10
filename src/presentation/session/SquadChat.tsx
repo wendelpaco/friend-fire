@@ -52,10 +52,6 @@ export function SquadChat({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setChannel(defaultChannel);
-  }, [defaultChannel]);
-
   // Auto-scroll to latest
   useEffect(() => {
     const el = listRef.current;
