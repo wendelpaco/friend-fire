@@ -199,8 +199,10 @@ export interface HudSnapshot {
   roundBanner: string | null;
   /** Dead in live round — spectator cam active. */
   spectating: boolean;
+  /** Always-on smoothed FPS for the mini counter (≈2 Hz). */
+  fps: number;
   /**
-   * FPS / draw stats when `ff_show_fps` is on; null when overlay disabled.
+   * Full perf panel when Settings → overlay avançado is on; null otherwise.
    */
   perf: {
     fps: number;

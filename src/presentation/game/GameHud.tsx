@@ -58,7 +58,27 @@ interface GameHudProps {
   onCloseBuy?: () => void;
 }
 
-/** Isolated so parent HUD re-renders don't rebuild perf DOM when perf ref is stable. */
+function fpsColorClass(fps: number): string {
+  if (fps >= 55) return "text-emerald-300";
+  if (fps >= 30) return "text-amber-300";
+  return "text-red-400";
+}
+
+/** Compact always-on counter (top-right). */
+const MiniFps = memo(function MiniFps({ fps }: { fps: number }) {
+  const n = Number.isFinite(fps) ? Math.max(0, Math.round(fps)) : 0;
+  return (
+    <div
+      className={`absolute right-3 top-3 z-30 rounded border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums shadow backdrop-blur-sm ${fpsColorClass(n)}`}
+      title="Frames por segundo"
+      aria-label={`${n} frames por segundo`}
+    >
+      {n} FPS
+    </div>
+  );
+});
+
+/** Full diagnostics — Settings → Overlay avançado. */
 const PerfOverlay = memo(function PerfOverlay({
   perf,
 }: {
@@ -67,7 +87,7 @@ const PerfOverlay = memo(function PerfOverlay({
   return (
     <div className="absolute right-3 top-3 z-30 max-w-[14rem] rounded border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[10px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
       <div className="flex items-baseline justify-between gap-2">
-        <span>{perf.fps} FPS</span>
+        <span className={fpsColorClass(perf.fps)}>{perf.fps} FPS</span>
         <span className="text-[9px] text-amber-200/80">
           {perf.autoEnabled
             ? perf.adaptReason === "degrade"
@@ -142,8 +162,8 @@ function GameHudImpl({
         />
       )}
 
-      {/* Perf overlay (Settings → Overlay de FPS) — ≤4 Hz via engine */}
-      {hud.perf && <PerfOverlay perf={hud.perf} />}
+      {/* Mini FPS always on; full panel when Settings → overlay avançado */}
+      {hud.perf ? <PerfOverlay perf={hud.perf} /> : <MiniFps fps={hud.fps ?? 0} />}
 
       {/* Crosshair */}
       {hud.alive && !hud.paused && !hud.showHelp && (

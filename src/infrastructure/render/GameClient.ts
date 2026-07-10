@@ -1146,7 +1146,8 @@ export class GameClient {
         renderMs: t2 - t1,
       });
 
-      if (this.showFps) this.fpsFrames += 1;
+      // Always sample FPS for mini counter; draw stats only if full overlay on.
+      this.fpsFrames += 1;
 
       // Metrics + quality controller ~2 Hz (not every frame)
       if (t2 - this.metricsPublishAt >= 500) {
@@ -1156,13 +1157,13 @@ export class GameClient {
         this.perfCpuP95Ms = snap.p95CpuMs;
         this.perfRenderP95Ms = snap.p95RenderMs;
 
+        const elapsed = t2 - this.fpsLastT;
+        if (elapsed > 0 && this.fpsFrames > 0) {
+          this.fpsDisplay = Math.round((this.fpsFrames * 1000) / elapsed);
+        }
+        this.fpsFrames = 0;
+        this.fpsLastT = t2;
         if (this.showFps) {
-          const elapsed = t2 - this.fpsLastT;
-          if (elapsed > 0 && this.fpsFrames > 0) {
-            this.fpsDisplay = Math.round((this.fpsFrames * 1000) / elapsed);
-          }
-          this.fpsFrames = 0;
-          this.fpsLastT = t2;
           const info = this.three.getRenderInfo();
           this.lastDrawCalls = info.calls;
           this.lastTriangles = info.triangles;
@@ -2618,7 +2619,7 @@ export class GameClient {
       this.state.bombState === "planted" ||
       this.state.bombState === "defusing";
 
-    // Perf overlay at ≤4 Hz (reuse last block between refreshes).
+    // Full perf panel at ≤4 Hz when overlay avançado is on.
     let perf: HudSnapshot["perf"] = null;
     if (this.showFps) {
       if (shouldRefreshPerf(now, this.lastPerfPublishAt, true)) {
@@ -2651,6 +2652,7 @@ export class GameClient {
     }
 
     this.onHud({
+      fps: this.fpsDisplay,
       hp,
       armor,
       money: p.money,

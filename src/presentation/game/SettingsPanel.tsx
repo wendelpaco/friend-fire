@@ -247,15 +247,20 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
           </label>
 
           <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3">
-            <span className="text-sm font-semibold text-white/85">
-              Overlay de FPS
-            </span>
+            <div className="min-w-0">
+              <span className="block text-sm font-semibold text-white/85">
+                Overlay avançado de FPS
+              </span>
+              <span className="mt-0.5 block text-[11px] text-white/45">
+                Mini contador sempre visível. Liga p50/gpu/draws e tier.
+              </span>
+            </div>
             <input
               type="checkbox"
               checked={prefs.showFps}
-              aria-label="Overlay de FPS"
+              aria-label="Overlay avançado de FPS"
               onChange={(e) => apply({ showFps: e.target.checked })}
-              className="h-4 w-4 accent-amber-500"
+              className="h-4 w-4 shrink-0 accent-amber-500"
             />
           </label>
         </div>
