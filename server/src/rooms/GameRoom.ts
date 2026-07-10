@@ -63,6 +63,7 @@ import { tickMotor } from "../sim/motor";
 import {
   applyDamage,
   BOT_SPEED,
+  bulletHeight,
   HIT_RADIUS,
   PLAYER_RADIUS,
   PLAYER_SPEED,
@@ -675,7 +676,8 @@ export class GameRoom extends Room<MatchState> {
       const cz = shooter.z + dirZ * t;
       const dist = Math.hypot(other.x - cx, other.z - cz);
       if (dist < HIT_RADIUS && t < bestT) {
-        // Cover blocks bullets (was infinite LOS → spawn camp death loop)
+        // Height-aware cover: low walls block crouch shots; stand can peak over.
+        const shotH = bulletHeight(Boolean(shooter.crouching));
         if (
           segmentBlockedByWalls(
             shooter.x,
@@ -683,6 +685,7 @@ export class GameRoom extends Room<MatchState> {
             other.x,
             other.z,
             this.walls,
+            shotH,
           )
         ) {
           return;
@@ -694,6 +697,7 @@ export class GameRoom extends Room<MatchState> {
 
     // Wall impact for FX (first surface along ray, or before player hit)
     let impact: WallImpactFx | null = null;
+    const shotH = bulletHeight(Boolean(shooter.crouching));
     if (!melee) {
       const wallHit = firstWallImpactAlongRay(
         shooter.x,
@@ -702,6 +706,7 @@ export class GameRoom extends Room<MatchState> {
         dirZ,
         hit ? bestT : maxRange,
         this.walls,
+        shotH,
       );
       // Only use wall if it is closer than player (or no player)
       if (wallHit) {

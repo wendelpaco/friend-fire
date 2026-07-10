@@ -160,4 +160,30 @@ describe("motor jump / crouch / ground", () => {
     expect(s.onGround).toBe(true);
     expect(s.y).toBe(GROUND_Y);
   });
+
+  it("can land on standable crate top after jump", () => {
+    const crate: WallRect = {
+      x: 0,
+      z: 0,
+      w: 2,
+      d: 2,
+      h: 1.2,
+      standable: true,
+    };
+    // Start above crate (simulating apex), fall onto top
+    let s = createMotorState(0, 0);
+    s = { ...s, y: 1.8, vy: -2, onGround: false };
+    for (let i = 0; i < 40; i++) {
+      s = tickMotor(s, {
+        wishX: 0,
+        wishZ: 0,
+        jump: false,
+        crouch: false,
+        dt: 1 / 60,
+        walls: [crate],
+      });
+    }
+    expect(s.onGround).toBe(true);
+    expect(s.y).toBeCloseTo(1.2, 1);
+  });
 });

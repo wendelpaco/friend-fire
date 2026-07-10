@@ -87,12 +87,16 @@ export class RapierWorld {
   }
 
   private buildMap(map: GameMap): void {
-    // Floor — large thin box under y=0 surface
+    // Floor scales with map (72 → half 36 → cuboid extent ~48)
+    const half = Math.max(map.size.width, map.size.depth) / 2;
+    const floorExtent = half + 12;
     const floorBody = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.25, 0),
     );
     this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(80, 0.25, 80).setFriction(0.9),
+      RAPIER.ColliderDesc.cuboid(floorExtent, 0.25, floorExtent).setFriction(
+        0.9,
+      ),
       floorBody,
     );
 
@@ -104,11 +108,15 @@ export class RapierWorld {
 
   private addWall(w: WallRect): void {
     const h = Math.max(0.5, w.h ?? 2.5);
+    // Standable props: solid top so CharacterController can land (CS high-ground).
+    // Non-standable full walls: same cuboid. Low cover is shorter cuboid.
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(w.x, h / 2, w.z),
     );
     this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(w.w / 2, h / 2, w.d / 2).setFriction(0.6),
+      RAPIER.ColliderDesc.cuboid(w.w / 2, h / 2, w.d / 2).setFriction(
+        w.standable ? 0.95 : 0.6,
+      ),
       body,
     );
   }
@@ -145,8 +153,9 @@ export class RapierWorld {
     );
     const controller = this.world.createCharacterController(0.08);
     controller.setApplyImpulsesToDynamicBodies(false);
-    controller.enableAutostep(0.35, 0.25, true);
-    controller.enableSnapToGround(0.35);
+    // Step onto low ledges; crates (~1.2) still need jump — CS box play.
+    controller.enableAutostep(0.5, 0.28, true);
+    controller.enableSnapToGround(0.45);
     controller.setMaxSlopeClimbAngle((50 * Math.PI) / 180);
     controller.setMinSlopeSlideAngle((40 * Math.PI) / 180);
 
@@ -216,10 +225,10 @@ export class RapierWorld {
     // Grounded from previous frame controller result + low feet
     let onGround = h.controller.computedGrounded();
     const t0 = h.body.translation();
-    const feetY = t0.y - half;
-    if (feetY <= 0.08 && h.vy <= 0.05) onGround = true;
+    const feetBefore = t0.y - half;
+    if (feetBefore <= 0.08 && h.vy <= 0.05) onGround = true;
 
-    // Down-ray ground check (reliable on flat maps + ramps/steps)
+    // Down-ray ground check (reliable on flat maps + prop tops)
     const rayOrigin = { x: t0.x, y: t0.y, z: t0.z };
     const rayDir = { x: 0, y: -1, z: 0 };
     const ray = new RAPIER.Ray(rayOrigin, rayDir);
@@ -275,7 +284,7 @@ export class RapierWorld {
       z: t0.z + mov.z,
     };
 
-    // Soft floor clamp (never fall through)
+    // Soft world-floor clamp only (elevated platforms use controller grounded).
     const minCenterY = half + 0.001;
     if (next.y < minCenterY) {
       next.y = minCenterY;
@@ -286,10 +295,14 @@ export class RapierWorld {
     h.body.setNextKinematicTranslation(next);
     this.world.step();
 
-    const onG = grounded || (next.y <= minCenterY + 0.05 && h.vy <= 0.05);
+    const feetY = Math.max(0, next.y - half);
+    const onG =
+      grounded ||
+      (feetY <= 0.08 && h.vy <= 0.05) ||
+      (grounded && feetY > 0.08);
     return {
       x: next.x,
-      y: Math.max(0, next.y - half),
+      y: feetY,
       z: next.z,
       vy: h.vy,
       crouching: h.crouching,
@@ -302,13 +315,14 @@ export class RapierWorld {
     if (!h) return null;
     const t = h.body.translation();
     const half = h.crouching ? h.crouchHalfH : h.standHalfH;
+    const feetY = Math.max(0, t.y - half);
     return {
       x: t.x,
-      y: Math.max(0, t.y - half),
+      y: feetY,
       z: t.z,
       vy: h.vy,
       crouching: h.crouching,
-      onGround: h.controller.computedGrounded() || t.y - half <= 0.08,
+      onGround: h.controller.computedGrounded() || feetY <= 0.08,
     };
   }
 

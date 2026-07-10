@@ -1,16 +1,20 @@
 /**
- * Player motor — CS-like jump / crouch / ground on top-down XZ maps.
+ * Player motor — CS-like jump / crouch / platforms on top-down XZ maps.
  *
- * Pure functions (no Three.js). Horizontal collision stays on the caller
- * via {@link resolveCircleWalls}; this module owns vertical integration +
- * speed modifiers.
+ * Pure functions (no Three.js). Horizontal collision via
+ * {@link resolveCircleWalls}; vertical ground via {@link sampleGroundY}
+ * so crates/containers are standable high-ground.
  *
  * Orientation note: yaw must use **only** horizontal velocity (moveX, moveZ).
  * Never mix `y` into facing math or the moonwalk bug returns.
  */
 
 import type { Vec2, WallRect } from "./types";
-import { resolveCircleWalls } from "./collision";
+import {
+  resolveCircleWalls,
+  sampleGroundY,
+  SURFACE_EPS,
+} from "./collision";
 
 /** m/s² — snappy, not floaty (CS-ish on ~2m characters). */
 export const GRAVITY = -28;
@@ -90,10 +94,8 @@ export function createMotorState(x = 0, z = 0): MotorState {
 }
 
 /**
- * One simulation step: crouch → wish move + walls → jump → gravity → ground.
- *
- * Ground check is analytic (plane y=0), not a scene ray — 100% reliable on
- * our flat maps and cheap (no extra raycasts per player).
+ * One simulation step: crouch → wish move + walls (feet-aware) → jump →
+ * gravity → snap to floor or standable prop tops.
  */
 export function tickMotor(state: MotorState, input: MotorInput): MotorState {
   const dt = input.dt > 0 && Number.isFinite(input.dt) ? input.dt : 0;
@@ -104,7 +106,6 @@ export function tickMotor(state: MotorState, input: MotorInput): MotorState {
   const radius = motorRadius(crouching);
   const speed = motorSpeed(crouching, state.onGround, standSpeed);
 
-  // Normalize wish (caller may already unitize)
   let wx = input.wishX;
   let wz = input.wishZ;
   const wLen = Math.hypot(wx, wz);
@@ -116,14 +117,20 @@ export function tickMotor(state: MotorState, input: MotorInput): MotorState {
     wz = 0;
   }
 
-  // Horizontal integrate + lateral collision (AABB walls / props)
+  // Horizontal integrate + lateral collision (skip solids we're on top of)
   let x = state.x + wx * speed * dt;
   let z = state.z + wz * speed * dt;
-  const resolved: Vec2 = resolveCircleWalls(x, z, radius, input.walls);
+  const feetForCol = state.y;
+  const resolved: Vec2 = resolveCircleWalls(
+    x,
+    z,
+    radius,
+    input.walls,
+    feetForCol,
+  );
   x = resolved.x;
   z = resolved.z;
 
-  // Vertical: jump only from ground (CS: no double jump)
   let vy = state.vy;
   let y = state.y;
   let onGround = state.onGround;
@@ -133,26 +140,41 @@ export function tickMotor(state: MotorState, input: MotorInput): MotorState {
     onGround = false;
   }
 
-  // Gravity always while airborne (and during the jump frame)
   if (!onGround || vy > 0) {
     vy += GRAVITY * dt;
     y += vy * dt;
   }
 
-  // Ground snap — never fall through floor
-  if (y <= GROUND_Y + GROUND_EPS && vy <= 0) {
-    y = GROUND_Y;
+  // Highest surface under us after horizontal move (floor or crate top)
+  const groundY = sampleGroundY(x, z, radius, input.walls);
+
+  if (y <= groundY + GROUND_EPS && vy <= 0) {
+    y = groundY;
     vy = 0;
     onGround = true;
-  } else if (y > GROUND_Y + GROUND_EPS) {
+  } else if (y > groundY + GROUND_EPS) {
     onGround = false;
   }
 
-  // Safety: never below floor even with bad dt
+  // Never below world floor
   if (y < GROUND_Y) {
     y = GROUND_Y;
     vy = 0;
     onGround = true;
+  }
+
+  // If standing on a surface, re-resolve once so crate edges don't nibble
+  if (onGround && y > GROUND_Y + SURFACE_EPS) {
+    const r2 = resolveCircleWalls(x, z, radius, input.walls, y);
+    x = r2.x;
+    z = r2.z;
+    const g2 = sampleGroundY(x, z, radius, input.walls);
+    if (g2 + GROUND_EPS < y && vy <= 0) {
+      // walked off edge — start falling next frames
+      onGround = false;
+    } else if (g2 > GROUND_Y) {
+      y = g2;
+    }
   }
 
   return { x, z, y, vy, crouching, onGround };

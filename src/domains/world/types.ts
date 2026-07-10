@@ -5,6 +5,12 @@ export interface Vec2 {
   z: number;
 }
 
+/**
+ * Axis-aligned box on XZ. Optional height drives CS-style cover / platforms:
+ * - tall (h ≥ ~2) full wall — blocks standing shots
+ * - low cover (h ≈ 1.4–1.6) — blocks crouch shots, stand can shoot over
+ * - standable props (crates/cars) — walk/jump on top when `standable`
+ */
 export interface WallRect {
   x: number;
   z: number;
@@ -13,6 +19,8 @@ export interface WallRect {
   h?: number;
   /** slightly different tone for variety */
   color?: number;
+  /** Can stand / land on the top face (crates, cars, containers…). */
+  standable?: boolean;
 }
 
 export interface PropBox {
