@@ -1666,11 +1666,8 @@ export class GameClient {
       this.freeCamZ += move.z * pan;
     }
 
-    // Toggle crouch on Control press (not hold)
-    if (
-      this.input.wasPressed("ControlLeft") ||
-      this.input.wasPressed("ControlRight")
-    ) {
+    // Toggle crouch on Control edge; pass state (not key hold) to motor/Rapier
+    if (this.input.wasCrouchPressed()) {
       p.crouching = !p.crouching;
     }
 

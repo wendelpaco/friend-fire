@@ -27,7 +27,7 @@ export interface PlayerState {
   y: number;
   /** Vertical velocity. */
   vy: number;
-  /** Hold-CTRL crouch. */
+  /** Toggle crouch (Control edge). Desired posture state. */
   crouching: boolean;
   /** True when feet on floor (can jump). */
   onGround: boolean;

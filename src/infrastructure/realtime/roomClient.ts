@@ -180,7 +180,7 @@ export type InputPayload = {
   he: boolean;
   /** Edge: Space jump. */
   jump: boolean;
-  /** Hold: Ctrl crouch. */
+  /** Hold bit: Control down (server rising-edge → toggle crouch). */
   crouch: boolean;
 };
 
