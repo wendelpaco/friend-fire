@@ -118,10 +118,11 @@
 
 ---
 
-## Slice S7 — GLTF soldier (separate plan if large)
+## Slice S7 — GLTF soldier ✅
 
-Defer to follow-up plan if S1–S6 land first. See movement-visual-polish §4.  
-Do not block S1–S6 on asset pipeline.
+**Shipped:** `SoldierGltf.ts` + hot-swap in `createCharacter`, asset at `public/models/soldier.glb` (CesiumMan stand-in), procedural fallback, `AnimationMixer` walk weight from locomotion idle channel, team tint, weapon on right arm bone when found.
+
+**Follow-up (art):** replace CesiumMan with CC0 military low-poly + idle/walk clips named clearly.
 
 ---
 

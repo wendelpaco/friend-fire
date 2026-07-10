@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import {
+  MODEL_YAW_OFFSET_GLTF_NEG_Z,
+  MODEL_YAW_OFFSET_PROCEDURAL,
+} from "@/domains/fx";
 import { CharacterRig } from "./CharacterRig";
 import {
   CharacterAnimator,
@@ -10,6 +14,11 @@ import {
   type CharacterControllerInput,
 } from "./CharacterController";
 import { WeaponAttach, type WeaponCategory } from "./WeaponAttach";
+import {
+  instantiateSoldier,
+  loadSoldierGltf,
+  preloadSoldierGltf,
+} from "./SoldierGltf";
 
 export { CharacterRig, WEAPON_SLOT_NAME } from "./CharacterRig";
 export type { CharacterBones } from "./CharacterRig";
@@ -26,6 +35,12 @@ export type {
 } from "./CharacterController";
 export { WeaponAttach, buildWeaponMesh } from "./WeaponAttach";
 export type { WeaponCategory } from "./WeaponAttach";
+export {
+  loadSoldierGltf,
+  preloadSoldierGltf,
+  isSoldierGltfReady,
+  SOLDIER_GLTF_URL,
+} from "./SoldierGltf";
 
 /**
  * Animation budget vs distance from camera/local player.
@@ -64,42 +79,102 @@ export type CharacterHandle = {
   ) => FootPlant;
   /** Seed body yaw on spawn/respawn. */
   resetFacing: (aimYaw: number) => void;
+  /** True after GLTF hot-swap succeeded. */
+  isGltf: () => boolean;
   dispose: () => void;
 };
 
 /**
- * Factory: low-poly hierarchical character with
- * orientation controller + directional animator + weapon slot.
+ * Factory: starts as procedural rig, hot-swaps to GLTF when
+ * `/models/soldier.glb` is available. Orientation always from
+ * {@link CharacterController}.
  */
 export function createCharacter(teamColor: number): CharacterHandle {
+  const root = new THREE.Group();
+  root.name = "character_root";
+
   const rig = new CharacterRig(teamColor);
   rig.applyRestPose();
+  root.add(rig.group);
 
   const animator = new CharacterAnimator(rig.bones);
-  const controller = new CharacterController();
-  const weapons = new WeaponAttach(rig.bones);
-  weapons.setWeapon("rifle");
+  const controller = new CharacterController(MODEL_YAW_OFFSET_PROCEDURAL);
+  let weaponBind = new WeaponAttach(rig.bones);
+  weaponBind.setWeapon("rifle");
 
   let lastCategory: WeaponCategory = "rifle";
-  /** Mid-LOD: accumulate dt and run animator every 2nd frame. */
   let midAnimAccum = 0;
   let midFrame = 0;
+  let disposed = false;
+  let usingGltf = false;
+
+  let mixer: THREE.AnimationMixer | null = null;
+  let walkAction: THREE.AnimationAction | null = null;
+  let gltfTorso: THREE.Object3D | null = null;
+  let gltfBaseTorsoY = 0;
+
+  // Kick shared load; hot-swap when ready
+  void loadSoldierGltf().then((asset) => {
+    if (!asset || disposed) return;
+    try {
+      const inst = instantiateSoldier(asset, teamColor);
+      // Swap visual
+      root.remove(rig.group);
+      root.add(inst.root);
+      usingGltf = true;
+      // CesiumMan / most glTF humanoids face −Z → offset yaw
+      controller.modelYawOffset = MODEL_YAW_OFFSET_GLTF_NEG_Z;
+
+      // Weapon on right hand bone if found
+      if (inst.rightHand) {
+        weaponBind.dispose();
+        const slot = new THREE.Object3D();
+        slot.name = "weaponSlot";
+        slot.position.set(0.05, -0.05, 0.12);
+        inst.rightHand.add(slot);
+        weaponBind = new WeaponAttach({
+          ...rig.bones,
+          weaponSlot: slot,
+        });
+        weaponBind.setWeapon(lastCategory);
+      }
+
+      if (inst.clips.length > 0) {
+        mixer = new THREE.AnimationMixer(inst.root);
+        walkAction = mixer.clipAction(inst.clips[0]!);
+        walkAction.play();
+        walkAction.setEffectiveWeight(0);
+        walkAction.setEffectiveTimeScale(1);
+      }
+
+      gltfTorso = inst.torso;
+      if (gltfTorso) gltfBaseTorsoY = gltfTorso.rotation.y;
+    } catch (e) {
+      console.warn("[soldier] hot-swap failed, staying procedural", e);
+      usingGltf = false;
+      if (!root.children.includes(rig.group)) {
+        root.add(rig.group);
+      }
+      controller.modelYawOffset = MODEL_YAW_OFFSET_PROCEDURAL;
+    }
+  });
 
   return {
-    group: rig.group,
+    group: root,
     animator,
     controller,
     setWeapon(category: WeaponCategory) {
-      weapons.setWeapon(category);
+      weaponBind.setWeapon(category);
       lastCategory = category;
     },
     resetFacing(aimYaw: number) {
       controller.reset(aimYaw);
     },
+    isGltf: () => usingGltf,
     update(dt, input) {
       const weaponCategory = input.weaponCategory ?? lastCategory;
       if (input.weaponCategory && input.weaponCategory !== lastCategory) {
-        weapons.setWeapon(input.weaponCategory);
+        weaponBind.setWeapon(input.weaponCategory);
         lastCategory = input.weaponCategory;
       }
 
@@ -114,14 +189,49 @@ export function createCharacter(teamColor: number): CharacterHandle {
       const state = controller.update(ctrlIn);
 
       // Apply body yaw — THIS is what fixes “de costas”
-      rig.group.rotation.y = state.visualYaw;
+      root.rotation.y = state.visualYaw;
 
       // Root height from motor (jump). Orientation uses XZ only.
       if (input.rootY != null && Number.isFinite(input.rootY)) {
-        rig.group.position.y = input.rootY;
+        root.position.y = input.rootY;
       }
 
-      // Far: freeze last procedural pose (still faces correctly).
+      // ── GLTF path ──────────────────────────────────────────
+      if (usingGltf && mixer) {
+        const moving = Math.max(0, 1 - state.weights.idle);
+        if (walkAction) {
+          if (lod === "far") {
+            walkAction.setEffectiveWeight(0);
+          } else {
+            walkAction.setEffectiveWeight(THREE.MathUtils.clamp(moving, 0, 1));
+            walkAction.setEffectiveTimeScale(
+              0.75 + Math.min(Math.max(state.speed, 0), 8) * 0.12,
+            );
+          }
+        }
+        // Light torso twist toward aim (spine bone if present)
+        if (gltfTorso && lod !== "far") {
+          gltfTorso.rotation.y = gltfBaseTorsoY + state.torsoTwist * 0.35;
+        }
+        if (lod === "mid") {
+          midFrame += 1;
+          midAnimAccum += dt;
+          if (midFrame % 2 === 0) {
+            mixer.update(midAnimAccum);
+            midAnimAccum = 0;
+          }
+        } else if (lod === "full") {
+          midFrame = 0;
+          midAnimAccum = 0;
+          mixer.update(dt);
+        } else {
+          midFrame = 0;
+          midAnimAccum = 0;
+        }
+        return null;
+      }
+
+      // ── Procedural path ────────────────────────────────────
       if (lod === "far") {
         midAnimAccum = 0;
         midFrame = 0;
@@ -149,15 +259,38 @@ export function createCharacter(teamColor: number): CharacterHandle {
         return animator.takeFootPlant();
       }
 
-      // full
       midAnimAccum = 0;
       midFrame = 0;
       animator.update(dt, animIn);
       return animator.takeFootPlant();
     },
     dispose() {
-      weapons.dispose();
-      rig.dispose();
+      disposed = true;
+      weaponBind.dispose();
+      if (mixer) {
+        mixer.stopAllAction();
+        mixer = null;
+      }
+      walkAction = null;
+      if (!usingGltf) {
+        rig.dispose();
+      } else {
+        // Dispose gltf clone (materials cloned per instance)
+        root.traverse((obj) => {
+          if (obj instanceof THREE.Mesh || obj instanceof THREE.SkinnedMesh) {
+            obj.geometry?.dispose();
+            const mat = obj.material;
+            if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+            else mat?.dispose();
+          }
+        });
+      }
+      root.clear();
     },
   };
+}
+
+// Eager preload when module loads in browser (optional; also called from renderer)
+if (typeof window !== "undefined") {
+  preloadSoldierGltf();
 }

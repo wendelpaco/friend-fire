@@ -13,6 +13,7 @@ import type { GameMap } from "@/domains/world";
 import { Sfx } from "@/infrastructure/audio/Sfx";
 import {
   createCharacter,
+  preloadSoldierGltf,
   type CharacterHandle,
   type CharacterLod,
   type WeaponCategory,
@@ -220,6 +221,9 @@ export class ThreeRenderer {
 
     // Apply DPR / shadows / dust after lights & dust exist.
     this.applyQuality(this.quality);
+
+    // Warm GLTF soldier cache (hot-swap on characters when ready)
+    preloadSoldierGltf();
 
     if (typeof window !== "undefined") {
       window.addEventListener("ff-prefs", this.onPrefsEvent);

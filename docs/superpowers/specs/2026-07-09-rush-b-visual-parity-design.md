@@ -1,7 +1,7 @@
 # Friend Fire — RUSH B Visual Parity Design
 
 **Date:** 2026-07-09  
-**Status:** Draft for approval  
+**Status:** Approved — S1–S7 implemented (S7 uses CesiumMan stand-in; replace with military GLB when ready)  
 **Goal:** Close the “prototype vs shippable commercial top-down shooter” gap using RUSH B reference screenshots as the quality bar, without abandoning Three.js, performance tiers, or the current domain architecture.
 
 **Reference set (user-provided stills):**
