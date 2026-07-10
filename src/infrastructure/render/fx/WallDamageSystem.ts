@@ -47,6 +47,8 @@ export class WallDamageSystem {
   private readonly chunkBoxGeo: THREE.BoxGeometry;
   private decalCursor = 0;
   private chunkCursor = 0;
+  /** 0–1; low density skips chunks and throttles decals. */
+  private density = 1;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -106,6 +108,10 @@ export class WallDamageSystem {
     }
   }
 
+  setDensity(density: number): void {
+    this.density = Math.max(0, Math.min(1, density));
+  }
+
   /**
    * Spawn scorch decal; temporary chunk only on walls (domain: prop = decal-only).
    */
@@ -118,13 +124,20 @@ export class WallDamageSystem {
     nz: number,
     surface: "wall" | "ground" | "prop" = "wall",
   ): void {
+    if (this.density <= 0.05) return;
+    // Throttle decals under load (pseudo-random by position)
+    if (this.density < 0.55) {
+      const h = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453);
+      if (h - Math.floor(h) > this.density + 0.2) return;
+    }
+
     const nLen = Math.hypot(nx, ny, nz) || 1;
     const nnx = nx / nLen;
     const nny = ny / nLen;
     const nnz = nz / nLen;
 
     this.spawnDecal(x, y, z, nnx, nny, nnz);
-    if (surface === "wall") {
+    if (surface === "wall" && this.density >= 0.55) {
       this.spawnChunk(x, y, z, nnx, nny, nnz);
     }
   }

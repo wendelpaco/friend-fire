@@ -10,7 +10,7 @@ import {
   type GraphicsQualityConfig,
   type RuntimeKnobs,
 } from "@/domains/prefs";
-import type { GameMap } from "@/domains/world";
+import type { GameMap, PropBox } from "@/domains/world";
 import { Sfx } from "@/infrastructure/audio/Sfx";
 import {
   createCharacter,
@@ -29,6 +29,15 @@ import {
   TracerSystem,
   WallDamageSystem,
 } from "./fx";
+import {
+  fxDensityFromBudget,
+  isInstanceableKind,
+  normalizePropKind,
+  propBatchKey,
+  shadowHalfExtent,
+  shouldIncludePropKind,
+  type InstanceableKind,
+} from "./propBatch";
 
 /** Enemy players beyond this distance from the local player are culled. */
 export const FOG_VISION_RADIUS = 14;
@@ -131,12 +140,16 @@ export class ThreeRenderer {
     debris: null as THREE.DodecahedronGeometry | null,
     wheel: null as THREE.CylinderGeometry | null,
   };
-  private propMatCache = new Map<string, THREE.MeshStandardMaterial>();
+  private propMatCache = new Map<string, THREE.Material>();
   private crateEdgeMat: THREE.LineBasicMaterial | null = null;
   private wallGroup = new THREE.Group();
   private propGroup = new THREE.Group();
   private adGroup = new THREE.Group();
   private sceneryGroup = new THREE.Group();
+  /** Optional scenery extras (windows, extra palms) — toggled by propDetail. */
+  private sceneryMidGroup = new THREE.Group();
+  private sceneryHighGroup = new THREE.Group();
+  private instancedProps: THREE.InstancedMesh[] = [];
   private raycaster = new THREE.Raycaster();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private tmpVec = new THREE.Vector3();
@@ -280,12 +293,58 @@ export class ThreeRenderer {
 
     this.applyPropShadowFlag(knobs.propCastShadow);
     this.configureDust(knobs.dustCount, knobs.dustUpdateHz);
+    this.applyShadowFrustum(knobs.propDetail);
+    this.applySceneryLod(knobs.propDetail);
+    this.applyFxDensity(knobs.fxBudget);
     // Tracers off when FX budget is low (covers low tier + auto degrade)
     this.tracerFx?.setEnabled(knobs.fxBudget >= 0.5);
     // Explosion debris scales with fxBudget (was tier-only)
     const debris =
       knobs.fxBudget < 0.5 ? 0 : knobs.fxBudget < 0.85 ? 8 : 16;
     this.heFx?.setDebrisBudget(debris);
+  }
+
+  private applyFxDensity(fxBudget: number): void {
+    const d = fxDensityFromBudget(fxBudget);
+    this.muzzleFx?.setDensity(d);
+    this.impactFx?.setDensity(d);
+    this.wallDamageFx?.setDensity(d);
+    this.damageNumberFx?.setDensity(d);
+  }
+
+  /** Tighten directional shadow camera to map footprint (W1). */
+  private applyShadowFrustum(propDetail: number): void {
+    if (!this.sunLight) return;
+    const half = shadowHalfExtent(
+      this.map.size.width,
+      this.map.size.depth,
+      propDetail,
+    );
+    const cam = this.sunLight.shadow.camera;
+    cam.near = 1;
+    cam.far = Math.max(60, half * 2.4);
+    cam.left = -half;
+    cam.right = half;
+    cam.top = half;
+    cam.bottom = -half;
+    cam.updateProjectionMatrix();
+  }
+
+  private applySceneryLod(propDetail: number): void {
+    const d = Number.isFinite(propDetail) ? propDetail : 1;
+    this.sceneryMidGroup.visible = d >= 1;
+    this.sceneryHighGroup.visible = d >= 2;
+    // Runtime prop kind filter (debris/poles hidden on detail 0)
+    for (const mesh of this.instancedProps) {
+      const kind = normalizePropKind(mesh.userData.propKind as string);
+      mesh.visible = shouldIncludePropKind(kind, d);
+    }
+    this.propGroup.traverse((obj) => {
+      if (obj.userData?.propKind) {
+        const kind = normalizePropKind(obj.userData.propKind as string);
+        obj.visible = shouldIncludePropKind(kind, d);
+      }
+    });
   }
 
   getRuntimeKnobs(): RuntimeKnobs {
@@ -320,11 +379,14 @@ export class ThreeRenderer {
 
   private applyPropShadowFlag(cast: boolean): void {
     this.propGroup.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
+      if (obj instanceof THREE.Mesh || obj instanceof THREE.InstancedMesh) {
         // Keep receive; only toggle cast on prop meshes
         obj.castShadow = cast;
       }
     });
+    for (const mesh of this.instancedProps) {
+      mesh.castShadow = cast;
+    }
   }
 
   private configureDust(count: number, updateHz: number): void {
@@ -637,8 +699,13 @@ export class ThreeRenderer {
     this.crateEdgeMat = null;
     for (const m of this.propMatCache.values()) m.dispose();
     this.propMatCache.clear();
+    this.instancedProps.length = 0;
     this.scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh || obj instanceof THREE.Points) {
+      if (
+        obj instanceof THREE.Mesh ||
+        obj instanceof THREE.Points ||
+        obj instanceof THREE.InstancedMesh
+      ) {
         // Skip shared prop / bullet assets (disposed above).
         if (obj.userData?.sharedResource) return;
         obj.geometry.dispose();
@@ -666,15 +733,10 @@ export class ThreeRenderer {
       this.quality.shadowMapSize,
       this.quality.shadowMapSize,
     );
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 100;
-    sun.shadow.camera.left = -48;
-    sun.shadow.camera.right = 48;
-    sun.shadow.camera.top = 48;
-    sun.shadow.camera.bottom = -48;
     sun.shadow.bias = -0.0003;
     sun.shadow.normalBias = 0.02;
     this.sunLight = sun;
+    this.applyShadowFrustum(this.propDetail);
     this.scene.add(sun);
 
     // fill light (cool) opposite sun for contact contrast
@@ -747,9 +809,7 @@ export class ThreeRenderer {
     }
     this.scene.add(this.wallGroup);
 
-    for (const p of this.map.props) {
-      this.propGroup.add(this.createProp(p));
-    }
+    this.buildProps();
     this.scene.add(this.propGroup);
 
     for (const slot of this.map.billboards) {
@@ -1046,14 +1106,24 @@ export class ThreeRenderer {
     }
   }
 
-  /** Tropical horizon: multi-block houses with roofs + palms (backdrop). */
+  /**
+   * Tropical horizon backdrop.
+   * Base always visible; mid = windows + extra palms; high = bushes.
+   * Visibility toggled by {@link applySceneryLod} via propDetail.
+   */
   private buildScenery() {
+    this.sceneryMidGroup.name = "sceneryMid";
+    this.sceneryHighGroup.name = "sceneryHigh";
+    this.sceneryGroup.add(this.sceneryMidGroup);
+    this.sceneryGroup.add(this.sceneryHighGroup);
+
     const buildingColors = [
       0xd4a574, 0xc97b63, 0x7a9eb5, 0xe8d5b0, 0xa8b89a, 0xe07060, 0x6a9a70,
     ];
     const roofColors = [0x5c3828, 0x6b4030, 0x4a3020, 0x703828];
-    for (let i = 0; i < 20; i++) {
-      const ang = (i / 20) * Math.PI * 2 + 0.15;
+    const buildingCount = 20;
+    for (let i = 0; i < buildingCount; i++) {
+      const ang = (i / buildingCount) * Math.PI * 2 + 0.15;
       const dist = 31 + (i % 4) * 2.5;
       const bx = Math.cos(ang) * dist;
       const bz = Math.sin(ang) * dist;
@@ -1061,6 +1131,8 @@ export class ThreeRenderer {
       const bw = 2.8 + (i % 3) * 0.8;
       const bd = 2.4 + (i % 2) * 0.6;
       const wallCol = buildingColors[i % buildingColors.length]!;
+      // Outer half of buildings only on mid+ (cheap low: 10 blocks)
+      const target = i < 10 ? this.sceneryGroup : this.sceneryMidGroup;
       const b = new THREE.Mesh(
         new THREE.BoxGeometry(bw, bh, bd),
         new THREE.MeshStandardMaterial({
@@ -1070,9 +1142,8 @@ export class ThreeRenderer {
       );
       b.position.set(bx, bh / 2 - 0.15, bz);
       b.castShadow = true;
-      this.sceneryGroup.add(b);
+      target.add(b);
 
-      // roof
       const roof = new THREE.Mesh(
         new THREE.BoxGeometry(bw + 0.5, 0.32, bd + 0.5),
         new THREE.MeshStandardMaterial({
@@ -1082,38 +1153,39 @@ export class ThreeRenderer {
       );
       roof.position.set(bx, bh + 0.05, bz);
       roof.castShadow = true;
-      this.sceneryGroup.add(roof);
+      target.add(roof);
 
-      // windows
-      const winMat = new THREE.MeshBasicMaterial({
-        color: 0x1a3040,
-        transparent: true,
-        opacity: 0.55,
-      });
-      for (let wy = 1.1; wy < bh - 0.6; wy += 1.15) {
-        const win = new THREE.Mesh(
-          new THREE.PlaneGeometry(bw * 0.55, 0.4),
-          winMat,
-        );
-        win.position.set(bx, wy, bz + bd / 2 + 0.03);
-        this.sceneryGroup.add(win);
+      // windows only on mid+ (many draw calls)
+      if (i < 10) {
+        const winMat = new THREE.MeshBasicMaterial({
+          color: 0x1a3040,
+          transparent: true,
+          opacity: 0.55,
+        });
+        for (let wy = 1.1; wy < bh - 0.6; wy += 1.15) {
+          const win = new THREE.Mesh(
+            new THREE.PlaneGeometry(bw * 0.55, 0.4),
+            winMat,
+          );
+          win.position.set(bx, wy, bz + bd / 2 + 0.03);
+          this.sceneryMidGroup.add(win);
+        }
       }
     }
 
-    // palm trees around rim
+    // palms: 10 always, rest on mid
     for (let i = 0; i < 22; i++) {
       const ang = (i / 22) * Math.PI * 2;
       const dist = 27.5 + (i % 5) * 0.8;
-      this.sceneryGroup.add(
-        this.makePalm(
-          Math.cos(ang) * dist,
-          Math.sin(ang) * dist,
-          0.9 + (i % 3) * 0.15,
-        ),
+      const palm = this.makePalm(
+        Math.cos(ang) * dist,
+        Math.sin(ang) * dist,
+        0.9 + (i % 3) * 0.15,
       );
+      (i < 10 ? this.sceneryGroup : this.sceneryMidGroup).add(palm);
     }
 
-    // flowering bush blobs
+    // flowering bushes — high detail only
     for (let i = 0; i < 14; i++) {
       const ang = (i / 14) * Math.PI * 2 + 0.4;
       const dist = 26 + (i % 3) * 0.4;
@@ -1125,9 +1197,10 @@ export class ThreeRenderer {
         }),
       );
       bush.position.set(Math.cos(ang) * dist, 0.55, Math.sin(ang) * dist);
-      this.sceneryGroup.add(bush);
+      this.sceneryHighGroup.add(bush);
     }
 
+    this.applySceneryLod(this.propDetail);
     this.scene.add(this.sceneryGroup);
   }
 
@@ -1290,12 +1363,22 @@ export class ThreeRenderer {
 
   private sharedPropMat(
     key: string,
-    params: ConstructorParameters<typeof THREE.MeshStandardMaterial>[0],
-  ): THREE.MeshStandardMaterial {
-    let m = this.propMatCache.get(key);
+    params: THREE.MeshStandardMaterialParameters = {},
+  ): THREE.Material {
+    const cheap = this.propDetail <= 0;
+    const cacheKey = cheap ? `L:${key}` : key;
+    let m = this.propMatCache.get(cacheKey);
     if (!m) {
-      m = new THREE.MeshStandardMaterial(params);
-      this.propMatCache.set(key, m);
+      if (cheap) {
+        m = new THREE.MeshLambertMaterial({
+          color: params.color,
+          transparent: params.transparent,
+          opacity: params.opacity,
+        });
+      } else {
+        m = new THREE.MeshStandardMaterial(params);
+      }
+      this.propMatCache.set(cacheKey, m);
     }
     return m;
   }
@@ -1305,10 +1388,115 @@ export class ThreeRenderer {
     return mesh;
   }
 
+  /**
+   * Batch simple props into InstancedMesh; complex multi-mesh props stay Groups.
+   * Respects propDetail LOD (drops debris/poles on detail 0).
+   */
+  private buildProps(): void {
+    this.instancedProps = [];
+    type Batch = { kind: InstanceableKind; color: number; items: PropBox[] };
+    const batches = new Map<string, Batch>();
+    const complex: PropBox[] = [];
+
+    for (const p of this.map.props) {
+      const kind = normalizePropKind(p.kind);
+      if (!shouldIncludePropKind(kind, this.propDetail)) continue;
+      if (isInstanceableKind(kind)) {
+        const key = propBatchKey(kind, p.color);
+        let batch = batches.get(key);
+        if (!batch) {
+          batch = { kind, color: p.color, items: [] };
+          batches.set(key, batch);
+        }
+        batch.items.push(p);
+      } else {
+        complex.push(p);
+      }
+    }
+
+    const dummy = new THREE.Object3D();
+    for (const batch of batches.values()) {
+      const geo = this.geometryForInstanceKind(batch.kind);
+      const mat = this.materialForInstanceKind(batch.kind, batch.color);
+      const mesh = new THREE.InstancedMesh(geo, mat, batch.items.length);
+      mesh.userData.sharedResource = true;
+      mesh.userData.propKind = batch.kind;
+      mesh.castShadow = this.propCastShadow;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = true;
+
+      for (let i = 0; i < batch.items.length; i++) {
+        const p = batch.items[i]!;
+        dummy.position.set(p.x, p.h / 2, p.z);
+        if (batch.kind === "debris") {
+          const s = Math.max(p.w, p.d);
+          dummy.scale.set(s, s, s);
+          dummy.rotation.set(p.x * 0.7, p.z * 0.5, p.x + p.z);
+        } else if (batch.kind === "barrel") {
+          dummy.scale.set(p.w, p.h, p.d);
+          dummy.rotation.set(0, 0, 0);
+        } else {
+          // crate / dumpster — unit box
+          dummy.scale.set(p.w, p.h, p.d);
+          dummy.rotation.set(0, 0, 0);
+        }
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      this.propGroup.add(mesh);
+      this.instancedProps.push(mesh);
+    }
+
+    for (const p of complex) {
+      this.propGroup.add(this.createProp(p));
+    }
+  }
+
+  private geometryForInstanceKind(
+    kind: InstanceableKind,
+  ): THREE.BufferGeometry {
+    if (kind === "barrel") return this.unitBarrelGeo();
+    if (kind === "debris") return this.unitDebrisGeo();
+    return this.unitBoxGeo();
+  }
+
+  private materialForInstanceKind(
+    kind: InstanceableKind,
+    color: number,
+  ): THREE.Material {
+    const colorKey = (color >>> 0).toString(16);
+    if (kind === "barrel") {
+      return this.sharedPropMat(`barrel:${colorKey}`, {
+        color,
+        roughness: 0.5,
+        metalness: 0.4,
+      });
+    }
+    if (kind === "debris") {
+      return this.sharedPropMat(`debris:${colorKey}`, {
+        color,
+        roughness: 0.95,
+      });
+    }
+    if (kind === "dumpster") {
+      return this.sharedPropMat(`dumpster:${colorKey}`, {
+        color,
+        roughness: 0.7,
+        metalness: 0.25,
+      });
+    }
+    return this.sharedPropMat(`crate:${colorKey}`, {
+      color,
+      roughness: 0.8,
+    });
+  }
+
   private createProp(p: GameMap["props"][number]): THREE.Object3D {
     const group = new THREE.Group();
     group.position.set(p.x, 0, p.z);
     const kind = p.kind ?? "crate";
+    group.userData.propKind = kind;
     // Props are numerous — casting shadows is high-only (toggle via applyQuality).
     const cast = this.propCastShadow;
     const boxGeo = this.unitBoxGeo();
@@ -1495,8 +1683,8 @@ export class ThreeRenderer {
       box.castShadow = cast;
       box.receiveShadow = true;
       group.add(box);
-      // Edge outlines are expensive (extra geo per crate) — high tier only.
-      if (this.quality.quality === "high") {
+      // Edge outlines are expensive — only at highest propDetail (rarely used for crates now that we instance).
+      if (this.propDetail >= 2) {
         if (!this.crateEdgeMat) {
           this.crateEdgeMat = new THREE.LineBasicMaterial({
             color: 0x000000,

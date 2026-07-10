@@ -28,6 +28,8 @@ export class MuzzleFlashSystem {
   private readonly sharedGeo: THREE.BufferGeometry;
   private readonly sharedMat: THREE.MeshBasicMaterial;
   private cursor = 0;
+  /** 0–1; lights disabled when density is low (fill-rate). */
+  private density = 1;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -58,8 +60,13 @@ export class MuzzleFlashSystem {
     }
   }
 
+  setDensity(density: number): void {
+    this.density = Math.max(0, Math.min(1, density));
+  }
+
   /** Place flash at gun tip along facing (`sin(rot)`, `cos(rot)`). */
   spawn(x: number, z: number, rot: number): void {
+    if (this.density <= 0.05) return;
     const slot = this.acquire();
     const ox = Math.sin(rot) * BARREL_OFFSET;
     const oz = Math.cos(rot) * BARREL_OFFSET;
@@ -74,8 +81,10 @@ export class MuzzleFlashSystem {
     mat.opacity = 0.95;
 
     slot.light.position.set(px, py, pz);
-    slot.light.intensity = LIGHT_INTENSITY;
-    slot.light.visible = true;
+    // Point lights are expensive — only on mid/high density
+    const useLight = this.density >= 0.65;
+    slot.light.intensity = useLight ? LIGHT_INTENSITY : 0;
+    slot.light.visible = useLight;
 
     slot.age = 0;
     slot.life =

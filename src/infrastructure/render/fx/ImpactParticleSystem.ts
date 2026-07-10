@@ -35,6 +35,8 @@ export class ImpactParticleSystem {
   private readonly dustMat: THREE.MeshBasicMaterial;
   private activeBursts = 0;
   private free: Particle[] = [];
+  /** 0–1 scale for particles per burst and max concurrent bursts. */
+  private density = 1;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -78,6 +80,11 @@ export class ImpactParticleSystem {
     }
   }
 
+  /** Scale particle counts / burst cap (from QualityController fxBudget). */
+  setDensity(density: number): void {
+    this.density = Math.max(0, Math.min(1, density));
+  }
+
   spawn(
     x: number,
     y: number,
@@ -87,7 +94,10 @@ export class ImpactParticleSystem {
     nz: number,
     surface: ImpactSurface,
   ): void {
-    if (this.activeBursts >= MAX_BURSTS) {
+    if (this.density <= 0.05) return;
+
+    const maxBursts = Math.max(4, Math.floor(MAX_BURSTS * this.density));
+    if (this.activeBursts >= maxBursts) {
       // Drop oldest burst by force-releasing a batch of oldest active particles.
       this.forceCullOneBurst();
     }
@@ -99,12 +109,23 @@ export class ImpactParticleSystem {
 
     // Ground: heavier dust; wall/prop: heavier sparks.
     const isGround = surface === "ground";
-    const sparkCount = isGround
-      ? 6 + Math.floor(Math.random() * 3)
-      : 8 + Math.floor(Math.random() * 7); // 8–14
-    const dustCount = isGround
-      ? 6 + Math.floor(Math.random() * 5) // 6–10
-      : 4 + Math.floor(Math.random() * 4); // 4–7
+    const d = this.density;
+    const sparkCount = Math.max(
+      1,
+      Math.floor(
+        (isGround
+          ? 6 + Math.floor(Math.random() * 3)
+          : 8 + Math.floor(Math.random() * 7)) * d,
+      ),
+    );
+    const dustCount = Math.max(
+      0,
+      Math.floor(
+        (isGround
+          ? 6 + Math.floor(Math.random() * 5)
+          : 4 + Math.floor(Math.random() * 4)) * d,
+      ),
+    );
 
     let spawned = 0;
     for (let i = 0; i < sparkCount; i++) {

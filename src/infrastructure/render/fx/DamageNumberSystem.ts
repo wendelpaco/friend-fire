@@ -23,6 +23,7 @@ export class DamageNumberSystem {
   private readonly root = new THREE.Group();
   private readonly pool: Slot[] = [];
   private cursor = 0;
+  private density = 1;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -51,7 +52,13 @@ export class DamageNumberSystem {
     }
   }
 
+  setDensity(density: number): void {
+    this.density = Math.max(0, Math.min(1, density));
+  }
+
   spawn(x: number, y: number, z: number, text: string): void {
+    // Keep damage feedback readable: only drop numbers under extreme budget cut
+    if (this.density < 0.3) return;
     const slot = this.acquire();
     const tex = makeTextTexture(text);
     const mat = slot.sprite.material as THREE.SpriteMaterial;
