@@ -31,7 +31,18 @@ export class Input {
     }
   };
 
-  /** Hold crouch (either Control key). */
+  /**
+   * Crouch is a toggle: rising edge on either Control key.
+   * Use for client prediction (`applyPlayerMotor`).
+   */
+  wasCrouchPressed() {
+    return this.wasPressed("ControlLeft") || this.wasPressed("ControlRight");
+  }
+
+  /**
+   * Control currently held (either key).
+   * Multiplayer wire bit only — server rising-edge detects toggle; not "hold to crouch".
+   */
   isCrouchDown() {
     return this.isDown("ControlLeft") || this.isDown("ControlRight");
   }
