@@ -166,6 +166,10 @@ export function tryBuy(
 
   if (item.weaponId) {
     const def = WEAPONS[item.weaponId];
+    // Skip re-purchase when already equipped (rebuy / double-buy safe)
+    if (player.weapons[def.slot] === item.weaponId) {
+      return { ok: false, reason: "Arma já equipada" };
+    }
     next.weapons[def.slot] = item.weaponId;
     next.ammo[item.weaponId] = {
       mag: def.magazine,

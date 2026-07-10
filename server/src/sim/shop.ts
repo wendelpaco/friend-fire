@@ -117,6 +117,13 @@ export function tryBuy(
 
   if (item.weaponId) {
     const def = WEAPONS[item.weaponId] as WeaponStats;
+    // Skip re-purchase when already equipped (rebuy / double-buy safe)
+    if (def.slot === 1 && player.primaryId === item.weaponId) {
+      return { ok: false, reason: "Arma já equipada" };
+    }
+    if (def.slot === 2 && player.secondaryId === item.weaponId) {
+      return { ok: false, reason: "Arma já equipada" };
+    }
     const pack = { mag: def.magazine, reserve: def.reserve };
     nextAmmo[item.weaponId] = pack;
     if (def.slot === 1) {

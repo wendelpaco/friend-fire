@@ -1,7 +1,10 @@
 import { SHOP_CATALOG, type ShopCatalogItem } from "./shop";
 
-/** Full-screen shop showcase duration (Meta-2). */
-export const SHOWCASE_MS = 6500;
+/**
+ * Full-screen shop showcase duration (Meta-2).
+ * Kept under freezetime so auto-open buy still has ≥5s of a 10s buy window.
+ */
+export const SHOWCASE_MS = 4000;
 
 /** Kit tiers — UI labels ECO / FORÇA / COMPLETO (F1–F3). */
 export type KitTier = "ECO" | "FORCE" | "FULL";

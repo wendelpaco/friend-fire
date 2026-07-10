@@ -40,7 +40,7 @@ npm run dev
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `NEXT_PUBLIC_COLYSEUS_URL` | `ws://127.0.0.1:2567` | WebSocket URL for Colyseus (`src/infrastructure/realtime/roomClient.ts`) |
-| `NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN` | *(unset)* | QA only. Positive integer overrides `roundsToWin` (prod default **8**). Example: `1` to force `match_over` quickly. Unset in production. |
+| `NEXT_PUBLIC_DEBUG_ROUNDS_TO_WIN` | *(unset)* | QA only. Positive integer overrides `roundsToWin` (prod default **5**, FT5). Example: `1` to force `match_over` quickly. Unset in production. |
 
 ```bash
 # optional .env.local

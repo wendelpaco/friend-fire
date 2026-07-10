@@ -7,8 +7,8 @@ import {
 import { SHOP_CATALOG } from "./shop";
 
 describe("SHOWCASE_MS", () => {
-  it("is 6.5 seconds", () => {
-    expect(SHOWCASE_MS).toBe(6500);
+  it("is 4 seconds (leaves ≥5s of a 10s freezetime for buy)", () => {
+    expect(SHOWCASE_MS).toBe(4000);
   });
 });
 

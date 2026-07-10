@@ -631,6 +631,8 @@ export class GameRoom extends Room<MatchState> {
     if (this.phase.phase === "buy" && prev !== "buy") {
       if (isPostHalfBuyRound(this.phase, this.phase.round)) {
         this.applyHalfTime();
+        // Push swapped scores same tick (applyHalfTime mutates phase scores)
+        this.applyPhaseToState();
       } else {
         this.stripDeadLoadouts();
       }

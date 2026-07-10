@@ -1212,6 +1212,15 @@ export class GameClient {
       // Drop spectator free-cam as soon as freezetime starts (player may already
       // be alive from server respawn before live phase).
       this.clearSpectator();
+      // Half clears server lastLoadout — keep client rebuy UI in sync
+      if (
+        isPostHalfBuyRound(
+          { halfAfterRound: DEFAULT_MATCH.halfAfterRound },
+          this.state.round,
+        )
+      ) {
+        this.lastRebuyItemIds = [];
+      }
       this.pendingAutoBuyMenu = AUTO_OPEN_BUY_ON_FREEZETIME;
       this.startShopShowcaseIfNeeded();
       if (
@@ -1226,10 +1235,8 @@ export class GameClient {
       this.showShopShowcase = false;
       this.pendingAutoBuyMenu = false;
     }
-    if (
-      prevPhase === "buy" &&
-      this.state.phase === "live"
-    ) {
+    const buyToLive = prevPhase === "buy" && this.state.phase === "live";
+    if (buyToLive) {
       this.flushBuyTiming();
       this.state.showBuyMenu = false;
     }
@@ -1349,6 +1356,19 @@ export class GameClient {
 
     if (nextList.length === 0 && net.players.length === 0) {
       // keep empty roster
+    }
+
+    // After loadout patch: snapshot local guns for next freezetime rebuy UI
+    if (buyToLive) {
+      const localSnap = this.networkPlayerById.get(localId);
+      if (localSnap) {
+        this.lastRebuyItemIds = snapshotRebuyItemIds({
+          primaryId: localSnap.weapons[1],
+          secondaryId: localSnap.weapons[2],
+          teamPistolId: teamPistol(localSnap.team),
+          armor: localSnap.armor,
+        });
+      }
     }
 
     // Empty bullets array without new alloc when already empty
@@ -1916,11 +1936,13 @@ export class GameClient {
       if (!canOpenBuyMenu(this.state.phase)) {
         this.closeBuyMenu();
       } else {
-        // F1–F3 kits / R rebuy while freezetime shop is open
+        // Single authority for F1–F3 kits / R rebuy (BuyMenu has no window listeners)
         if (this.input.wasPressed("F1")) this.purchaseKit("ECO");
         if (this.input.wasPressed("F2")) this.purchaseKit("FORCE");
         if (this.input.wasPressed("F3")) this.purchaseKit("FULL");
-        if (this.input.wasPressed("KeyR")) this.rebuyLastLoadout();
+        if (this.input.wasPressed("KeyR") && this.lastRebuyItemIds.length > 0) {
+          this.rebuyLastLoadout();
+        }
       }
       if (!this.networked) {
         this.updateBots(dt);
@@ -2133,6 +2155,11 @@ export class GameClient {
     if (!p || !this.state.showBuyMenu) return;
     if (!canOpenBuyMenu(this.state.phase)) {
       this.flashBuyMessage("Loja fechada");
+      Sfx.play("deny");
+      return;
+    }
+    if (this.lastRebuyItemIds.length === 0) {
+      this.flashBuyMessage("Sem loadout anterior");
       Sfx.play("deny");
       return;
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   KIT_HOTKEY_TIERS,
   SHOP_CATALOG,
@@ -48,6 +48,7 @@ const TIER_ACCENT: Record<KitTier, string> = {
 
 /**
  * Commercial buy UI — kits 1-clique (F1–F3) + rebuy R + granular catalog.
+ * Hotkeys are owned solely by GameClient (avoid double F1–F3/R fire).
  */
 export function BuyMenu({
   money,
@@ -71,28 +72,6 @@ export function BuyMenu({
     if (category === "all") return SHOP_CATALOG;
     return SHOP_CATALOG.filter((i) => i.category === category);
   }, [category]);
-
-  // Hotkeys while menu is mounted (GameClient also handles when canvas focused).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      if (e.code === "F1" && onBuyKit) {
-        e.preventDefault();
-        onBuyKit("ECO");
-      } else if (e.code === "F2" && onBuyKit) {
-        e.preventDefault();
-        onBuyKit("FORCE");
-      } else if (e.code === "F3" && onBuyKit) {
-        e.preventDefault();
-        onBuyKit("FULL");
-      } else if (e.code === "KeyR" && onRebuy && canRebuy) {
-        e.preventDefault();
-        onRebuy();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onBuyKit, onRebuy, canRebuy]);
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-black/80">

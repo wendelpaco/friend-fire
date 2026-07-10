@@ -48,6 +48,21 @@ describe("tryBuy", () => {
     expect(r.player.armor).toBe(100);
   });
 
+  it("rejects weapon already equipped", () => {
+    const armed = {
+      ...base,
+      weapons: { 1: "ak47" as const, 2: "glock" as const, 4: "knife" as const },
+      ammo: {
+        glock: { mag: 20, reserve: 100 },
+        ak47: { mag: 30, reserve: 90 },
+      },
+    };
+    const r = tryBuy(armed, "ak47");
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toMatch(/já equipada/i);
+  });
+
   it("buys HE grenade at 300 and stacks heCount", () => {
     const r = tryBuy(base, "he");
     expect(r.ok).toBe(true);
@@ -94,6 +109,30 @@ describe("tryBuyKit / tryRebuy", () => {
     if (!r.ok || !r.player) return;
     expect(r.player.weapons[1]).toBe("ak47");
     expect(r.player.armor).toBe(100);
+  });
+
+  it("rebuy skips already-owned weapons and still buys missing gear", () => {
+    const survivor = {
+      ...base,
+      money: 4000,
+      armor: 0,
+      weapons: {
+        1: "ak47" as const,
+        2: "glock" as const,
+        4: "knife" as const,
+      },
+      ammo: {
+        glock: { mag: 20, reserve: 100 },
+        ak47: { mag: 10, reserve: 90 },
+      },
+    };
+    const r = tryRebuy(survivor, ["ak47", "armor"]);
+    expect(r.ok).toBe(true);
+    if (!r.ok || !r.player) return;
+    expect(r.bought).toEqual(["armor"]);
+    expect(r.player.weapons[1]).toBe("ak47");
+    expect(r.player.armor).toBe(100);
+    expect(r.player.money).toBe(4000 - 650);
   });
 
   it("snapshotRebuyItemIds captures primary + armor", () => {
