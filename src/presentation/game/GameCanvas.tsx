@@ -146,43 +146,59 @@ export function GameCanvas({
     const client = getColyseusRoomClient();
     roomRef.current = client;
 
+    /** Throttle React net chrome (~10 Hz); engine always gets full ticks (W4). */
+    let lastNetUiAt = 0;
+    let lastNetUiPhase = "";
+    let lastNetUiMode = "";
+    let lastNetUiError: string | null = null;
+
     const unsub = client.onState((state) => {
       if (cancelled) return;
       const snap = state as NetworkRoomState;
-      setNet(snap);
       const engine = engineRef.current;
-      if (!engine) return;
-      if (snap.connected && !snap.hybridLocalCombat) {
-        engine.setNetworked(true, snap.sessionId);
-        engine.setBuySender((itemId) => client.sendBuy(itemId));
-        engine.applyNetworkState({
-          sessionId: snap.sessionId,
-          players: snap.players.map((pl) => ({
-            ...pl,
-            y: pl.y,
-            vy: pl.vy,
-            crouching: pl.crouching,
-            onGround: pl.onGround,
-          })),
-          phase: snap.phase,
-          round: snap.round,
-          scoreTR: snap.scoreTR,
-          scoreCT: snap.scoreCT,
-          timeLeft: snap.timeLeft,
-          bombState: snap.bombState,
-          bombX: snap.bombX,
-          bombZ: snap.bombZ,
-          bombTimer: snap.bombTimer,
-          bombCarrierId: snap.bombCarrierId,
-          plantProgress: snap.plantProgress,
-          defuseProgress: snap.defuseProgress,
-          roundEndReason: snap.roundEndReason,
-        });
-      } else if (!snap.connected) {
-        engine.setNetworked(false, null);
-        engine.setBuySender(null);
-      } else {
-        engine.setBuySender(null);
+      if (engine) {
+        if (snap.connected && !snap.hybridLocalCombat) {
+          engine.setNetworked(true, snap.sessionId);
+          engine.setBuySender((itemId) => client.sendBuy(itemId));
+          // Pass players by reference — no per-tick map clone
+          engine.applyNetworkState({
+            sessionId: snap.sessionId,
+            players: snap.players,
+            phase: snap.phase,
+            round: snap.round,
+            scoreTR: snap.scoreTR,
+            scoreCT: snap.scoreCT,
+            timeLeft: snap.timeLeft,
+            bombState: snap.bombState,
+            bombX: snap.bombX,
+            bombZ: snap.bombZ,
+            bombTimer: snap.bombTimer,
+            bombCarrierId: snap.bombCarrierId,
+            plantProgress: snap.plantProgress,
+            defuseProgress: snap.defuseProgress,
+            roundEndReason: snap.roundEndReason,
+          });
+        } else if (!snap.connected) {
+          engine.setNetworked(false, null);
+          engine.setBuySender(null);
+        } else {
+          engine.setBuySender(null);
+        }
+      }
+
+      const now = performance.now();
+      const uiCritical =
+        snap.phase !== lastNetUiPhase ||
+        snap.mode !== lastNetUiMode ||
+        snap.error !== lastNetUiError ||
+        !snap.connected;
+      if (uiCritical || now - lastNetUiAt >= 100) {
+        lastNetUiAt = now;
+        lastNetUiPhase = snap.phase ?? "";
+        lastNetUiMode = snap.mode;
+        lastNetUiError = snap.error;
+        if (uiCritical) setNet(snap);
+        else startTransition(() => setNet(snap));
       }
     });
 

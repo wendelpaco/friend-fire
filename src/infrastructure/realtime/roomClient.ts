@@ -276,41 +276,79 @@ function readCode(state: unknown): string | null {
   return typeof code === "string" && code.length > 0 ? code : null;
 }
 
+/** Reused NetworkPlayer shells (single-threaded Colyseus callbacks). */
+const networkPlayerPool: NetworkPlayer[] = [];
+const networkPlayersOut: NetworkPlayer[] = [];
+
+function acquireNetworkPlayer(i: number): NetworkPlayer {
+  let p = networkPlayerPool[i];
+  if (!p) {
+    p = {
+      id: "",
+      name: "",
+      team: "TR",
+      isBot: false,
+      alive: true,
+      x: 0,
+      z: 0,
+      y: 0,
+      vy: 0,
+      crouching: false,
+      onGround: true,
+      rot: 0,
+      hp: 0,
+      armor: 0,
+      kills: 0,
+      deaths: 0,
+      money: 0,
+      primaryId: "",
+      secondaryId: "",
+      activeSlot: 2,
+      mag: 0,
+      reserve: 0,
+      heCount: 0,
+    };
+    networkPlayerPool[i] = p;
+  }
+  return p;
+}
+
 function playersFromState(state: unknown): NetworkPlayer[] {
   if (!state || typeof state !== "object") return [];
   const playersMap = (state as { players?: Map<string, unknown> | Record<string, unknown> })
     .players;
   if (!playersMap) return [];
 
-  const out: NetworkPlayer[] = [];
+  let n = 0;
   const visit = (p: unknown, key: string) => {
     if (!p || typeof p !== "object") return;
     const o = p as Record<string, unknown>;
-    out.push({
-      id: String(o.id ?? key),
-      name: String(o.name ?? "Player"),
-      team: String(o.team ?? "TR"),
-      isBot: Boolean(o.isBot),
-      alive: o.alive !== false,
-      x: Number(o.x) || 0,
-      z: Number(o.z) || 0,
-      y: Number(o.y) || 0,
-      vy: Number(o.vy) || 0,
-      crouching: Boolean(o.crouching),
-      onGround: o.onGround !== false,
-      rot: Number(o.rot) || 0,
-      hp: Number(o.hp) || 0,
-      armor: Number(o.armor) || 0,
-      kills: Number(o.kills) || 0,
-      deaths: Number(o.deaths) || 0,
-      money: Number(o.money) || 0,
-      primaryId: typeof o.primaryId === "string" ? o.primaryId : "",
-      secondaryId: typeof o.secondaryId === "string" ? o.secondaryId : "",
-      activeSlot: Number(o.activeSlot) || 2,
-      mag: Number(o.mag) || 0,
-      reserve: Number(o.reserve) || 0,
-      heCount: Number(o.heCount) || 0,
-    });
+    const row = acquireNetworkPlayer(n);
+    row.id = String(o.id ?? key);
+    row.name = String(o.name ?? "Player");
+    row.team = String(o.team ?? "TR");
+    row.isBot = Boolean(o.isBot);
+    row.alive = o.alive !== false;
+    row.x = Number(o.x) || 0;
+    row.z = Number(o.z) || 0;
+    row.y = Number(o.y) || 0;
+    row.vy = Number(o.vy) || 0;
+    row.crouching = Boolean(o.crouching);
+    row.onGround = o.onGround !== false;
+    row.rot = Number(o.rot) || 0;
+    row.hp = Number(o.hp) || 0;
+    row.armor = Number(o.armor) || 0;
+    row.kills = Number(o.kills) || 0;
+    row.deaths = Number(o.deaths) || 0;
+    row.money = Number(o.money) || 0;
+    row.primaryId = typeof o.primaryId === "string" ? o.primaryId : "";
+    row.secondaryId = typeof o.secondaryId === "string" ? o.secondaryId : "";
+    row.activeSlot = Number(o.activeSlot) || 2;
+    row.mag = Number(o.mag) || 0;
+    row.reserve = Number(o.reserve) || 0;
+    row.heCount = Number(o.heCount) || 0;
+    networkPlayersOut[n] = row;
+    n += 1;
   };
 
   if (typeof (playersMap as Map<string, unknown>).forEach === "function") {
@@ -320,7 +358,8 @@ function playersFromState(state: unknown): NetworkPlayer[] {
       visit(p, key);
     }
   }
-  return out;
+  networkPlayersOut.length = n;
+  return networkPlayersOut;
 }
 
 function phaseFromState(state: unknown): string | null {

@@ -93,6 +93,11 @@ import {
   parseGraphicsQuality,
   type GraphicsQuality,
 } from "@/domains/prefs";
+import {
+  normalizeActiveSlot,
+  normalizeTeam,
+  softBlendLocalPos,
+} from "@/infrastructure/realtime/networkApply";
 import { botAccumStep, botSimInterval } from "./botTick";
 import {
   hudCriticalSignature,
@@ -211,8 +216,9 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
 
-/** Map server primary/secondary/activeSlot/mag into client PlayerState loadout. */
-function loadoutFromNetwork(
+/** Patch loadout onto existing player (mutates weapons/ammo in place when possible). */
+function patchLoadoutFromNetwork(
+  target: PlayerState,
   np: {
     money?: number;
     primaryId?: string;
@@ -220,53 +226,97 @@ function loadoutFromNetwork(
     activeSlot?: number;
     mag?: number;
     reserve?: number;
-    team?: string;
   },
-  existing: PlayerState | undefined,
   team: Team,
-): Pick<PlayerState, "money" | "weaponSlot" | "weapons" | "ammo"> {
+): void {
   const primary = asWeaponId(np.primaryId);
   const secondary =
     asWeaponId(np.secondaryId) ??
     (team === "CT" ? ("usp" as WeaponId) : ("glock" as WeaponId));
 
-  const weapons: PlayerState["weapons"] = { 4: "knife" };
+  const weapons = target.weapons;
+  weapons[4] = "knife";
   if (primary) weapons[1] = primary;
+  else delete weapons[1];
   weapons[2] = secondary;
 
-  let weaponSlot = np.activeSlot ?? existing?.weaponSlot ?? 2;
-  if (weaponSlot !== 1 && weaponSlot !== 2 && weaponSlot !== 4) {
-    weaponSlot = 2;
-  }
-  // Don't keep slot 1 active if primary was dropped/missing
-  if (weaponSlot === 1 && !primary) weaponSlot = 2;
+  target.weaponSlot = normalizeActiveSlot(
+    np.activeSlot ?? target.weaponSlot,
+    Boolean(primary),
+    target.weaponSlot || 2,
+  );
 
-  const ammo: PlayerState["ammo"] = { ...(existing?.ammo ?? {}) };
-  if (primary && !ammo[primary]) {
-    const w = WEAPONS[primary];
-    ammo[primary] = { mag: w.magazine, reserve: w.reserve };
+  const ammo = target.ammo;
+  if (primary) {
+    let bag = ammo[primary];
+    if (!bag) {
+      const w = WEAPONS[primary];
+      bag = { mag: w.magazine, reserve: w.reserve };
+      ammo[primary] = bag;
+    }
   }
-  if (!ammo[secondary]) {
-    const w = WEAPONS[secondary];
-    ammo[secondary] = { mag: w.magazine, reserve: w.reserve };
+  {
+    let bag = ammo[secondary];
+    if (!bag) {
+      const w = WEAPONS[secondary];
+      bag = { mag: w.magazine, reserve: w.reserve };
+      ammo[secondary] = bag;
+    }
   }
 
-  // Server only streams mag/reserve for the active firearm
   const activeId =
-    weaponSlot === 1 ? primary : weaponSlot === 2 ? secondary : null;
+    target.weaponSlot === 1
+      ? primary
+      : target.weaponSlot === 2
+        ? secondary
+        : null;
   if (activeId && typeof np.mag === "number") {
-    ammo[activeId] = {
-      mag: np.mag,
-      reserve: typeof np.reserve === "number" ? np.reserve : 0,
-    };
+    let bag = ammo[activeId];
+    if (!bag) {
+      bag = { mag: 0, reserve: 0 };
+      ammo[activeId] = bag;
+    }
+    bag.mag = np.mag;
+    bag.reserve = typeof np.reserve === "number" ? np.reserve : bag.reserve;
   }
 
-  const money =
-    typeof np.money === "number" && Number.isFinite(np.money)
-      ? np.money
-      : (existing?.money ?? START_MONEY);
+  if (typeof np.money === "number" && Number.isFinite(np.money)) {
+    target.money = np.money;
+  }
+}
 
-  return { money, weaponSlot, weapons, ammo };
+function createNetworkPlayerShell(
+  np: { id: string; name: string; team: string; isBot: boolean },
+  team: Team,
+): PlayerState {
+  return {
+    id: np.id,
+    name: np.name,
+    team,
+    isBot: np.isBot,
+    x: 0,
+    z: 0,
+    y: 0,
+    vy: 0,
+    crouching: false,
+    onGround: true,
+    rot: 0,
+    hp: 100,
+    armor: 0,
+    money: START_MONEY,
+    weaponSlot: 2,
+    weapons: { 4: "knife" },
+    ammo: {},
+    heCount: 0,
+    alive: true,
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+    lastShotAt: 0,
+    reloadingUntil: 0,
+    color: TEAM_COLORS[team],
+    diedThisRound: false,
+  };
 }
 
 /**
@@ -300,6 +350,9 @@ export class GameClient {
   private lastHudCriticalSig = "";
   private lastPerfPublishAt = 0;
   private lastPerfSnapshot: HudSnapshot["perf"] = null;
+  /** Network player index for O(1) patch (W4). */
+  private networkPlayerById = new Map<string, PlayerState>();
+  private networkSeenIds = new Set<string>();
   private collisionWalls: WallRect[];
   private helpSeenKey = "ff_help_seen";
   private sessionId = "server";
@@ -749,10 +802,20 @@ export class GameClient {
    * `applyNetworkState` drives entities + scores.
    */
   setNetworked(enabled: boolean, sessionId: string | null = null) {
+    const was = this.networked;
     this.networked = enabled;
     this.networkSessionId = sessionId;
     if (enabled) {
       this.state.bullets = [];
+      // Only reset index on offline → online (session ids replace local bots)
+      if (!was) {
+        this.networkPlayerById.clear();
+        this.networkSeenIds.clear();
+      }
+    } else if (was) {
+      this.buySender = null;
+      this.networkPlayerById.clear();
+      this.networkSeenIds.clear();
     } else {
       this.buySender = null;
     }
@@ -875,40 +938,47 @@ export class GameClient {
     // Keep localPlayerId as session id for HUD
     if (net.sessionId) this.state.localPlayerId = net.sessionId;
 
-    const nextPlayers: PlayerState[] = [];
-    for (const np of net.players) {
-      const team = (np.team === "CT" ? "CT" : "TR") as Team;
-      const existing = this.state.players.find((p) => p.id === np.id);
-      const isLocal = np.id === localId;
+    // Seed index from current roster once (handles first network tick).
+    if (this.networkPlayerById.size === 0) {
+      for (const p of this.state.players) {
+        this.networkPlayerById.set(p.id, p);
+      }
+    }
 
-      // Client-side prediction: keep local position if slightly ahead (optional blend)
-      let x = np.x;
-      let z = np.z;
-      let rot = np.rot;
-      if (isLocal && existing && this.state.cameraMode === "locked") {
-        // Soft correct toward server
-        x = existing.x * 0.35 + np.x * 0.65;
-        z = existing.z * 0.35 + np.z * 0.65;
-        rot = np.rot;
+    const localP = this.networkPlayerById.get(localId) ?? null;
+    const localTeam = localP?.team;
+
+    const seen = this.networkSeenIds;
+    seen.clear();
+    const nextList = this.state.players;
+    nextList.length = 0;
+
+    for (let i = 0; i < net.players.length; i++) {
+      const np = net.players[i]!;
+      seen.add(np.id);
+      const team = normalizeTeam(np.team);
+      let p = this.networkPlayerById.get(np.id);
+      const isNew = !p;
+      if (!p) {
+        p = createNetworkPlayerShell(np, team);
+        this.networkPlayerById.set(np.id, p);
       }
 
-      const loadout = loadoutFromNetwork(np, existing, team);
+      const isLocal = np.id === localId;
+      const prevAlive = p.alive;
+      const prevHp = p.hp;
 
       // Floating damage numbers when enemy HP drops soon after local shot
       if (
-        existing &&
-        np.hp < existing.hp &&
+        !isNew &&
+        np.hp < prevHp &&
         !isLocal &&
-        existing.team !==
-          (this.state.players.find((p) => p.id === localId)?.team ?? existing.team)
+        localP &&
+        p.team !== localTeam &&
+        performance.now() - localP.lastShotAt < 250
       ) {
-        const localP = this.state.players.find((p) => p.id === localId);
-        const dealt = Math.round(existing.hp - np.hp);
-        if (
-          dealt > 0 &&
-          localP &&
-          performance.now() - localP.lastShotAt < 250
-        ) {
+        const dealt = Math.round(prevHp - np.hp);
+        if (dealt > 0) {
           this.three.spawnDamageNumber(np.x, 1.4, np.z, `-${dealt}`);
         }
       }
@@ -916,62 +986,65 @@ export class GameClient {
       // Enter spectator when local dies mid-live
       if (
         isLocal &&
-        existing?.alive &&
+        prevAlive &&
         !np.alive &&
         this.state.phase === "live"
       ) {
         this.enterSpectator(null);
       }
 
-      // Jump/crouch: remote from server; local keeps prediction (soft y blend).
-      let y = np.y ?? existing?.y ?? 0;
-      let vy = np.vy ?? existing?.vy ?? 0;
-      let crouching = np.crouching ?? existing?.crouching ?? false;
-      let onGround = np.onGround ?? existing?.onGround ?? true;
-      if (isLocal && existing) {
-        y = existing.y * 0.5 + y * 0.5;
-        crouching = existing.crouching;
-        onGround = existing.onGround;
-        vy = existing.vy;
+      p.name = np.name;
+      p.team = team;
+      p.isBot = np.isBot;
+      p.color = TEAM_COLORS[team];
+      p.hp = np.hp;
+      p.armor = np.armor ?? p.armor;
+      p.alive = np.alive;
+      p.kills = np.kills ?? p.kills;
+      p.deaths = np.deaths ?? p.deaths;
+      p.heCount = np.heCount ?? p.heCount;
+      p.rot = np.rot;
+
+      if (isLocal && !isNew && this.state.cameraMode === "locked") {
+        const blended = softBlendLocalPos(p.x, p.z, np.x, np.z, 0.65);
+        p.x = blended.x;
+        p.z = blended.z;
+      } else {
+        p.x = np.x;
+        p.z = np.z;
       }
 
-      nextPlayers.push({
-        id: np.id,
-        name: np.name,
-        team,
-        isBot: np.isBot,
-        x,
-        z,
-        y,
-        vy,
-        crouching,
-        onGround,
-        rot,
-        hp: np.hp,
-        armor: np.armor ?? existing?.armor ?? 0,
-        money: loadout.money,
-        weaponSlot: loadout.weaponSlot,
-        weapons: loadout.weapons,
-        ammo: loadout.ammo,
-        alive: np.alive,
-        kills: np.kills ?? existing?.kills ?? 0,
-        deaths: np.deaths ?? existing?.deaths ?? 0,
-        assists: existing?.assists ?? 0,
-        lastShotAt: existing?.lastShotAt ?? 0,
-        reloadingUntil: existing?.reloadingUntil ?? 0,
-        heCount: np.heCount ?? existing?.heCount ?? 0,
-        color: TEAM_COLORS[team],
-        diedThisRound:
-          existing?.diedThisRound ||
-          (isLocal && existing?.alive && !np.alive) ||
-          false,
-      });
+      // Jump/crouch: remote from server; local keeps prediction (soft y blend).
+      if (isLocal && !isNew) {
+        p.y = p.y * 0.5 + (np.y ?? p.y) * 0.5;
+        // keep predicted crouch/ground/vy
+      } else {
+        p.y = np.y ?? p.y;
+        p.vy = np.vy ?? p.vy;
+        p.crouching = np.crouching ?? p.crouching;
+        p.onGround = np.onGround ?? p.onGround;
+      }
+
+      patchLoadoutFromNetwork(p, np, team);
+
+      if (isLocal && prevAlive && !np.alive) {
+        p.diedThisRound = true;
+      }
+
+      nextList.push(p);
     }
 
-    if (nextPlayers.length > 0) {
-      this.state.players = nextPlayers;
+    // Drop players that left the room
+    for (const id of this.networkPlayerById.keys()) {
+      if (!seen.has(id)) this.networkPlayerById.delete(id);
     }
-    this.state.bullets = [];
+
+    if (nextList.length === 0 && net.players.length === 0) {
+      // keep empty roster
+    }
+
+    // Empty bullets array without new alloc when already empty
+    if (this.state.bullets.length > 0) this.state.bullets = [];
 
     if (this.state.phase === "match_over" && prevPhase !== "match_over") {
       this.maybeRecordMissionResult();
