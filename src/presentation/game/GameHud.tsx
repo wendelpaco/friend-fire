@@ -64,28 +64,31 @@ function fpsColorClass(fps: number): string {
   return "text-red-400";
 }
 
-/** Compact always-on counter (top-right). */
+/** Compact always-on counter — sits above killfeed in the top-right column. */
 const MiniFps = memo(function MiniFps({ fps }: { fps: number }) {
-  const n = Number.isFinite(fps) ? Math.max(0, Math.round(fps)) : 0;
+  const ready = Number.isFinite(fps) && fps > 0;
+  const n = ready ? Math.round(fps) : 0;
   return (
     <div
-      className={`absolute right-3 top-3 z-30 rounded border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums shadow backdrop-blur-sm ${fpsColorClass(n)}`}
+      className={`rounded border border-white/10 bg-black/55 px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums shadow backdrop-blur-sm ${
+        ready ? fpsColorClass(n) : "text-white/40"
+      }`}
       title="Frames por segundo"
-      aria-label={`${n} frames por segundo`}
+      aria-label={ready ? `${n} frames por segundo` : "Medindo FPS"}
     >
-      {n} FPS
+      {ready ? `${n} FPS` : "… FPS"}
     </div>
   );
 });
 
-/** Full diagnostics — Settings → Overlay avançado. */
+/** Full diagnostics — Settings → Overlay avançado (same column as killfeed). */
 const PerfOverlay = memo(function PerfOverlay({
   perf,
 }: {
   perf: NonNullable<HudSnapshot["perf"]>;
 }) {
   return (
-    <div className="absolute right-3 top-3 z-30 max-w-[14rem] rounded border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[10px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
+    <div className="max-w-[14rem] rounded border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[10px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
       <div className="flex items-baseline justify-between gap-2">
         <span className={fpsColorClass(perf.fps)}>{perf.fps} FPS</span>
         <span className="text-[9px] text-amber-200/80">
@@ -161,9 +164,6 @@ function GameHudImpl({
           style={{ opacity: hud.damageFlash * 0.28 }}
         />
       )}
-
-      {/* Mini FPS always on; full panel when Settings → overlay avançado */}
-      {hud.perf ? <PerfOverlay perf={hud.perf} /> : <MiniFps fps={hud.fps ?? 0} />}
 
       {/* Crosshair */}
       {hud.alive && !hud.paused && !hud.showHelp && (
@@ -309,8 +309,13 @@ function GameHudImpl({
         )}
       </div>
 
-      {/* Killfeed — max 6; new rows fade/slide in */}
-      <div className="absolute right-4 top-4 flex w-80 flex-col items-end gap-1.5">
+      {/* Top-right stack: FPS (always) then killfeed — no overlap */}
+      <div className="absolute right-4 top-4 z-30 flex w-80 flex-col items-end gap-1.5">
+        {hud.perf ? (
+          <PerfOverlay perf={hud.perf} />
+        ) : (
+          <MiniFps fps={hud.fps ?? 0} />
+        )}
         {hud.killFeed.slice(0, 6).map((k) => (
           <div
             key={k.id}
