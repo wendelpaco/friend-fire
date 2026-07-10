@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  defaultOperatorPrefs,
   getOperatorById,
   getOperatorPrefs,
   getSkinById,
@@ -25,27 +24,35 @@ export type OperatorSelectProps = {
   next?: string | null;
 };
 
+function readInitialPrefs(): { operatorId: OperatorId; skinId: string } {
+  // Lazy init only — never call during render body (avoids unstable snapshots).
+  if (typeof window === "undefined") {
+    return { operatorId: "brick", skinId: "brick-default" };
+  }
+  try {
+    const p = getOperatorPrefs();
+    return { operatorId: p.operatorId, skinId: p.skinId };
+  } catch {
+    return { operatorId: "brick", skinId: "brick-default" };
+  }
+}
+
 /**
  * Character + skin select (Meta-1 Path B).
  * Confirm → setOperatorPrefs + router.push(next).
- *
- * Prefs seed: client reads localStorage once via lazy useState init
- * (SSR uses catalog defaults — same as defaultOperatorPrefs).
  */
 export function OperatorSelect({ next }: OperatorSelectProps) {
   const router = useRouter();
   const operators = listOperators();
-  const seed =
-    typeof window === "undefined"
-      ? defaultOperatorPrefs()
-      : getOperatorPrefs();
 
   const [filter, setFilter] = useState<GenderFilter>("all");
-  const [operatorId, setOperatorId] = useState<OperatorId>(seed.operatorId);
-  const [skinId, setSkinId] = useState(seed.skinId);
+  const [operatorId, setOperatorId] = useState<OperatorId>(
+    () => readInitialPrefs().operatorId,
+  );
+  const [skinId, setSkinId] = useState(() => readInitialPrefs().skinId);
 
   const filtered = useMemo(() => {
-    if (filter === "all") return [...operators];
+    if (filter === "all") return operators;
     return operators.filter((o) => o.gender === filter);
   }, [operators, filter]);
 
@@ -71,7 +78,7 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
   const confirm = () => {
     setOperatorPrefs({
       operatorId: selectedOp.id,
-      skinId: selectedSkin?.id ?? selectedOp.defaultSkinId,
+      skinId: selectedSkin.id,
     });
     router.push(resolveOperatorNext(next));
   };
@@ -135,7 +142,7 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
                 opSkins.find(
                   (s) =>
                     s.id ===
-                    (selected ? selectedSkin?.id : op.defaultSkinId),
+                    (selected ? selectedSkin.id : op.defaultSkinId),
                 ) ?? opSkins[0];
               return (
                 <OperatorCard
@@ -155,7 +162,7 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
                 className="h-40 w-full"
                 style={{
                   background:
-                    selectedSkin?.previewGradient ??
+                    selectedSkin.previewGradient ||
                     "linear-gradient(135deg,#333,#111)",
                 }}
               />

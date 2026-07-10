@@ -28,14 +28,23 @@ export {
 } from "./catalog";
 
 import { OPERATORS } from "./catalog";
+import type { OperatorLoadoutPrefs } from "./types";
+
+/** Stable list reference for React memo deps. */
+const OPERATORS_LIST = [...OPERATORS];
 
 export function listOperators() {
-  return [...OPERATORS];
+  return OPERATORS_LIST;
 }
 
-export function defaultOperatorPrefs() {
+/** Stable default prefs (useSyncExternalStore / SSR getServerSnapshot safe). */
+const DEFAULT_PREFS: OperatorLoadoutPrefs = (() => {
   const op = OPERATORS.find((o) => o.id === "brick") ?? OPERATORS[0]!;
   return { operatorId: op.id, skinId: op.defaultSkinId };
+})();
+
+export function defaultOperatorPrefs(): OperatorLoadoutPrefs {
+  return DEFAULT_PREFS;
 }
 
 export {
