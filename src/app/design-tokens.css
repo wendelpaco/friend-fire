@@ -1,143 +1,180 @@
 /* ============================================================
-   Friend Fire — Design Tokens v2
-   Expanded tactical game design system.
+   Friend Fire — Design Tokens v3 (Spec C3 aligned)
    ============================================================ */
 
 :root {
-  /* ==========================================================
-     COLOR PALETTE
-     ========================================================== */
+  /* ---- Cor: base ---- */
+  --ff-bg-0: #0B0D10;                       /* fundo do app / letterbox */
+  --ff-bg-1: #12151A;                       /* superfícies de menu */
+  --ff-panel: rgba(10, 12, 8, 0.82);        /* painéis HUD sobre o mundo */
+  --ff-panel-solid: #14170F;
+  --ff-line: rgba(255, 179, 0, 0.28);       /* borda padrão */
+  --ff-line-strong: rgba(255, 179, 0, 0.55);
 
-  /* ---- Foundations ---- */
-  --background: #0b0d12;
-  --foreground: #f5f5f5;
-  --ff-void: #0a0c10;
-  --ff-panel: #10131a;
-  --ff-panel-2: #161b24;
-  --ff-panel-3: #1c2430;
-  --ff-border: rgba(255, 255, 255, 0.10);
-  --ff-border-light: rgba(255, 255, 255, 0.18);
-  --ff-text: #f5f5f5;
-  --ff-muted: rgba(255, 255, 255, 0.45);
-  --ff-dim: rgba(255, 255, 255, 0.25);
+  /* ---- Cor: marca / ação ---- */
+  --ff-amber-300: #FFD166;
+  --ff-amber-500: #FFB300;                  /* ação primária, foco, "você" */
+  --ff-amber-700: #B87900;
 
-  /* ---- Brand / Action ---- */
-  --ff-amber: #f59e0b;
-  --ff-amber-glow: #fbbf24;
-  --ff-amber-dark: #b45309;
-  --ff-amber-dim: rgba(245, 158, 11, 0.15);
-  --ff-ember: #f97316;
+  /* ---- Cor: times ---- */
+  --ff-tr: #FF7A29;
+  --ff-tr-dim: rgba(255, 122, 41, 0.18);
+  --ff-ct: #4EA3FF;
+  --ff-ct-dim: rgba(78, 163, 255, 0.18);
 
-  /* ---- Teams ---- */
-  --ff-tr: #c45c26;
-  --ff-tr-glow: #e07a3a;
-  --ff-tr-dim: rgba(196, 92, 38, 0.25);
-  --ff-ct: #3a6ea5;
-  --ff-ct-glow: #4a9ad4;
-  --ff-ct-dim: rgba(58, 110, 165, 0.25);
+  /* ---- Cor: semântica ---- */
+  --ff-danger: #FF3B30;                     /* C4, dano, crítico */
+  --ff-success: #6FDB8B;                    /* defuse, dinheiro ganho */
 
-  /* ---- HP / Damage ---- */
-  --ff-hp-full: #10b981;
-  --ff-hp-mid: #f59e0b;
-  --ff-hp-low: #ef4444;
-  --ff-hp-critical: #dc2626;
-
-  /* ---- Economy ---- */
-  --ff-money: #10b981;
-  --ff-money-dim: #047857;
-  --ff-bonus: #a78bfa;
-
-  /* ---- Bomb / Urgency ---- */
-  --ff-bomb: #f97316;
-  --ff-bomb-urgent: #ef4444;
-  --ff-defuse: #38bdf8;
-
-  /* ---- Rarity / Cosmetics (future) ---- */
-  --ff-common: #9ca3af;
-  --ff-rare: #3b82f6;
-  --ff-epic: #a855f7;
-  --ff-legendary: #f59e0b;
-
-  /* ---- Killfeed / Feedback ---- */
-  --ff-kill: #fbbf24;
-  --ff-headshot: #ef4444;
-  --ff-assist: #60a5fa;
-  --ff-killer: #fdba74;       /* orange-300 */
-  --ff-victim: #93c5fd;       /* blue-300 */
+  /* ---- Texto ---- */
+  --ff-text-hi: #F4EFE3;
+  --ff-text-mid: #B9B29F;
+  --ff-text-low: #6F6A5B;
 
   /* ---- Backgrounds (cinematic) ---- */
   --ff-bg-warm: #3b1a08;
   --ff-bg-cool: #0a1628;
   --ff-bg-mid: #12151c;
-  --ff-bg-dark: #07090e;
   --ff-bg-overlay: rgba(0, 0, 0, 0.75);
 
-  /* ---- Status ---- */
-  --ff-success: #10b981;
-  --ff-warning: #f59e0b;
-  --ff-error: #ef4444;
-  --ff-info: #3b82f6;
+  /* ---- HP / Damage ---- */
+  --ff-hp-full: #6FDB8B;
+  --ff-hp-mid: #FFB300;
+  --ff-hp-low: #FF3B30;
+  --ff-hp-critical: #FF3B30;
 
-  /* ==========================================================
-     SPACING
-     ========================================================== */
-  --ff-space-xs: 4px;
-  --ff-space-sm: 8px;
-  --ff-space-md: 12px;
-  --ff-space-lg: 16px;
-  --ff-space-xl: 24px;
-  --ff-space-2xl: 32px;
-  --ff-space-3xl: 48px;
+  /* ---- Killfeed ---- */
+  --ff-killer: #FF7A29;   /* TR orange */
+  --ff-victim: #4EA3FF;   /* CT blue */
 
-  /* ==========================================================
-     BORDER RADIUS (tactical = sharp, Sprint 1)
-     ========================================================== */
-  --ff-radius-sm: 2px;    /* HUD chips, badges */
-  --ff-radius-md: 4px;    /* buttons, inputs, weapon slots */
-  --ff-radius-lg: 6px;    /* cards, panels */
-  --ff-radius-xl: 8px;    /* modals */
-  --ff-radius-2xl: 8px;   /* main containers — no rounded SaaS look */
+  /* ---- Rarity (future) ---- */
+  --ff-common: #9ca3af;
+  --ff-rare: #3b82f6;
+  --ff-epic: #a855f7;
+  --ff-legendary: #FFB300;
 
-  /* ==========================================================
-     SHADOWS
-     ========================================================== */
-  --ff-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --ff-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --ff-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
-  --ff-shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.7);
-  --ff-shadow-glow-amber: 0 0 20px rgba(245, 158, 11, 0.3);
-  --ff-shadow-glow-red: 0 0 20px rgba(239, 68, 68, 0.3);
-  --ff-shadow-glow-emerald: 0 0 16px rgba(16, 185, 129, 0.25);
-
-  /* ==========================================================
-     Z-INDEX
-     ========================================================== */
-  --ff-z-hud: 10;
-  --ff-z-overlay: 30;
-  --ff-z-modal: 40;
-  --ff-z-toast: 50;
-  --ff-z-tooltip: 60;
-
-  /* ==========================================================
-     HIGH CONTRAST OVERRIDES (applied via data-ff-high-contrast)
-     ========================================================== */
+  /* ---- High contrast overrides ---- */
   --ff-hc-tr: #ff4444;
   --ff-hc-ct: #4488ff;
   --ff-hc-tr-glow: #ff6666;
   --ff-hc-ct-glow: #66aaff;
 
   /* ==========================================================
-     EASING
+     TIPOGRAFIA (3 papéis — Spec C4)
      ========================================================== */
-  --ff-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --ff-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --ff-ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Famílias (set via next/font/google in layout.tsx) */
+  --ff-font-display: var(--font-saira-condensed), "Saira Condensed", sans-serif;
+  --ff-font-ui: var(--font-saira), "Saira", system-ui, sans-serif;
+  --ff-font-mono: var(--font-jetbrains-mono), "JetBrains Mono", monospace;
+
+  /* Escala (px) */
+  --ff-fs-100: 11px;   /* hints, legendas */
+  --ff-fs-200: 13px;   /* corpo HUD */
+  --ff-fs-300: 15px;   /* corpo menus */
+  --ff-fs-400: 18px;   /* subtítulos, nomes */
+  --ff-fs-500: 24px;   /* números HUD (HP, munição) */
+  --ff-fs-600: 32px;   /* timer, dinheiro no buy */
+  --ff-fs-700: 48px;   /* PhaseLabel, placar final */
+
+  /* ==========================================================
+     SPACING (base 4)
+     ========================================================== */
+  --ff-sp-1: 4px;
+  --ff-sp-2: 8px;
+  --ff-sp-3: 12px;
+  --ff-sp-4: 16px;
+  --ff-sp-6: 24px;
+  --ff-sp-8: 32px;
+
+  /* ==========================================================
+     BORDER RADIUS (tático = quase reto, mas com hierarquia)
+     ========================================================== */
+  --ff-radius: 3px;      /* padrão: botões, inputs, chips, badges */
+  --ff-radius-lg: 6px;   /* cards, painéis de menu */
+  --ff-radius-xl: 8px;   /* modais */
+  --ff-notch: 8px;        /* chanfro 45° para PhaseLabel, timer C4 */
+
+  /* ==========================================================
+     ELEVAÇÃO (glow > sombra)
+     ========================================================== */
+  --ff-glow-amber: 0 0 12px rgba(255, 179, 0, 0.20);
+  --ff-glow-danger: 0 0 16px rgba(255, 59, 48, 0.35);
+
+  --ff-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --ff-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --ff-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --ff-shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.7);
+
+  /* ==========================================================
+     MOTION
+     ========================================================== */
+  --ff-t-fast: 120ms;
+  --ff-t-base: 180ms;
+  --ff-t-slow: 250ms;
+  --ff-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ==========================================================
+     Z-INDEX
+     ========================================================== */
+  --ff-z-world: 0;
+  --ff-z-hud: 10;
+  --ff-z-feed: 20;
+  --ff-z-overlay: 30;
+  --ff-z-modal: 40;
+  --ff-z-system: 50;
 }
 
 /* === HIGH CONTRAST MODE === */
 [data-ff-high-contrast="true"] {
   --ff-tr: var(--ff-hc-tr);
-  --ff-tr-glow: var(--ff-hc-tr-glow);
   --ff-ct: var(--ff-hc-ct);
-  --ff-ct-glow: var(--ff-hc-ct-glow);
+}
+
+/* === BACKWARDS COMPAT (old token names → new) === */
+:root {
+  --background: var(--ff-bg-0);
+  --foreground: var(--ff-text-hi);
+  --ff-void: var(--ff-bg-0);
+  --ff-panel-2: var(--ff-bg-1);
+  --ff-amber: var(--ff-amber-500);
+  --ff-border: var(--ff-line);
+  --ff-text: var(--ff-text-hi);
+  --ff-muted: var(--ff-text-mid);
+  --ff-dim: var(--ff-text-low);
+  --ff-amber-glow: var(--ff-amber-300);
+  --ff-amber-dark: var(--ff-amber-700);
+  --ff-tr-glow: var(--ff-tr);
+  --ff-ct-glow: var(--ff-ct);
+  --ff-money: var(--ff-success);
+  --ff-bomb: #f97316;
+  --ff-bomb-urgent: var(--ff-danger);
+  --ff-defuse: #38bdf8;
+  --ff-kill: var(--ff-amber-300);
+  --ff-headshot: var(--ff-danger);
+  --ff-assist: #60a5fa;
+  --ff-bg-dark: #07090e;
+  --ff-success-old: var(--ff-success);
+  --ff-warning: var(--ff-amber-500);
+  --ff-error: var(--ff-danger);
+  --ff-info: #3b82f6;
+  /* spacing backwards compat */
+  --ff-space-xs: var(--ff-sp-1);
+  --ff-space-sm: var(--ff-sp-2);
+  --ff-space-md: var(--ff-sp-3);
+  --ff-space-lg: var(--ff-sp-4);
+  --ff-space-xl: var(--ff-sp-6);
+  --ff-space-2xl: var(--ff-sp-8);
+  --ff-space-3xl: 48px;
+  /* radius backwards compat */
+  --ff-radius-sm: var(--ff-radius);
+  --ff-radius-md: var(--ff-radius);
+  --ff-radius-2xl: var(--ff-radius-xl);
+  /* old panel as alias */
+  --ff-panel-old: var(--ff-panel);
+  --ff-panel-3: #1c2430;
+  /* easing backwards compat */
+  --ff-ease-out: var(--ff-ease);
+  --ff-ease-in-out: var(--ff-ease);
+  --ff-ease-bounce: var(--ff-ease);
 }

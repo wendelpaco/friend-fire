@@ -3,22 +3,31 @@ import { Saira, Saira_Condensed, JetBrains_Mono } from "next/font/google";
 import { HighContrastInit } from "@/presentation/ui/HighContrastInit";
 import "./globals.css";
 
+/* Saira — UI body */
 const saira = Saira({
   variable: "--font-saira",
   subsets: ["latin"],
   weight: ["400", "600", "700"],
+  display: "swap",
+  fallback: ["system-ui", "sans-serif"],
 });
 
+/* Saira Condensed — Display / PhaseLabel / lockups */
 const sairaCondensed = Saira_Condensed({
   variable: "--font-saira-condensed",
   subsets: ["latin"],
   weight: ["700", "800"],
+  display: "swap",
+  fallback: ["system-ui", "sans-serif"],
 });
 
+/* JetBrains Mono — tabular data */
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
   subsets: ["latin"],
   weight: ["500", "700"],
+  display: "swap",
+  fallback: ["monospace"],
 });
 
 export const metadata: Metadata = {
@@ -38,7 +47,7 @@ export default function RootLayout({
       className={`${saira.variable} ${sairaCondensed.variable} ${jetbrainsMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full bg-[#0b0d12] font-sans text-white">
+      <body className="min-h-full bg-[#0b0d10] font-sans text-white">
         <HighContrastInit />
         {children}
       </body>

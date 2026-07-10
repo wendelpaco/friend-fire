@@ -9,26 +9,30 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-saira);
   --font-mono: var(--font-jetbrains-mono);
-  --font-display: var(--font-saira-condensed);
 
-  /* Sprint 1: tactical radius (sharp, military) */
-  --radius-sm: var(--ff-radius-sm);
-  --radius-md: var(--ff-radius-md);
-  --radius-lg: var(--ff-radius-lg);
-  --radius-xl: var(--ff-radius-xl);
-  --radius-2xl: var(--ff-radius-2xl);
+  /* Brand colors (Spec C3) */
+  --color-amber-300: var(--ff-amber-300);
+  --color-amber-500: var(--ff-amber-500);
+  --color-amber-700: var(--ff-amber-700);
+
+  /* Sprint 1: tactical radius with hierarchy (not all equal) */
+  --radius-sm: 2px;     /* chips, badges — sharpest */
+  --radius-md: 3px;     /* buttons, inputs */
+  --radius-lg: 4px;     /* cards */
+  --radius-xl: 6px;     /* panels, modals */
+  --radius-2xl: 8px;    /* main containers */
 
   /* ---- Typography scale (game-optimised, Sprint 1: Saira + JetBrains) ---- */
   --text-ff-hero: 3.5rem;
   --text-ff-hero--line-height: 1;
   --text-ff-hero--font-weight: 800;
   --text-ff-hero--letter-spacing: -0.02em;
-  --text-ff-hero--font-family: var(--font-display);
+  --text-ff-hero--font-family: var(--font-saira-condensed);
   --text-ff-display: 2.25rem;
   --text-ff-display--line-height: 1.1;
   --text-ff-display--font-weight: 700;
   --text-ff-display--letter-spacing: -0.01em;
-  --text-ff-display--font-family: var(--font-display);
+  --text-ff-display--font-family: var(--font-saira-condensed);
   --text-ff-title: 1.5rem;
   --text-ff-title--line-height: 1.2;
   --text-ff-title--font-weight: 700;
@@ -173,9 +177,9 @@ body {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-saira), system-ui, sans-serif;
+  background: var(--ff-bg-0);
+  color: var(--ff-text-hi);
+  font-family: var(--ff-font-ui);
   overflow-x: hidden;
 }
 
