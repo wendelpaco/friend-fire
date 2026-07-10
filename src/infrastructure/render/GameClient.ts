@@ -94,6 +94,12 @@ import {
   type GraphicsQuality,
 } from "@/domains/prefs";
 import { botAccumStep, botSimInterval } from "./botTick";
+import {
+  hudCriticalSignature,
+  isHudContinuousUrgent,
+  shouldPublishHud,
+  shouldRefreshPerf,
+} from "./hudPublish";
 import { Input } from "./input";
 import { ThreeRenderer } from "./ThreeRenderer";
 
@@ -289,6 +295,11 @@ export class GameClient {
   private botAccum = new Map<string, number>();
   /** Reused alive-player list for bot targeting (no per-bot filter alloc). */
   private alivePlayersScratch: PlayerState[] = [];
+  /** HUD publish throttle (W3). */
+  private lastHudPublishAt = 0;
+  private lastHudCriticalSig = "";
+  private lastPerfPublishAt = 0;
+  private lastPerfSnapshot: HudSnapshot["perf"] = null;
   private collisionWalls: WallRect[];
   private helpSeenKey = "ff_help_seen";
   private sessionId = "server";
@@ -2431,18 +2442,6 @@ export class GameClient {
     const def = wid ? WEAPONS[wid] : null;
     const ammo = wid ? p.ammo[wid] : null;
 
-    // Fresh arrays each push — React state must not share mutable buffers.
-    const weapons: HudSnapshot["weapons"] = [];
-    for (const [slotStr, w] of Object.entries(p.weapons)) {
-      if (!w) continue;
-      weapons.push({
-        slot: Number(slotStr),
-        name: WEAPONS[w].name,
-        active: Number(slotStr) === p.weaponSlot,
-      });
-    }
-    weapons.sort((a, b) => a.slot - b.slot);
-
     const reloading = p.reloadingUntil > now;
     let reloadProgress = 0;
     if (reloading && def && def.reloadTime > 0) {
@@ -2459,16 +2458,131 @@ export class GameClient {
       this.roundBannerKind = null;
     }
 
+    const hitMarker = now < this.state.hitMarkerUntil;
+    const damageFlash = Math.max(
+      0,
+      (this.state.damageFlashUntil - now) / 220,
+    );
+    const hp = Math.max(0, Math.round(p.hp));
+    const armor = Math.max(0, Math.round(p.armor));
+    const mag = ammo?.mag ?? 0;
+    const reserve = ammo?.reserve ?? 0;
+    const lowAmmo =
+      !!ammo &&
+      ammo.mag <= Math.ceil((def?.magazine ?? 10) * 0.25) &&
+      !def?.isMelee;
+
+    const killFeedHead = this.state.killFeed[0]?.id ?? "";
+    const chatHead = this.state.chat[0]?.id ?? "";
+    const bombPrompt = this.computeBombPrompt(p);
+
+    const criticalSig = hudCriticalSignature({
+      hp,
+      armor,
+      mag,
+      reserve,
+      money: p.money,
+      weaponSlot: p.weaponSlot,
+      phase: this.state.phase,
+      round: this.state.round,
+      scoreTR: this.state.scoreTR,
+      scoreCT: this.state.scoreCT,
+      alive: p.alive,
+      paused: this.state.paused,
+      showScoreboard: this.state.showScoreboard,
+      showHelp: this.state.showHelp,
+      showBuyMenu: this.state.showBuyMenu,
+      hitMarker,
+      reloading,
+      lowAmmo,
+      spectating,
+      roundBanner,
+      bombState: this.state.bombState,
+      bombPrompt,
+      buyMessage: this.buyMessage,
+      killFeedHead,
+      chatHead,
+      cameraMode: this.state.cameraMode,
+      matchOver: this.state.phase === "match_over",
+    });
+
+    const continuousUrgent = isHudContinuousUrgent({
+      damageFlash,
+      plantProgress: this.state.plantProgress,
+      defuseProgress: this.state.defuseProgress,
+      reloading,
+      hitMarker,
+    });
+
+    if (
+      !shouldPublishHud({
+        now,
+        lastPublishAt: this.lastHudPublishAt,
+        criticalSig,
+        lastCriticalSig: this.lastHudCriticalSig,
+        continuousUrgent,
+      })
+    ) {
+      return;
+    }
+
+    this.lastHudPublishAt = now;
+    this.lastHudCriticalSig = criticalSig;
+
+    // Fresh arrays each publish — React state must not share mutable buffers.
+    const weapons: HudSnapshot["weapons"] = [];
+    for (const [slotStr, w] of Object.entries(p.weapons)) {
+      if (!w) continue;
+      weapons.push({
+        slot: Number(slotStr),
+        name: WEAPONS[w].name,
+        active: Number(slotStr) === p.weaponSlot,
+      });
+    }
+    weapons.sort((a, b) => a.slot - b.slot);
+
     const bombDown =
       this.state.bombState === "planted" ||
       this.state.bombState === "defusing";
 
+    // Perf overlay at ≤4 Hz (reuse last block between refreshes).
+    let perf: HudSnapshot["perf"] = null;
+    if (this.showFps) {
+      if (shouldRefreshPerf(now, this.lastPerfPublishAt, true)) {
+        const knobs = this.three.getRuntimeKnobs();
+        this.lastPerfSnapshot = {
+          fps: this.fpsDisplay,
+          drawCalls: this.lastDrawCalls,
+          triangles: this.lastTriangles,
+          p50Ms: Math.round(this.perfP50Ms * 10) / 10,
+          p95Ms: Math.round(this.perfP95Ms * 10) / 10,
+          cpuMsP95: Math.round(this.perfCpuP95Ms * 10) / 10,
+          renderMsP95: Math.round(this.perfRenderP95Ms * 10) / 10,
+          autoEnabled: this.autoQuality,
+          userTierMax: this.userTierMax,
+          adaptReason: this.lastAdaptReason,
+          knobs: {
+            maxPixelRatio: knobs.maxPixelRatio,
+            shadowsEnabled: knobs.shadowsEnabled,
+            shadowMapSize: knobs.shadowMapSize,
+            fxBudget: knobs.fxBudget,
+            dustCount: knobs.dustCount,
+          },
+        };
+        this.lastPerfPublishAt = now;
+      }
+      perf = this.lastPerfSnapshot;
+    } else {
+      this.lastPerfSnapshot = null;
+      this.lastPerfPublishAt = 0;
+    }
+
     this.onHud({
-      hp: Math.max(0, Math.round(p.hp)),
-      armor: Math.max(0, Math.round(p.armor)),
+      hp,
+      armor,
       money: p.money,
-      mag: ammo?.mag ?? 0,
-      reserve: ammo?.reserve ?? 0,
+      mag,
+      reserve,
       weaponName: def?.name ?? "—",
       weaponSlot: p.weaponSlot,
       weapons,
@@ -2490,12 +2604,9 @@ export class GameClient {
       cameraMode: this.state.cameraMode,
       reloading,
       reloadProgress: Math.max(0, Math.min(1, reloadProgress)),
-      lowAmmo:
-        !!ammo &&
-        ammo.mag <= Math.ceil((def?.magazine ?? 10) * 0.25) &&
-        !def?.isMelee,
-      hitMarker: now < this.state.hitMarkerUntil,
-      damageFlash: Math.max(0, (this.state.damageFlashUntil - now) / 220),
+      lowAmmo,
+      hitMarker,
+      damageFlash,
       mapName: this.map.displayName,
       mapWidth: this.map.size.width,
       mapDepth: this.map.size.depth,
@@ -2504,24 +2615,10 @@ export class GameClient {
       bombTimer: bombDown ? this.state.bombTimer : 0,
       plantProgress: this.state.plantProgress,
       defuseProgress: this.state.defuseProgress,
-      bombPrompt: this.computeBombPrompt(p),
+      bombPrompt,
       roundBanner,
       spectating,
-      perf: this.showFps
-        ? {
-            fps: this.fpsDisplay,
-            drawCalls: this.lastDrawCalls,
-            triangles: this.lastTriangles,
-            p50Ms: Math.round(this.perfP50Ms * 10) / 10,
-            p95Ms: Math.round(this.perfP95Ms * 10) / 10,
-            cpuMsP95: Math.round(this.perfCpuP95Ms * 10) / 10,
-            renderMsP95: Math.round(this.perfRenderP95Ms * 10) / 10,
-            autoEnabled: this.autoQuality,
-            userTierMax: this.userTierMax,
-            adaptReason: this.lastAdaptReason,
-            knobs: this.three.getRuntimeKnobs(),
-          }
-        : null,
+      perf,
       minimap: this.state.players.map((pl) => ({
         id: pl.id,
         x: pl.x,

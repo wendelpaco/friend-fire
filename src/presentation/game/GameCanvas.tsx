@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { HudSnapshot } from "@/game/types";
 import { setLastMapId } from "@/domains/world";
@@ -75,7 +81,22 @@ export function GameCanvas({
 
         const engine = new GameClient(canvas, resolvedMapId);
         engineRef.current = engine;
-        engine.setHudListener((snapshot) => setHud(snapshot));
+        // Engine already throttles (~12 Hz + immediate combat). Transition
+        // keeps the canvas rAF smooth if React is busy painting HUD.
+        engine.setHudListener((snapshot) => {
+          if (
+            snapshot.hitMarker ||
+            snapshot.damageFlash > 0.02 ||
+            snapshot.roundBanner ||
+            snapshot.paused ||
+            snapshot.showBuyMenu ||
+            snapshot.showHelp
+          ) {
+            setHud(snapshot);
+          } else {
+            startTransition(() => setHud(snapshot));
+          }
+        });
 
         const resize = () => {
           if (!engineRef.current || !container) return;

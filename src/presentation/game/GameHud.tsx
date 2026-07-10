@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { CONTROLS_HELP } from "@/game/constants";
 import type { HudSnapshot } from "@/game/types";
 import { AdBanner } from "@/presentation/ads/AdBanner";
@@ -58,7 +58,47 @@ interface GameHudProps {
   onCloseBuy?: () => void;
 }
 
-export function GameHud({
+/** Isolated so parent HUD re-renders don't rebuild perf DOM when perf ref is stable. */
+const PerfOverlay = memo(function PerfOverlay({
+  perf,
+}: {
+  perf: NonNullable<HudSnapshot["perf"]>;
+}) {
+  return (
+    <div className="absolute right-3 top-3 z-30 max-w-[14rem] rounded border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[10px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
+      <div className="flex items-baseline justify-between gap-2">
+        <span>{perf.fps} FPS</span>
+        <span className="text-[9px] text-amber-200/80">
+          {perf.autoEnabled
+            ? perf.adaptReason === "degrade"
+              ? "AUTO ↓"
+              : perf.adaptReason === "upgrade"
+                ? "AUTO ↑"
+                : "AUTO"
+            : "MANUAL"}
+        </span>
+      </div>
+      <div className="text-white/55">
+        p50 {perf.p50Ms.toFixed(1)} · p95 {perf.p95Ms.toFixed(1)} ms
+      </div>
+      <div className="text-white/40">
+        cpu {perf.cpuMsP95.toFixed(1)} · gpu {perf.renderMsP95.toFixed(1)}
+      </div>
+      <div className="text-white/50">
+        {perf.drawCalls} draws · {perf.triangles} tris
+      </div>
+      <div className="truncate text-white/35">
+        {perf.userTierMax} · dpr≤{perf.knobs.maxPixelRatio}
+        {perf.knobs.shadowsEnabled
+          ? ` · sh${perf.knobs.shadowMapSize}`
+          : " · no-shadow"}
+        · fx{perf.knobs.fxBudget}
+      </div>
+    </div>
+  );
+});
+
+function GameHudImpl({
   hud,
   roomCode,
   onResume,
@@ -77,7 +117,6 @@ export function GameHud({
     (m, r) => Math.max(m, r.kills),
     0,
   );
-  const perf = hud.perf;
   const matchStats =
     localRow != null
       ? {
@@ -103,39 +142,8 @@ export function GameHud({
         />
       )}
 
-      {/* Perf overlay (Settings → Overlay de FPS) */}
-      {perf && (
-        <div className="absolute right-3 top-3 z-30 max-w-[14rem] rounded border border-white/15 bg-black/75 px-2 py-1.5 font-mono text-[10px] tabular-nums text-emerald-300/95 shadow-lg backdrop-blur-sm">
-          <div className="flex items-baseline justify-between gap-2">
-            <span>{perf.fps} FPS</span>
-            <span className="text-[9px] text-amber-200/80">
-              {perf.autoEnabled
-                ? perf.adaptReason === "degrade"
-                  ? "AUTO ↓"
-                  : perf.adaptReason === "upgrade"
-                    ? "AUTO ↑"
-                    : "AUTO"
-                : "MANUAL"}
-            </span>
-          </div>
-          <div className="text-white/55">
-            p50 {perf.p50Ms.toFixed(1)} · p95 {perf.p95Ms.toFixed(1)} ms
-          </div>
-          <div className="text-white/40">
-            cpu {perf.cpuMsP95.toFixed(1)} · gpu {perf.renderMsP95.toFixed(1)}
-          </div>
-          <div className="text-white/50">
-            {perf.drawCalls} draws · {perf.triangles} tris
-          </div>
-          <div className="truncate text-white/35">
-            {perf.userTierMax} · dpr≤{perf.knobs.maxPixelRatio}
-            {perf.knobs.shadowsEnabled
-              ? ` · sh${perf.knobs.shadowMapSize}`
-              : " · no-shadow"}
-            · fx{perf.knobs.fxBudget}
-          </div>
-        </div>
-      )}
+      {/* Perf overlay (Settings → Overlay de FPS) — ≤4 Hz via engine */}
+      {hud.perf && <PerfOverlay perf={hud.perf} />}
 
       {/* Crosshair */}
       {hud.alive && !hud.paused && !hud.showHelp && (
@@ -716,3 +724,6 @@ export function GameHud({
     </div>
   );
 }
+
+/** Memoized — parent still re-renders on new hud ref; cheap when props stable. */
+export const GameHud = memo(GameHudImpl);
