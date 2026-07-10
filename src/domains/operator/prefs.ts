@@ -19,6 +19,12 @@ export const SKIN_ID_KEY = "ff_skin_id";
 let memoryOperatorId: string | null = null;
 let memorySkinId: string | null = null;
 
+/**
+ * Cached snapshot for React useSyncExternalStore — getSnapshot must return
+ * the same object reference when operator/skin ids are unchanged.
+ */
+let prefsSnapshot: OperatorLoadoutPrefs | null = null;
+
 function defaultPrefs(): OperatorLoadoutPrefs {
   const op =
     OPERATORS.find((o) => o.id === DEFAULT_OPERATOR_ID) ?? OPERATORS[0]!;
@@ -47,18 +53,32 @@ function sanitizePrefs(
   };
 }
 
+function rememberSnapshot(next: OperatorLoadoutPrefs): OperatorLoadoutPrefs {
+  if (
+    prefsSnapshot &&
+    prefsSnapshot.operatorId === next.operatorId &&
+    prefsSnapshot.skinId === next.skinId
+  ) {
+    return prefsSnapshot;
+  }
+  prefsSnapshot = next;
+  return prefsSnapshot;
+}
+
 export function getOperatorPrefs(): OperatorLoadoutPrefs {
   if (typeof window === "undefined") {
-    return sanitizePrefs(memoryOperatorId, memorySkinId);
+    return rememberSnapshot(sanitizePrefs(memoryOperatorId, memorySkinId));
   }
   try {
     // Prefer localStorage; memory only when storage throws (private mode).
-    return sanitizePrefs(
-      localStorage.getItem(OPERATOR_ID_KEY),
-      localStorage.getItem(SKIN_ID_KEY),
+    return rememberSnapshot(
+      sanitizePrefs(
+        localStorage.getItem(OPERATOR_ID_KEY),
+        localStorage.getItem(SKIN_ID_KEY),
+      ),
     );
   } catch {
-    return sanitizePrefs(memoryOperatorId, memorySkinId);
+    return rememberSnapshot(sanitizePrefs(memoryOperatorId, memorySkinId));
   }
 }
 
@@ -66,6 +86,7 @@ export function setOperatorPrefs(prefs: OperatorLoadoutPrefs): OperatorLoadoutPr
   const next = sanitizePrefs(prefs.operatorId, prefs.skinId);
   memoryOperatorId = next.operatorId;
   memorySkinId = next.skinId;
+  prefsSnapshot = next;
   if (typeof window === "undefined") return next;
   try {
     localStorage.setItem(OPERATOR_ID_KEY, next.operatorId);

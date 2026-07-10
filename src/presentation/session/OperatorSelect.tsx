@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   defaultOperatorPrefs,
@@ -25,29 +25,24 @@ export type OperatorSelectProps = {
   next?: string | null;
 };
 
-const emptySubscribe = () => () => {};
-
 /**
  * Character + skin select (Meta-1 Path B).
  * Confirm → setOperatorPrefs + router.push(next).
+ *
+ * Prefs seed: client reads localStorage once via lazy useState init
+ * (SSR uses catalog defaults — same as defaultOperatorPrefs).
  */
 export function OperatorSelect({ next }: OperatorSelectProps) {
   const router = useRouter();
   const operators = listOperators();
-
-  // SSR-safe prefs snapshot (no setState-in-effect).
-  const stored = useSyncExternalStore(
-    emptySubscribe,
-    getOperatorPrefs,
-    defaultOperatorPrefs,
-  );
+  const seed =
+    typeof window === "undefined"
+      ? defaultOperatorPrefs()
+      : getOperatorPrefs();
 
   const [filter, setFilter] = useState<GenderFilter>("all");
-  // Seed from prefs snapshot (client: localStorage; SSR: catalog default).
-  const [operatorId, setOperatorId] = useState<OperatorId>(
-    () => stored.operatorId,
-  );
-  const [skinId, setSkinId] = useState(() => stored.skinId);
+  const [operatorId, setOperatorId] = useState<OperatorId>(seed.operatorId);
+  const [skinId, setSkinId] = useState(seed.skinId);
 
   const filtered = useMemo(() => {
     if (filter === "all") return [...operators];
@@ -146,74 +141,70 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
                 <OperatorCard
                   key={op.id}
                   operator={op}
-                  gradient={previewSkin?.previewGradient ?? ""}
                   selected={selected}
+                  previewGradient={previewSkin?.previewGradient ?? ""}
                   onSelect={() => pickOperator(op)}
                 />
               );
             })}
-            {filtered.length === 0 && (
-              <p className="col-span-full text-sm text-white/40">
-                Nenhum operador neste filtro.
-              </p>
-            )}
           </div>
 
-          <Panel
-            elevated
-            className="flex flex-col p-5 lg:sticky lg:top-8 lg:self-start"
-          >
-            <div
-              className="relative mb-4 aspect-[4/5] overflow-hidden rounded-xl border border-white/10"
-              style={{
-                background:
-                  selectedSkin?.previewGradient ??
-                  "linear-gradient(145deg,#333,#111)",
-              }}
-            >
-              <Silhouette gender={selectedOp.gender} />
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">
+          <aside className="flex flex-col gap-4">
+            <Panel elevated className="overflow-hidden p-0">
+              <div
+                className="h-40 w-full"
+                style={{
+                  background:
+                    selectedSkin?.previewGradient ??
+                    "linear-gradient(135deg,#333,#111)",
+                }}
+              />
+              <div className="space-y-2 p-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.25em] text-white/40">
                   {selectedOp.gender === "masc" ? "Masc" : "Fem"}
-                </p>
-                <h2 className="text-2xl font-black text-white">
+                </div>
+                <h2 className="text-2xl font-black tracking-tight">
                   {selectedOp.name}
                 </h2>
-                <p className="mt-1 text-xs leading-relaxed text-white/55">
+                <p className="text-sm leading-relaxed text-white/50">
                   {selectedOp.blurb}
                 </p>
               </div>
+            </Panel>
+
+            <div>
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">
+                Skin
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {skins.map((s) => {
+                  const on = s.id === selectedSkin.id;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSkinId(s.id)}
+                      className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold transition ${
+                        on
+                          ? "border-amber-500/50 bg-amber-500/15 text-amber-100"
+                          : "border-white/10 bg-white/5 text-white/60 hover:border-white/20"
+                      }`}
+                    >
+                      <span
+                        className="mb-1 block h-2 w-10 rounded-full"
+                        style={{ background: s.previewGradient }}
+                      />
+                      {s.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/35">
-              Skin
-            </p>
-            <div className="mb-5 flex flex-wrap gap-2">
-              {skins.map((s) => (
-                <SkinChip
-                  key={s.id}
-                  skin={s}
-                  selected={s.id === selectedSkin?.id}
-                  onSelect={() => setSkinId(s.id)}
-                />
-              ))}
-            </div>
-
-            <Button
-              variant="primary"
-              onClick={confirm}
-              className="w-full py-3.5 tracking-[0.2em]"
-            >
-              CONFIRMAR
+            <Button type="button" className="w-full" onClick={confirm}>
+              Confirmar
             </Button>
-            <button
-              type="button"
-              onClick={() => router.push("/")}
-              className="mt-2 w-full py-2 text-center text-xs text-white/40 transition hover:text-white/70"
-            >
-              Voltar ao hub
-            </button>
-          </Panel>
+          </aside>
         </div>
       </div>
     </div>
@@ -222,13 +213,13 @@ export function OperatorSelect({ next }: OperatorSelectProps) {
 
 function OperatorCard({
   operator,
-  gradient,
   selected,
+  previewGradient,
   onSelect,
 }: {
   operator: OperatorDef;
-  gradient: string;
   selected: boolean;
+  previewGradient: string;
   onSelect: () => void;
 }) {
   return (
@@ -237,81 +228,29 @@ function OperatorCard({
       role="option"
       aria-selected={selected}
       onClick={onSelect}
-      className={`relative min-h-[9rem] overflow-hidden rounded-xl border p-4 text-left transition ${
+      className={`flex overflow-hidden rounded-xl border text-left transition ${
         selected
-          ? "border-amber-400/60 shadow-lg shadow-amber-950/40 ring-1 ring-amber-400/30"
-          : "border-white/10 hover:border-white/25"
-      }`}
-      style={{ background: gradient }}
-    >
-      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
-      <div className="relative z-10 flex h-full flex-col justify-end">
-        <span className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
-          {operator.gender === "masc" ? "Masc" : "Fem"}
-        </span>
-        <span className="text-lg font-black tracking-wide text-white">
-          {operator.name}
-        </span>
-        <span className="mt-1 line-clamp-2 text-[11px] leading-snug text-white/55">
-          {operator.blurb}
-        </span>
-      </div>
-      {selected ? (
-        <span className="absolute right-3 top-3 z-10 text-[10px] font-bold text-amber-200">
-          ✓
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
-function SkinChip({
-  skin,
-  selected,
-  onSelect,
-}: {
-  skin: SkinDef;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
-        selected
-          ? "border-amber-400/50 bg-amber-500/15 text-amber-100"
-          : "border-white/10 bg-black/40 text-white/60 hover:border-white/25 hover:text-white"
+          ? "border-amber-500/50 bg-amber-500/10 shadow-[0_0_0_1px_rgba(245,158,11,0.2)]"
+          : "border-white/10 bg-white/[0.03] hover:border-white/20"
       }`}
     >
-      <span
-        className="h-3.5 w-3.5 rounded-full border border-white/20 shadow-inner"
-        style={{
-          background: `#${skin.primaryColor.toString(16).padStart(6, "0")}`,
-        }}
-        aria-hidden
+      <div
+        className="w-2 shrink-0 self-stretch"
+        style={{ background: previewGradient }}
       />
-      {skin.name}
-      <span className="text-[9px] uppercase tracking-wider text-white/30">
-        {skin.rarity}
-      </span>
+      <div className="flex flex-1 flex-col gap-1 p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-lg font-black tracking-tight">
+            {operator.name}
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-white/35">
+            {operator.gender === "masc" ? "Masc" : "Fem"}
+          </span>
+        </div>
+        <p className="line-clamp-2 text-xs leading-snug text-white/45">
+          {operator.blurb}
+        </p>
+      </div>
     </button>
-  );
-}
-
-function Silhouette({ gender }: { gender: GenderPresentation }) {
-  return (
-    <div
-      className="absolute bottom-[18%] left-1/2 h-[62%] w-[42%] -translate-x-1/2 opacity-50"
-      aria-hidden
-    >
-      <div className="absolute bottom-[22%] left-1/2 h-[48%] w-[48%] -translate-x-1/2 rounded-t-[42%] bg-black/70" />
-      <div className="absolute bottom-[62%] left-1/2 h-[16%] w-[28%] -translate-x-1/2 rounded-full bg-black/80" />
-      {gender === "fem" ? (
-        <div className="absolute bottom-[68%] left-1/2 h-[10%] w-[36%] -translate-x-1/2 rounded-full bg-black/50 blur-[1px]" />
-      ) : null}
-      <div className="absolute bottom-0 left-[22%] h-[26%] w-[18%] rounded-t-md bg-black/75" />
-      <div className="absolute bottom-0 right-[22%] h-[26%] w-[18%] rounded-t-md bg-black/75" />
-    </div>
   );
 }
