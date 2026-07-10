@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { operatorSelectHref } from "@/domains/operator";
 import { getMapById, listMaps, setLastMapId } from "@/domains/world";
 import {
   getRoomClient,
@@ -134,7 +135,8 @@ export function ServerBrowser({ onClose }: ServerBrowserProps) {
       qs.set("map", mapId);
       setLastMapId(mapId);
     }
-    router.push(`/play?${qs.toString()}`);
+    // Path B: operator select before match entry.
+    router.push(operatorSelectHref(`/play?${qs.toString()}`));
   };
 
   const handleJoin = async (room: RoomListItem) => {

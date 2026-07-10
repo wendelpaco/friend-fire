@@ -13,6 +13,7 @@ import {
   xpToTier,
   type DailyMission,
 } from "@/domains/identity";
+import { operatorSelectHref } from "@/domains/operator";
 import {
   getLastMapId,
   listMaps,
@@ -91,7 +92,9 @@ export function MainMenu() {
     setLastRoomState(getLastRoom());
   }, []);
 
-  const quickPlayHref = `/play?mode=local&map=${encodeURIComponent(lastMap || "dust")}`;
+  /** Path B: always visit operator select before /play (re-pick allowed). */
+  const playUrl = `/play?mode=local&map=${encodeURIComponent(lastMap || "dust")}`;
+  const quickPlayHref = operatorSelectHref(playUrl);
   const rank = xpToTier(xpTotal);
   const rankProgress = progressInTier(xpTotal);
   const lobbyMaps = listMaps();
@@ -131,7 +134,7 @@ export function MainMenu() {
         code: stored.code,
         map,
       });
-      router.push(`/play?${qs.toString()}`);
+      router.push(operatorSelectHref(`/play?${qs.toString()}`));
     } catch (e) {
       clearLastRoom();
       setLastRoomState(null);
@@ -171,7 +174,7 @@ export function MainMenu() {
         map,
       });
       if (host) qs.set("host", "1");
-      router.push(`/play?${qs.toString()}`);
+      router.push(operatorSelectHref(`/play?${qs.toString()}`));
     } catch (e) {
       if (gen !== quickMatchGen.current) return;
       const msg =
@@ -397,6 +400,12 @@ export function MainMenu() {
               className="rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-600 to-amber-500 px-5 py-3.5 text-center text-sm font-black tracking-[0.2em] text-black shadow-lg shadow-amber-900/35 transition hover:from-amber-500 hover:to-amber-400 hover:shadow-amber-700/40"
             >
               JOGO RÁPIDO
+            </Link>
+            <Link
+              href={operatorSelectHref("/")}
+              className="rounded-xl border border-white/15 bg-black/45 px-5 py-3 text-center text-xs font-semibold tracking-[0.18em] text-white/80 transition hover:border-amber-400/35 hover:bg-black/60 hover:text-amber-100"
+            >
+              OPERADOR
             </Link>
             <button
               type="button"

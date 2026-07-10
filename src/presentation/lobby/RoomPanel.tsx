@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { operatorSelectHref } from "@/domains/operator";
 import {
   isValidRoomCode,
   normalizeRoomCode,
@@ -84,7 +85,8 @@ export function RoomPanel({
       roomMapId || (host ? mapId : undefined) || getLastMapId() || "dust";
     qs.set("map", map);
     setLastMapId(map);
-    router.push(`/play?${qs.toString()}`);
+    // Path B: operator select before match entry.
+    router.push(operatorSelectHref(`/play?${qs.toString()}`));
   };
 
   const handleCreate = async () => {

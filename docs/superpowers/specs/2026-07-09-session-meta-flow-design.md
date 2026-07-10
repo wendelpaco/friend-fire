@@ -1,6 +1,6 @@
 # Friend Fire — Session Meta Flow Design (Wave D)
 
-**Status:** Draft for approval  
+**Status:** Approved — implementing Meta-1 (multi-agent worktrees)  
 **Date:** 2026-07-09  
 **Codename:** session-meta  
 **Pipeline:** Meta-1 (capa + personagem) → Meta-2 (loja showcase + DS) → Meta-3 (morte social + squad chat)  

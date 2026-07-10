@@ -62,15 +62,41 @@ export function getOperatorPrefs(): OperatorLoadoutPrefs {
   }
 }
 
-export function setOperatorPrefs(prefs: OperatorLoadoutPrefs): void {
+export function setOperatorPrefs(prefs: OperatorLoadoutPrefs): OperatorLoadoutPrefs {
   const next = sanitizePrefs(prefs.operatorId, prefs.skinId);
   memoryOperatorId = next.operatorId;
   memorySkinId = next.skinId;
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") return next;
   try {
     localStorage.setItem(OPERATOR_ID_KEY, next.operatorId);
     localStorage.setItem(SKIN_ID_KEY, next.skinId);
   } catch {
     /* ignore quota / private mode */
   }
+  return next;
+}
+
+/** True when both keys exist and resolve to a valid catalog pair. */
+export function hasOperatorPrefs(): boolean {
+  if (typeof window === "undefined") {
+    return memoryOperatorId != null && memorySkinId != null;
+  }
+  try {
+    const op = localStorage.getItem(OPERATOR_ID_KEY);
+    const skin = localStorage.getItem(SKIN_ID_KEY);
+    if (!op || !skin) return false;
+    const o = getOperator(op);
+    const s = getSkin(skin);
+    return Boolean(o && s && s.operatorId === o.id);
+  } catch {
+    return memoryOperatorId != null && memorySkinId != null;
+  }
+}
+
+/** Parse raw strings into valid prefs (for tests / SSR). */
+export function parseOperatorPrefs(
+  operatorId: string | null | undefined,
+  skinId: string | null | undefined,
+): OperatorLoadoutPrefs {
+  return sanitizePrefs(operatorId, skinId);
 }

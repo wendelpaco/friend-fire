@@ -3,6 +3,17 @@
 :root {
   --background: #0b0d12;
   --foreground: #f5f5f5;
+
+  /* FF Tactical design tokens (session meta) */
+  --ff-void: #0a0c10;
+  --ff-panel: #10131a;
+  --ff-panel-2: #161b24;
+  --ff-amber: #f59e0b;
+  --ff-tr: #c45c26;
+  --ff-ct: #3a6ea5;
+  --ff-border: rgba(255, 255, 255, 0.1);
+  --ff-text: #f5f5f5;
+  --ff-muted: rgba(255, 255, 255, 0.45);
 }
 
 @theme inline {
