@@ -24,6 +24,10 @@ import {
   recordMatchResult,
 } from "@/domains/identity";
 import {
+  getOperatorPrefs,
+  resolveSkinColors,
+} from "@/domains/operator";
+import {
   canDefuse,
   canPlant,
   createBombState,
@@ -404,6 +408,9 @@ export class GameClient {
     color: number;
     weaponSlot: number;
     weaponId: string | undefined;
+    operatorId?: string;
+    skinId?: string;
+    secondaryColor?: number;
   }> = [];
   private showFps = false;
   private autoQuality = true;
@@ -922,6 +929,8 @@ export class GameClient {
       mag?: number;
       reserve?: number;
       heCount?: number;
+      operatorId?: string;
+      skinId?: string;
     }>;
     phase: string | null;
     round: number;
@@ -1062,7 +1071,25 @@ export class GameClient {
       p.name = np.name;
       p.team = team;
       p.isBot = np.isBot;
+      // Team color stays for ground ring; vest/fatigues come from operator skin.
       p.color = TEAM_COLORS[team];
+      // Operator skin from network schema (Meta-1); local may fill prefs if empty.
+      const opId =
+        typeof np.operatorId === "string" && np.operatorId
+          ? np.operatorId
+          : isLocal
+            ? getOperatorPrefs().operatorId
+            : undefined;
+      const skId =
+        typeof np.skinId === "string" && np.skinId
+          ? np.skinId
+          : isLocal
+            ? getOperatorPrefs().skinId
+            : undefined;
+      p.operatorId = opId;
+      p.skinId = skId;
+      const skin = resolveSkinColors(opId, skId);
+      p.secondaryColor = skin?.secondaryColor;
       p.hp = np.hp;
       p.armor = np.armor ?? p.armor;
       p.alive = np.alive;
@@ -1435,6 +1462,11 @@ export class GameClient {
       ammo[wid] = { mag: def.magazine, reserve: def.reserve };
     }
 
+    const opPrefs = !isBot ? getOperatorPrefs() : null;
+    const skin = opPrefs
+      ? resolveSkinColors(opPrefs.operatorId, opPrefs.skinId)
+      : null;
+
     return {
       id,
       name,
@@ -1464,6 +1496,9 @@ export class GameClient {
       moveSpeed: 0,
       color: TEAM_COLORS[team],
       diedThisRound: false,
+      operatorId: opPrefs?.operatorId,
+      skinId: opPrefs?.skinId,
+      secondaryColor: skin?.secondaryColor,
     };
   }
 
@@ -1714,6 +1749,9 @@ export class GameClient {
         color: 0,
         weaponSlot: 0,
         weaponId: undefined,
+        operatorId: undefined,
+        skinId: undefined,
+        secondaryColor: undefined,
       });
     }
     this.renderPlayers.length = n;
@@ -1735,6 +1773,9 @@ export class GameClient {
       slot.color = p.color;
       slot.weaponSlot = p.weaponSlot;
       slot.weaponId = p.weapons[p.weaponSlot];
+      slot.operatorId = p.operatorId;
+      slot.skinId = p.skinId;
+      slot.secondaryColor = p.secondaryColor;
     }
     // Spectator always drives free-cam look target (follow or pan).
     this.three.sync({

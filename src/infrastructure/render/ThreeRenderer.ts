@@ -13,6 +13,10 @@ import {
 import type { GameMap, PropBox } from "@/domains/world";
 import { Sfx } from "@/infrastructure/audio/Sfx";
 import {
+  getOperatorPrefs,
+  resolveSkinColors,
+} from "@/domains/operator";
+import {
   createCharacter,
   type CharacterHandle,
   type CharacterLod,
@@ -87,6 +91,11 @@ export interface RenderSnapshot {
       onGround?: boolean;
       /** Mag reload timer active — reload arm pose. */
       reloading?: boolean;
+      /** Operator skin (network / solo prefs). */
+      operatorId?: string;
+      skinId?: string;
+      /** Explicit fatigues tint when already resolved. */
+      secondaryColor?: number;
     }
   >;
   bullets: ReadonlyArray<Pick<BulletState, "id" | "x" | "z">>;
@@ -111,6 +120,48 @@ export function weaponCategoryOf(
     return "pistol";
   }
   return "rifle";
+}
+
+/**
+ * Resolve operator skin tints for mesh create.
+ * Priority: explicit secondaryColor + network ids → catalog → local prefs.
+ */
+export function resolvePlayerSkinTint(
+  p: {
+    color: number;
+    operatorId?: string;
+    skinId?: string;
+    secondaryColor?: number;
+  },
+  isLocal: boolean,
+): { primaryColor?: number; secondaryColor?: number } | undefined {
+  const fromIds = resolveSkinColors(p.operatorId, p.skinId);
+  if (fromIds) {
+    return {
+      primaryColor: fromIds.primaryColor,
+      secondaryColor:
+        p.secondaryColor != null && Number.isFinite(p.secondaryColor)
+          ? p.secondaryColor
+          : fromIds.secondaryColor,
+    };
+  }
+  if (p.secondaryColor != null && Number.isFinite(p.secondaryColor)) {
+    return {
+      primaryColor: p.color,
+      secondaryColor: p.secondaryColor,
+    };
+  }
+  if (isLocal) {
+    const prefs = getOperatorPrefs();
+    const local = resolveSkinColors(prefs.operatorId, prefs.skinId);
+    if (local) {
+      return {
+        primaryColor: local.primaryColor,
+        secondaryColor: local.secondaryColor,
+      };
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -557,7 +608,10 @@ export class ThreeRenderer {
       alivePlayerIds.add(p.id);
       let handle = this.characters.get(p.id);
       if (!handle) {
-        handle = this.createPlayerCharacter(p);
+        handle = this.createPlayerCharacter(
+          p,
+          p.id === snapshot.localPlayerId,
+        );
         this.characters.set(p.id, handle);
         this.scene.add(handle.group);
       }
@@ -1781,9 +1835,17 @@ export class ThreeRenderer {
     p: Pick<
       PlayerState,
       "id" | "name" | "team" | "isBot" | "x" | "z" | "rot" | "color"
-    > & { weaponSlot?: number; weaponId?: string },
+    > & {
+      weaponSlot?: number;
+      weaponId?: string;
+      operatorId?: string;
+      skinId?: string;
+      secondaryColor?: number;
+    },
+    isLocal = false,
   ): CharacterHandle {
-    const handle = createCharacter(p.color);
+    const skin = resolvePlayerSkinTint(p, isLocal);
+    const handle = createCharacter(p.color, skin);
     handle.group.name = p.id;
 
     const cat = weaponCategoryOf(p.weaponId, p.weaponSlot);

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { MODEL_YAW_OFFSET_PROCEDURAL } from "@/domains/fx";
-import { CharacterRig } from "./CharacterRig";
+import { CharacterRig, type CharacterSkinTint } from "./CharacterRig";
 import {
   CharacterAnimator,
   type AnimatorInput,
@@ -13,7 +13,7 @@ import {
 import { WeaponAttach, type WeaponCategory } from "./WeaponAttach";
 
 export { CharacterRig, WEAPON_SLOT_NAME } from "./CharacterRig";
-export type { CharacterBones } from "./CharacterRig";
+export type { CharacterBones, CharacterSkinTint } from "./CharacterRig";
 export { CharacterAnimator } from "./CharacterAnimator";
 export type {
   AnimatorInput,
@@ -76,9 +76,13 @@ export type CharacterHandle = {
 /**
  * Low-poly **tactical** soldier (RUSH-B direction): box-rig with gear silhouette.
  * Orientation from {@link CharacterController}. No CesiumMan / sample GLTF.
+ * Optional `skin` tints vest (primary) and fatigues (secondary) from operator catalog.
  */
-export function createCharacter(teamColor: number): CharacterHandle {
-  const rig = new CharacterRig(teamColor);
+export function createCharacter(
+  teamColor: number,
+  skin?: CharacterSkinTint,
+): CharacterHandle {
+  const rig = new CharacterRig(teamColor, skin);
   rig.applyRestPose();
 
   const animator = new CharacterAnimator(rig.bones);

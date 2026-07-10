@@ -56,6 +56,12 @@ export interface PlayerState {
    * Survivors keep guns (CS economy).
    */
   diedThisRound: boolean;
+  /** Operator roster id (session meta skins). Empty/undefined = team color only. */
+  operatorId?: string;
+  /** Skin id under operator catalog. */
+  skinId?: string;
+  /** Fatigues tint when skin applied (primary is reflected in `color` for UI). */
+  secondaryColor?: number;
 }
 
 export interface BulletState {

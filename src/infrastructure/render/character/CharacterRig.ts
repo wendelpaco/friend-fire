@@ -30,33 +30,68 @@ function boxMesh(
   return m;
 }
 
+/** Optional operator skin tints applied on top of team color accents. */
+export type CharacterSkinTint = {
+  /** Vest / pads / helmet stripe (defaults to teamColor). */
+  primaryColor?: number;
+  /** Fatigues body color (defaults to olive). */
+  secondaryColor?: number;
+};
+
+const DEFAULT_FATIGUES = 0x3a4230;
+const DEFAULT_PANTS = 0x2c3228;
+
+function darkenHex(c: number, factor: number): number {
+  const f = Math.max(0, Math.min(1, factor));
+  const r = Math.floor(((c >> 16) & 0xff) * f);
+  const g = Math.floor(((c >> 8) & 0xff) * f);
+  const b = Math.floor((c & 0xff) * f);
+  return (r << 16) | (g << 8) | b;
+}
+
 /**
  * Low-poly **tactical** soldier — RUSH-B style read at isometric distance:
  * dark fatigues, team-color vest/helmet stripe, helmet mass, backpack, clear gun.
  * Vest on +Z = chest / front (must match yawFromDirection).
+ * Operator skins tint vest (primary) + fatigues (secondary); ring stays team.
  */
 export class CharacterRig {
   readonly group: THREE.Group;
   readonly bones: CharacterBones;
   readonly teamColor: number;
+  readonly primaryColor: number;
+  readonly secondaryColor: number;
 
-  constructor(teamColor: number) {
+  constructor(teamColor: number, skin?: CharacterSkinTint) {
     this.teamColor = teamColor;
+    this.primaryColor =
+      skin?.primaryColor != null && Number.isFinite(skin.primaryColor)
+        ? skin.primaryColor
+        : teamColor;
+    this.secondaryColor =
+      skin?.secondaryColor != null && Number.isFinite(skin.secondaryColor)
+        ? skin.secondaryColor
+        : DEFAULT_FATIGUES;
     this.group = new THREE.Group();
     this.group.name = "character";
 
-    // Fatigues: dark olive (not full-body team paint — team is accents only)
+    // Fatigues: skin secondary or dark olive (team is accents + ground ring)
     const fatigues = new THREE.MeshStandardMaterial({
-      color: 0x3a4230,
+      color: this.secondaryColor,
       roughness: 0.82,
       metalness: 0.05,
     });
+    // Pants slightly darker than fatigues when custom secondary is set
+    const pantsColor =
+      this.secondaryColor === DEFAULT_FATIGUES
+        ? DEFAULT_PANTS
+        : darkenHex(this.secondaryColor, 0.72);
     const pants = new THREE.MeshStandardMaterial({
-      color: 0x2c3228,
+      color: pantsColor,
       roughness: 0.85,
     });
     const teamMat = new THREE.MeshStandardMaterial({
-      color: teamColor,
+      color: this.primaryColor,
       roughness: 0.45,
       metalness: 0.2,
     });

@@ -126,6 +126,10 @@ export type GameRoomOptions = {
   visibility?: RoomVisibility | string;
   /** Creator region tag for browser filter (default BR) */
   region?: RoomRegion | string;
+  /** Operator roster id for character skin (session meta). */
+  operatorId?: string;
+  /** Skin id under operator catalog. */
+  skinId?: string;
 };
 
 export type GameRoomMetadata = {
@@ -337,6 +341,15 @@ export class GameRoom extends Room<MatchState> {
     player.alive = true;
     player.kills = 0;
     player.deaths = 0;
+    // Session meta operator skin (client join options; free-form strings capped).
+    player.operatorId =
+      typeof options.operatorId === "string"
+        ? options.operatorId.trim().slice(0, 32)
+        : "";
+    player.skinId =
+      typeof options.skinId === "string"
+        ? options.skinId.trim().slice(0, 48)
+        : "";
     this.applySpawn(player);
     const ammo = this.applyHumanLoadout(player);
 

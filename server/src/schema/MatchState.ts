@@ -34,6 +34,10 @@ export class PlayerState extends Schema {
   @type("number") reserve: number = 0;
   /** HE grenades carried (0–2) */
   @type("number") heCount: number = 0;
+  /** Operator roster id (session meta skins); empty if unset. */
+  @type("string") operatorId: string = "";
+  /** Skin id under operator catalog; empty if unset. */
+  @type("string") skinId: string = "";
 }
 
 export class MatchState extends Schema {

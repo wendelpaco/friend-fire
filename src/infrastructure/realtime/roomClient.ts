@@ -1,5 +1,6 @@
 import { Client, type Room } from "colyseus.js";
 import { getNickname, getRegion, type RegionCode } from "@/domains/identity";
+import { getOperatorPrefs } from "@/domains/operator";
 import {
   generateRoomCode,
   isValidRoomCode,
@@ -190,6 +191,9 @@ export type NetworkPlayer = {
   reserve: number;
   /** HE grenades carried (0–2) */
   heCount: number;
+  /** Operator roster + skin (session meta; empty if unset). */
+  operatorId: string;
+  skinId: string;
 };
 
 export type InputPayload = {
@@ -307,6 +311,8 @@ function acquireNetworkPlayer(i: number): NetworkPlayer {
       mag: 0,
       reserve: 0,
       heCount: 0,
+      operatorId: "",
+      skinId: "",
     };
     networkPlayerPool[i] = p;
   }
@@ -347,6 +353,8 @@ function playersFromState(state: unknown): NetworkPlayer[] {
     row.mag = Number(o.mag) || 0;
     row.reserve = Number(o.reserve) || 0;
     row.heCount = Number(o.heCount) || 0;
+    row.operatorId = typeof o.operatorId === "string" ? o.operatorId : "";
+    row.skinId = typeof o.skinId === "string" ? o.skinId : "";
     networkPlayersOut[n] = row;
     n += 1;
   };
@@ -639,12 +647,15 @@ export class ColyseusRoomClient implements RoomClient {
         const region = resolveRegion(opts?.region);
         // Host creates a real room and keeps the seat so the code stays joinable
         // until the host opens /play (or leaves). Guests use join-only.
+        const op = getOperatorPrefs();
         const room = await client.create(GAME_ROOM_NAME, {
           name: getNickname(),
           mapId: opts?.mapId,
           roomName: opts?.roomName,
           visibility: opts?.visibility,
           region,
+          operatorId: op.operatorId,
+          skinId: op.skinId,
         });
         this.bindRoom(room);
         const code = await waitForCode(room);
@@ -715,9 +726,12 @@ export class ColyseusRoomClient implements RoomClient {
       // Join-only: never create. Missing/typo codes must fail.
       await this.leave();
       const client = makeClient();
+      const op = getOperatorPrefs();
       const room = await client.join(GAME_ROOM_NAME, {
         code: normalized,
         name: getNickname(),
+        operatorId: op.operatorId,
+        skinId: op.skinId,
       });
       this.bindRoom(room);
       const serverCode =
@@ -775,6 +789,7 @@ export class ColyseusRoomClient implements RoomClient {
         try {
           const client = makeClient();
           const region = resolveRegion(options.region);
+          const op = getOperatorPrefs();
           const room = await client.joinOrCreate(GAME_ROOM_NAME, {
             code: normalized,
             name: getNickname(),
@@ -782,6 +797,8 @@ export class ColyseusRoomClient implements RoomClient {
             roomName: options.roomName,
             visibility: options.visibility,
             region,
+            operatorId: op.operatorId,
+            skinId: op.skinId,
           });
           this.bindRoom(room);
           const serverCode = await waitForCode(room).catch(() => normalized);

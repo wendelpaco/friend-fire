@@ -1,0 +1,76 @@
+/**
+ * Operator + skin prefs (localStorage).
+ * Keys: ff_operator_id, ff_skin_id
+ */
+
+import {
+  DEFAULT_OPERATOR_ID,
+  getOperator,
+  getSkin,
+  OPERATORS,
+  skinsForOperator,
+} from "./catalog";
+import type { OperatorLoadoutPrefs } from "./types";
+
+export const OPERATOR_ID_KEY = "ff_operator_id";
+export const SKIN_ID_KEY = "ff_skin_id";
+
+/** In-process fallback when localStorage is unavailable. */
+let memoryOperatorId: string | null = null;
+let memorySkinId: string | null = null;
+
+function defaultPrefs(): OperatorLoadoutPrefs {
+  const op =
+    OPERATORS.find((o) => o.id === DEFAULT_OPERATOR_ID) ?? OPERATORS[0]!;
+  return {
+    operatorId: op.id,
+    skinId: op.defaultSkinId,
+  };
+}
+
+function sanitizePrefs(
+  operatorId: string | null | undefined,
+  skinId: string | null | undefined,
+): OperatorLoadoutPrefs {
+  const defaults = defaultPrefs();
+  const op = getOperator(operatorId) ?? getOperator(defaults.operatorId)!;
+  const skins = skinsForOperator(op.id);
+  const skin =
+    (skinId && getSkin(skinId)?.operatorId === op.id
+      ? getSkin(skinId)
+      : undefined) ??
+    getSkin(op.defaultSkinId) ??
+    skins[0]!;
+  return {
+    operatorId: op.id,
+    skinId: skin.id,
+  };
+}
+
+export function getOperatorPrefs(): OperatorLoadoutPrefs {
+  if (typeof window === "undefined") {
+    return sanitizePrefs(memoryOperatorId, memorySkinId);
+  }
+  try {
+    // Prefer localStorage; memory only when storage throws (private mode).
+    return sanitizePrefs(
+      localStorage.getItem(OPERATOR_ID_KEY),
+      localStorage.getItem(SKIN_ID_KEY),
+    );
+  } catch {
+    return sanitizePrefs(memoryOperatorId, memorySkinId);
+  }
+}
+
+export function setOperatorPrefs(prefs: OperatorLoadoutPrefs): void {
+  const next = sanitizePrefs(prefs.operatorId, prefs.skinId);
+  memoryOperatorId = next.operatorId;
+  memorySkinId = next.skinId;
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(OPERATOR_ID_KEY, next.operatorId);
+    localStorage.setItem(SKIN_ID_KEY, next.skinId);
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
