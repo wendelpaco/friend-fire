@@ -160,12 +160,14 @@ export function tickPlant(
 /**
  * Advance or cancel defuse while holding F.
  * When progress reaches 1, caller should invoke `onDefuseComplete`.
+ * @param defuseTime seconds to full defuse — DEFUSE_TIME (5) or DEFUSE_TIME_KIT (3.5) if kit.
  */
 export function tickDefuse(
   bomb: BombMatchState,
   dt: number,
   holding: boolean,
   defuseOk: boolean,
+  defuseTime: number = DEFUSE_TIME,
 ): BombMatchState {
   if (bomb.bombState !== "planted" && bomb.bombState !== "defusing") {
     return bomb;
@@ -178,7 +180,9 @@ export function tickDefuse(
       defuseProgress: 0,
     };
   }
-  const defuseProgress = Math.min(1, bomb.defuseProgress + dt / DEFUSE_TIME);
+  const duration =
+    defuseTime > 0 && Number.isFinite(defuseTime) ? defuseTime : DEFUSE_TIME;
+  const defuseProgress = Math.min(1, bomb.defuseProgress + dt / duration);
   return {
     ...bomb,
     bombState: "defusing",

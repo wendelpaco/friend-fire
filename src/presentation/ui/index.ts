@@ -8,6 +8,6 @@ export { Modal } from "./Modal";
 export { HealthBar, ArmorDisplay } from "./HealthBar";
 export { AmmoDisplay } from "./AmmoDisplay";
 export { WeaponSlot } from "./WeaponSlot";
-export { PhaseLabel } from "./PhaseLabel";
+export { PhaseLabel, type TimerMode } from "./PhaseLabel";
 export { HighContrastInit } from "./HighContrastInit";
 export { KillFeedItem } from "./KillFeedItem";

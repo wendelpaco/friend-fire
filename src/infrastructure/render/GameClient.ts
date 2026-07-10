@@ -567,6 +567,110 @@ export class GameClient {
     } else {
       this.three.setBombVisual(null);
     }
+    this.syncBombActionRadial();
+  }
+
+  /**
+   * World-space plant/defuse radial on the acting character.
+   * Visible to all (fake plant / defuse pressure). Kit color when kit exists.
+   */
+  private syncBombActionRadial() {
+    const s = this.state;
+    if (s.bombState === "planting" && s.plantProgress > 0) {
+      const carrier = s.players.find((p) => p.id === s.bombCarrierId);
+      if (carrier?.alive) {
+        this.three.setBombActionRadial({
+          x: carrier.x,
+          z: carrier.z,
+          progress: s.plantProgress,
+          mode: "plant",
+        });
+        return;
+      }
+    }
+    if (
+      (s.bombState === "defusing" || s.defuseProgress > 0) &&
+      s.defuseProgress > 0
+    ) {
+      const defuser = this.findDefusingPlayer();
+      if (defuser) {
+        this.three.setBombActionRadial({
+          x: defuser.x,
+          z: defuser.z,
+          progress: s.defuseProgress,
+          mode: this.playerHasDefuseKit(defuser) ? "defuse_kit" : "defuse",
+        });
+        return;
+      }
+    }
+    this.three.setBombActionRadial(null);
+  }
+
+  /** Nearest alive CT in defuse range (or local if holding). */
+  private findDefusingPlayer(): PlayerState | null {
+    const s = this.state;
+    let best: PlayerState | null = null;
+    let bestD = Infinity;
+    for (const p of s.players) {
+      if (!p.alive || p.team !== "CT") continue;
+      const dx = p.x - s.bombX;
+      const dz = p.z - s.bombZ;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > DEFUSE_RADIUS * DEFUSE_RADIUS) continue;
+      if (d2 < bestD) {
+        bestD = d2;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Defuse kit not in shop catalog yet — always false until gear ships.
+   * Hook kept so radial color + DEFUSE_TIME_KIT wire when kit lands.
+   */
+  private playerHasDefuseKit(_p: PlayerState): boolean {
+    return false;
+  }
+
+  private bombBeepAccum = 0;
+  private bombHbAccum = 0;
+
+  /** Distance-attenuated C4 beep; accelerates last 15s; heartbeat last 10s. */
+  private updateBombAudio(dt: number) {
+    if (!this.bombIsDown() || this.state.paused) {
+      this.bombBeepAccum = 0;
+      this.bombHbAccum = 0;
+      return;
+    }
+    const local = this.state.players.find(
+      (p) => p.id === this.state.localPlayerId,
+    );
+    const lx = local?.x ?? this.state.bombX;
+    const lz = local?.z ?? this.state.bombZ;
+    const dist = Math.hypot(lx - this.state.bombX, lz - this.state.bombZ);
+    // Full volume on site; soft floor at long range so global still ticks.
+    const atten = Math.max(0.08, Math.min(1, 1 - dist / 42));
+    const t = this.state.bombTimer;
+    // Base ~1s interval; last 15s ramp to ~0.18s
+    const interval =
+      t <= 15 ? 0.18 + 0.82 * Math.max(0, Math.min(1, t / 15)) : 1.0;
+
+    this.bombBeepAccum += dt;
+    if (this.bombBeepAccum >= interval) {
+      this.bombBeepAccum = 0;
+      Sfx.bombBeep(0.14 * atten);
+    }
+
+    if (t <= 10) {
+      this.bombHbAccum += dt;
+      if (this.bombHbAccum >= 0.55) {
+        this.bombHbAccum = 0;
+        Sfx.bombHeartbeat(0.1 * atten);
+      }
+    } else {
+      this.bombHbAccum = 0;
+    }
   }
 
   /** Local solo plant / defuse / explode using domains/match/bomb. */
@@ -1959,6 +2063,9 @@ export class GameClient {
     if (this.networked) {
       // Predict local movement only; combat/HP/bots from server via applyNetworkState
       this.updateLocalPlayerNetworked(dt);
+      // Cosmetic bomb drama from synced state (marker, radial, attenuated beep)
+      this.syncBombVisual();
+      this.updateBombAudio(dt);
       this.three.animateDust(dt);
       this.three.updateFx(dt);
       this.syncRender();
@@ -1971,6 +2078,7 @@ export class GameClient {
     this.updateBots(dt);
     this.updateBullets(dt);
     this.updateBomb(dt);
+    this.updateBombAudio(dt);
     this.updateHE(dt);
     this.three.animateDust(dt);
     this.three.updateFx(dt);
@@ -3746,6 +3854,8 @@ export class GameClient {
       canRebuy: this.lastRebuyItemIds.length > 0,
       bombState: this.state.bombState,
       bombTimer: bombDown ? this.state.bombTimer : 0,
+      bombX: bombDown ? this.state.bombX : 0,
+      bombZ: bombDown ? this.state.bombZ : 0,
       plantProgress: this.state.plantProgress,
       defuseProgress: this.state.defuseProgress,
       bombPrompt,

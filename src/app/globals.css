@@ -43,6 +43,8 @@
   --animate-ff-flash-amber: ff-flash-amber 500ms ease-out both;
   --animate-ff-blink-warn: ff-blink-warn 1s ease-in-out infinite;
   --animate-ff-chat-fade: ff-chat-fade 6s linear forwards;
+  --animate-ff-bomb-pulse: ff-bomb-pulse 1s ease-in-out infinite;
+  --animate-ff-bomb-pulse-fast: ff-bomb-pulse 0.45s ease-in-out infinite;
 }
 
 /* ============================================================
@@ -115,6 +117,32 @@
 @keyframes ff-blink-warn {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.4; }
+}
+
+/* C4 fuse clock — soft red pulse; last 10s uses --animate-ff-bomb-pulse-fast */
+@keyframes ff-bomb-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 18px 2px rgba(239, 68, 68, 0.28);
+    filter: brightness(1.08);
+  }
+}
+
+.ff-bomb-timer-frame {
+  /* Chamfered corners — shape cue beyond color (a11y) */
+  clip-path: polygon(
+    10px 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    10px 100%,
+    0 calc(100% - 10px),
+    0 10px
+  );
 }
 
 /* Live chat dock — hold solid then fade out (~6s total). */

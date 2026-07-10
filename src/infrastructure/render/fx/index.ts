@@ -5,6 +5,11 @@ export {
 } from "./ImpactParticleSystem";
 export { WallDamageSystem } from "./WallDamageSystem";
 export { BombMarkerSystem } from "./BombMarkerSystem";
+export {
+  BombActionRadialSystem,
+  type BombActionMode,
+  type BombActionVisual,
+} from "./BombActionRadialSystem";
 export { HESystem } from "./HESystem";
 export { DamageNumberSystem } from "./DamageNumberSystem";
 export { TracerSystem } from "./TracerSystem";

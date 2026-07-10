@@ -31,6 +31,7 @@ import {
   KillFeedItem,
   PhaseLabel,
   WeaponSlot,
+  type TimerMode,
 } from "@/presentation/ui";
 import { Bomb, Coin, Skull, Star } from "@/presentation/icons";
 import type { Team } from "@/shared/types/team";
@@ -47,11 +48,8 @@ function matchResultForTeam(
   return trWon ? "loss" : "win";
 }
 
-function formatBombTimer(seconds: number) {
-  const s = Math.max(0, Math.ceil(seconds));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${r.toString().padStart(2, "0")}`;
+function isBombClockActive(bombState: HudSnapshot["bombState"]): boolean {
+  return bombState === "planted" || bombState === "defusing";
 }
 
 interface GameHudProps {
@@ -185,10 +183,26 @@ function GameHudImpl({
   const [liveChatDraft, setLiveChatDraft] = useState("");
   const [chatNow, setChatNow] = useState(0);
   const liveChatInputRef = useRef<HTMLInputElement>(null);
+  /** PhaseLabel "C4 PLANTADA" flash ≤2s after plant. */
+  const [plantFlash, setPlantFlash] = useState(false);
+  const prevBombStateRef = useRef(hud.bombState);
 
   useEffect(() => {
     if (!hud.paused) setShowSettings(false);
   }, [hud.paused]);
+
+  useEffect(() => {
+    const prev = prevBombStateRef.current;
+    prevBombStateRef.current = hud.bombState;
+    const nowDown = isBombClockActive(hud.bombState);
+    const wasDown = isBombClockActive(prev);
+    if (nowDown && !wasDown) {
+      setPlantFlash(true);
+      const id = window.setTimeout(() => setPlantFlash(false), 2000);
+      return () => window.clearTimeout(id);
+    }
+    if (!nowDown) setPlantFlash(false);
+  }, [hud.bombState]);
 
   useEffect(() => {
     const prev = prevPhaseRef.current;
@@ -275,6 +289,14 @@ function GameHudImpl({
     () => hud.weapons.filter((w) => w.name && String(w.name).trim().length > 0),
     [hud.weapons],
   );
+
+  const bombClock = isBombClockActive(hud.bombState);
+  const timerMode: TimerMode = bombClock
+    ? "bomb"
+    : hud.phase === "live" && hud.timeLeft > 0 && hud.timeLeft < 10
+      ? "low"
+      : "normal";
+  const clockTimeLeft = bombClock ? hud.bombTimer : hud.timeLeft;
 
   const localRow = hud.scoreboard.find((r) => r.isLocal);
   const maxKills = hud.scoreboard.reduce(
@@ -368,6 +390,29 @@ function GameHudImpl({
                   />
                 );
               })}
+            {/* Planted C4 site pulse on radar */}
+            {bombClock && (
+              <span
+                className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full motion-safe:animate-ff-bomb-pulse"
+                style={{
+                  left: `${
+                    ((hud.bombX + (hud.mapWidth || 72) / 2) /
+                      (hud.mapWidth || 72)) *
+                    100
+                  }%`,
+                  top: `${
+                    ((hud.bombZ + (hud.mapDepth || 72) / 2) /
+                      (hud.mapDepth || 72)) *
+                    100
+                  }%`,
+                  width: 10,
+                  height: 10,
+                  backgroundColor: "#ef4444",
+                  boxShadow: "0 0 10px #ef4444",
+                }}
+                title="C4"
+              />
+            )}
           </div>
         </div>
         {/* Advanced perf: dev-only tree (DEBUG_OVERLAYS). Mini FPS stays product. */}
@@ -378,9 +423,19 @@ function GameHudImpl({
         )}
       </div>
 
-      {/* Top score bar — timer one tier above TR/CT scores; no XP/NV in live. */}
+      {/* Top score bar — timer one tier above TR/CT scores; bomb plant transforms central clock. */}
       <div className="absolute left-1/2 top-4 flex -translate-x-1/2 flex-col items-center gap-1">
-        <div className="flex items-stretch overflow-hidden rounded-lg border border-white/15 bg-[#0a0e16]/90 shadow-2xl backdrop-blur-md">
+        <div
+          className={`flex items-stretch overflow-hidden border bg-[#0a0e16]/90 shadow-2xl backdrop-blur-md ${
+            bombClock
+              ? `ff-bomb-timer-frame border-red-500/55 ${
+                  hud.bombTimer <= 10
+                    ? "motion-safe:animate-ff-bomb-pulse-fast"
+                    : "motion-safe:animate-ff-bomb-pulse"
+                }`
+              : "rounded-lg border-white/15"
+          }`}
+        >
           <div className="flex min-w-[72px] items-center justify-center gap-1.5 bg-orange-700/35 px-3 py-2.5">
             <span className="text-[10px] font-bold tracking-widest text-orange-200">
               TR
@@ -389,13 +444,22 @@ function GameHudImpl({
               {hud.scoreTR}
             </span>
           </div>
-          <div className="flex min-w-[160px] flex-col items-center justify-center border-x border-white/10 bg-[#0d121c] px-6 py-1.5">
+          <div
+            className={`flex min-w-[160px] flex-col items-center justify-center border-x px-6 py-1.5 ${
+              bombClock
+                ? "border-red-500/25 bg-red-950/55"
+                : "border-white/10 bg-[#0d121c]"
+            }`}
+          >
             <PhaseLabel
               phase={hud.phase}
-              timeLeft={hud.timeLeft}
+              timeLeft={clockTimeLeft}
               round={hud.round}
+              timerMode={timerMode}
+              plantFlash={plantFlash}
+              defusing={hud.bombState === "defusing"}
             />
-            {hud.canBuy && !hud.showBuyMenu && (
+            {hud.canBuy && !hud.showBuyMenu && !bombClock && (
               <span className="mt-0.5 text-[9px] font-bold tracking-wide text-amber-300">
                 B · LOJA ABERTA
               </span>
@@ -416,33 +480,6 @@ function GameHudImpl({
               SALA {roomCode}
             </div>
             <CopyInviteLink code={roomCode} host={false} variant="compact" />
-          </div>
-        )}
-
-        {/* Bomb timer when planted / defusing */}
-        {(hud.bombState === "planted" || hud.bombState === "defusing") && (
-          <div
-            className={`mt-1 flex items-center gap-2 rounded-lg border px-3 py-1.5 shadow-xl backdrop-blur-md ${
-              hud.bombTimer <= 10
-                ? "border-red-500/55 bg-red-950/70"
-                : "border-orange-400/45 bg-black/70"
-            }`}
-          >
-            <span className="text-[9px] font-bold tracking-[0.2em] text-orange-300/90">
-              <Bomb size={12} className="inline-block" /> C4
-            </span>
-            <span
-              className={`font-mono text-lg font-black tabular-nums ${
-                hud.bombTimer <= 10 ? "text-red-300" : "text-orange-100"
-              }`}
-            >
-              {formatBombTimer(hud.bombTimer)}
-            </span>
-            {hud.bombState === "defusing" && (
-              <span className="text-[9px] font-semibold tracking-wider text-sky-300">
-                DESARMANDO
-              </span>
-            )}
           </div>
         )}
       </div>
@@ -549,38 +586,16 @@ function GameHudImpl({
 
       {/* Weapon bar + ObjectiveChip (C4) + action prompts (events only) */}
       <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
-        {/* Carrier state = chip, never persistent red banner */}
+        {/* Carrier state = amber chip only (never red persistent banner) */}
         {hud.carryingBomb && hud.alive && !hud.paused && <ObjectiveChip />}
-        {/* Contextual action only (near site / defuse range) — not “you have C4” */}
-        {hud.bombPrompt && hud.alive && !hud.paused && (
+        {/* Contextual approach prompt only — hold progress is world radial + SEGURE F */}
+        {hud.bombPrompt &&
+          hud.alive &&
+          !hud.paused &&
+          hud.plantProgress <= 0 &&
+          hud.defuseProgress <= 0 && (
           <div className="rounded-md border border-white/15 bg-black/70 px-3 py-1 text-[11px] font-semibold tracking-wide text-white/85 shadow-lg backdrop-blur-md">
             {hud.bombPrompt}
-          </div>
-        )}
-        {(hud.plantProgress > 0 || hud.bombState === "planting") && (
-          <div className="w-48 rounded-full border border-orange-400/50 bg-black/75 p-1 backdrop-blur">
-            <div
-              className="h-1.5 rounded-full bg-orange-400 transition-all"
-              style={{
-                width: `${Math.max(0, Math.min(1, hud.plantProgress)) * 100}%`,
-              }}
-            />
-            <div className="mt-0.5 text-center text-[9px] font-semibold tracking-widest text-orange-200">
-              PLANTANDO
-            </div>
-          </div>
-        )}
-        {(hud.defuseProgress > 0 || hud.bombState === "defusing") && (
-          <div className="w-48 rounded-full border border-sky-400/50 bg-black/75 p-1 backdrop-blur">
-            <div
-              className="h-1.5 rounded-full bg-sky-400 transition-all"
-              style={{
-                width: `${Math.max(0, Math.min(1, hud.defuseProgress)) * 100}%`,
-              }}
-            />
-            <div className="mt-0.5 text-center text-[9px] font-semibold tracking-widest text-sky-200">
-              DESARMANDO
-            </div>
           </div>
         )}
         {hud.reloading && (

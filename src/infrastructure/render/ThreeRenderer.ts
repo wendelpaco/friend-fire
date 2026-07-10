@@ -24,12 +24,14 @@ import {
 } from "./character";
 import {
   AimReticleSystem,
+  BombActionRadialSystem,
   BombMarkerSystem,
   DamageArcSystem,
   DamageNumberSystem,
   HESystem,
   HitFlashSystem,
   ImpactParticleSystem,
+  type BombActionVisual,
   type ImpactSurface,
   MuzzleFlashSystem,
   TracerSystem,
@@ -230,6 +232,7 @@ export class ThreeRenderer {
   private impactFx: ImpactParticleSystem;
   private wallDamageFx: WallDamageSystem;
   private bombMarkerFx: BombMarkerSystem;
+  private bombActionRadialFx: BombActionRadialSystem;
   private heFx: HESystem;
   private damageNumberFx: DamageNumberSystem;
   private tracerFx: TracerSystem;
@@ -329,6 +332,7 @@ export class ThreeRenderer {
     this.impactFx = new ImpactParticleSystem(this.scene);
     this.wallDamageFx = new WallDamageSystem(this.scene);
     this.bombMarkerFx = new BombMarkerSystem(this.scene);
+    this.bombActionRadialFx = new BombActionRadialSystem(this.scene);
     this.heFx = new HESystem(this.scene);
     this.damageNumberFx = new DamageNumberSystem(this.scene);
     this.tracerFx = new TracerSystem(this.scene);
@@ -567,6 +571,11 @@ export class ThreeRenderer {
     this.bombMarkerFx.setVisual(pos);
   }
 
+  /** World-space plant/defuse radial on the acting character; null to hide. */
+  setBombActionRadial(visual: BombActionVisual | null) {
+    this.bombActionRadialFx.setVisual(visual);
+  }
+
   /**
    * HE grenade: projectile at (x,y,z), or explosion when `explode` is true.
    * Optional `id` for multi-grenade projectile slots. Spec §2.4.
@@ -586,6 +595,7 @@ export class ThreeRenderer {
     this.impactFx.update(dt);
     this.wallDamageFx.update(dt);
     this.bombMarkerFx.update(dt);
+    this.bombActionRadialFx.update(dt, this.camera);
     this.heFx.update(dt);
     this.damageNumberFx.update(dt);
     this.tracerFx.update(dt);
@@ -853,6 +863,7 @@ export class ThreeRenderer {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.bombActionRadialFx.setScreenHeight(height);
   }
 
   dispose() {
@@ -864,6 +875,7 @@ export class ThreeRenderer {
     this.impactFx.dispose();
     this.wallDamageFx.dispose();
     this.bombMarkerFx.dispose();
+    this.bombActionRadialFx.dispose();
     this.heFx.dispose();
     this.damageNumberFx.dispose();
     this.tracerFx.dispose();

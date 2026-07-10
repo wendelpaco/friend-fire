@@ -135,6 +135,20 @@ describe("tickDefuse / onDefuseComplete", () => {
     expect(b.bombState).toBe("planted");
     expect(b.defuseProgress).toBe(0);
   });
+
+  it("uses kit duration when provided (DEFUSE_TIME_KIT)", () => {
+    let b = plantedAt();
+    b = tickDefuse(b, DEFUSE_TIME_KIT / 2, true, true, DEFUSE_TIME_KIT);
+    expect(b.defuseProgress).toBeCloseTo(0.5);
+    b = tickDefuse(b, DEFUSE_TIME_KIT / 2, true, true, DEFUSE_TIME_KIT);
+    expect(b.defuseProgress).toBe(1);
+  });
+
+  it("defaults to 5s without kit arg", () => {
+    let b = plantedAt();
+    b = tickDefuse(b, 5, true, true);
+    expect(b.defuseProgress).toBe(1);
+  });
 });
 
 describe("tickBombTimer / explode", () => {

@@ -11,7 +11,9 @@ type SfxName =
   | "foot"
   | "hit"
   | "kill"
-  | "deny";
+  | "deny"
+  | "bomb_beep"
+  | "bomb_heartbeat";
 
 let ctx: AudioContext | null = null;
 
@@ -131,8 +133,36 @@ export const Sfx = {
       case "foot":
         beep(80 + Math.random() * 20, 0.03, "triangle", 0.04);
         break;
+      case "bomb_beep":
+        // Short C4 tick — callers pass distance-attenuated volume via bombBeep()
+        beep(880, 0.045, "square", 0.1, 640);
+        break;
+      case "bomb_heartbeat":
+        beep(55, 0.09, "sine", 0.09, 40);
+        setTimeout(() => beep(48, 0.08, "sine", 0.07, 35), 110);
+        break;
       default:
         break;
     }
+  },
+
+  /**
+   * Planted-bomb tick with explicit gain (0–1 after master volume).
+   * Used for distance attenuation from the plant site.
+   */
+  bombBeep(gainMul = 0.12) {
+    this.resume();
+    const g = Math.max(0, Math.min(1, gainMul));
+    if (g < 0.01) return;
+    beep(900, 0.04, "square", g * 0.55, 620);
+  },
+
+  /** Soft dual-thump for last ~10s of fuse. */
+  bombHeartbeat(gainMul = 0.08) {
+    this.resume();
+    const g = Math.max(0, Math.min(1, gainMul));
+    if (g < 0.01) return;
+    beep(55, 0.09, "sine", g * 0.7, 40);
+    setTimeout(() => beep(48, 0.08, "sine", g * 0.55, 35), 110);
   },
 };

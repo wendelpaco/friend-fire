@@ -218,6 +218,10 @@ export interface HudSnapshot {
   bombState: BombState;
   /** Seconds until explode when planted/defusing; 0 otherwise. */
   bombTimer: number;
+  /** Planted bomb world X (radar pulse); 0 when not down. */
+  bombX: number;
+  /** Planted bomb world Z (radar pulse); 0 when not down. */
+  bombZ: number;
   /** 0–1 plant hold progress. */
   plantProgress: number;
   /** 0–1 defuse hold progress. */
