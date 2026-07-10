@@ -163,6 +163,11 @@ export interface HudSnapshot {
   hp: number;
   armor: number;
   money: number;
+  /**
+   * What local team would earn on the **next** loss (classic CS ladder).
+   * Useful eco HUD during buy freezetime.
+   */
+  nextLossBonus: number;
   mag: number;
   reserve: number;
   weaponName: string;

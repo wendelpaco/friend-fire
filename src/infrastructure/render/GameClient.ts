@@ -38,6 +38,7 @@ import {
   applyDefaultLoadout,
   applyRoundEconomy,
   clampMoney,
+  nextLossBonus,
   onDefuseComplete,
   onPlantComplete,
   onRoundWin,
@@ -2138,6 +2139,7 @@ export class GameClient {
    * CS-like horizontal + jump/crouch.
    * Prefers Rapier CharacterController when WASM ready; else AABB motor.
    * Crouch is **toggle** (Control edge). Free cam pans view only.
+   * Buy freezetime: wish 0 / no jump (CS freeze).
    */
   private applyPlayerMotor(
     p: PlayerState,
@@ -2156,9 +2158,11 @@ export class GameClient {
       p.crouching = !p.crouching;
     }
 
-    const wishX = opts.freeCamPan ? 0 : move.x;
-    const wishZ = opts.freeCamPan ? 0 : move.z;
-    const jump = this.input.wasJumpPressed();
+    // Buy phase = freezetime: no locomotion (wish 0), free-cam pan still ok
+    const freezeBuy = this.state.phase === "buy";
+    const wishX = opts.freeCamPan || freezeBuy ? 0 : move.x;
+    const wishZ = opts.freeCamPan || freezeBuy ? 0 : move.z;
+    const jump = freezeBuy ? false : this.input.wasJumpPressed();
     const prevX = p.x;
     const prevZ = p.z;
 
@@ -2849,11 +2853,15 @@ export class GameClient {
       this.lastPerfPublishAt = 0;
     }
 
+    const teamStreak =
+      p.team === "TR" ? this.state.lossStreakTR : this.state.lossStreakCT;
+
     this.onHud({
       fps: this.fpsDisplay,
       hp,
       armor,
       money: p.money,
+      nextLossBonus: nextLossBonus(teamStreak),
       mag,
       reserve,
       weaponName: def?.name ?? "—",

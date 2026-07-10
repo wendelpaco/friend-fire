@@ -91,7 +91,12 @@ const KILL_REWARD = 300;
 const ROUND_WIN_REWARD = 3250;
 const ROUND_LOSS_REWARD = 1400;
 const MAX_MONEY = 16_000;
-const LOSS_BONUS_STEPS = [500, 1000, 1500, 1900, 2400] as const;
+/**
+ * CS consecutive-loss bonus on top of ROUND_LOSS_REWARD for losses 1…5.
+ * Totals: $1400, $1900, $2400, $2900, $3400 (classic CS ladder).
+ * Keep in sync with domains/match/economy.ts LOSS_BONUS_STEPS.
+ */
+const LOSS_BONUS_STEPS = [0, 500, 1000, 1500, 2000] as const;
 /** Warmup respawn delay — short so deaths don't feel like a soft-lock. */
 const WARMUP_RESPAWN_MS = 1200;
 
@@ -102,7 +107,7 @@ function clampMoney(n: number): number {
 
 function lossPayout(consecutiveLosses: number): number {
   const n = Math.max(1, Math.min(5, Math.floor(consecutiveLosses)));
-  return ROUND_LOSS_REWARD + (LOSS_BONUS_STEPS[n - 1] ?? 2400);
+  return ROUND_LOSS_REWARD + (LOSS_BONUS_STEPS[n - 1] ?? 2000);
 }
 
 /** Known maps for room create / browser metadata */
@@ -476,7 +481,7 @@ export class GameRoom extends Room<MatchState> {
     // Humans
     this.state.players.forEach((p, key) => {
       if (p.isBot || !p.alive) return;
-      // Move during warmup / buy / live; combat inputs still gated in tryFire
+      // Process during warmup / buy freezetime / live; combat gated in tryFire
       if (
         this.phase.phase !== "live" &&
         this.phase.phase !== "warmup" &&
@@ -488,8 +493,12 @@ export class GameRoom extends Room<MatchState> {
       const ex = this.ensureExtra(key, p);
       if (!input) return;
 
+      // Buy freezetime: no XZ wish / jump (shop only; crouch toggle still ok)
+      const freezeBuy = this.phase.phase === "buy";
+
       // Jump edge + crouch toggle (edge on hold bit) + XZ walls (same motor as client)
-      const jumpEdge = Boolean(input.jump) && !ex.jumpHeld;
+      const jumpEdge =
+        !freezeBuy && Boolean(input.jump) && !ex.jumpHeld;
       ex.jumpHeld = Boolean(input.jump);
       const crouchEdge = Boolean(input.crouch) && !ex.crouchHeld;
       ex.crouchHeld = Boolean(input.crouch);
@@ -506,8 +515,8 @@ export class GameRoom extends Room<MatchState> {
           onGround: p.onGround,
         },
         {
-          wishX: input.dx,
-          wishZ: input.dz,
+          wishX: freezeBuy ? 0 : input.dx,
+          wishZ: freezeBuy ? 0 : input.dz,
           jump: jumpEdge,
           crouch: p.crouching,
           dt,

@@ -484,6 +484,14 @@ function GameHudImpl({
           <span className="text-lg font-black tabular-nums text-emerald-400">
             ${hud.money.toLocaleString("pt-BR")}
           </span>
+          {hud.phase === "buy" && hud.nextLossBonus > 0 && (
+            <div
+              className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/40"
+              title="Bônus de derrota se perder o próximo round"
+            >
+              loss ${hud.nextLossBonus.toLocaleString("pt-BR")}
+            </div>
+          )}
         </div>
         <div
           className={`rounded-lg border bg-black/65 px-3 py-2 backdrop-blur-md ${

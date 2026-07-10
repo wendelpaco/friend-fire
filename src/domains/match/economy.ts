@@ -16,10 +16,13 @@ export const MAX_MONEY = 16_000;
 export const START_MONEY = 800;
 
 /**
- * CS loss bonus steps for consecutive losses 1…5
- * (added on top of ROUND_LOSS_REWARD).
+ * CS consecutive-loss bonus **added on top of** ROUND_LOSS_REWARD for losses 1…5.
+ * Totals: $1400, $1900, $2400, $2900, $3400 (classic CS ladder).
  */
-export const LOSS_BONUS_STEPS = [500, 1000, 1500, 1900, 2400] as const;
+export const LOSS_BONUS_STEPS = [0, 500, 1000, 1500, 2000] as const;
+
+/** Classic CS loss payout totals for consecutive losses 1…5. */
+export const LOSS_PAYOUT_TOTALS = [1400, 1900, 2400, 2900, 3400] as const;
 
 export function clampMoney(n: number): number {
   if (!Number.isFinite(n)) return 0;
@@ -28,11 +31,21 @@ export function clampMoney(n: number): number {
 
 /**
  * @param consecutiveLosses how many losses in a row **including** this round (1…5+)
+ * @returns classic CS total: 1400 / 1900 / 2400 / 2900 / 3400
  */
 export function lossPayout(consecutiveLosses: number): number {
   const n = Math.max(1, Math.min(5, Math.floor(consecutiveLosses)));
-  const bonus = LOSS_BONUS_STEPS[n - 1] ?? 2400;
+  const bonus = LOSS_BONUS_STEPS[n - 1] ?? 2000;
   return ROUND_LOSS_REWARD + bonus;
+}
+
+/**
+ * What the team would earn if they **lose the next** round, given current streak
+ * (streak is consecutive losses already banked, 0…5).
+ */
+export function nextLossBonus(currentStreak: number): number {
+  const c = Math.max(0, Math.floor(currentStreak));
+  return lossPayout(Math.min(5, c + 1));
 }
 
 /** After a round: win → streak 0; loss → streak+1 (capped 5). */
@@ -61,7 +74,7 @@ export function applyRoundEconomy<
   const nextTR = nextLossStreak(lossStreakTR, winner === "TR");
   const nextCT = nextLossStreak(lossStreakCT, winner === "CT");
 
-  // Payout uses the streak **after** this loss for losers (CS style first-loss = 1900)
+  // Payout uses the streak **after** this loss for losers (CS: first loss = $1400)
   const trPay =
     winner === "TR" ? ROUND_WIN_REWARD : lossPayout(nextTR);
   const ctPay =
