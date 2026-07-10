@@ -51,11 +51,22 @@ describe("shouldShowControlHints", () => {
 });
 
 describe("bumpRoundsPlayedOnPhase", () => {
-  it("increments only on live → ended", () => {
+  it("increments on live → ended and live → match_over", () => {
     expect(bumpRoundsPlayedOnPhase(0, "live", "ended")).toBe(1);
+    expect(bumpRoundsPlayedOnPhase(0, "live", "match_over")).toBe(1);
+    expect(bumpRoundsPlayedOnPhase(1, "live", "match_over")).toBe(2);
     expect(bumpRoundsPlayedOnPhase(1, "buy", "live")).toBe(1);
     expect(bumpRoundsPlayedOnPhase(1, "live", "live")).toBe(1);
     expect(bumpRoundsPlayedOnPhase(2, null, "ended")).toBe(2);
+  });
+
+  it("caps at CONTROL_HINTS_MAX_ROUNDS", () => {
+    expect(
+      bumpRoundsPlayedOnPhase(CONTROL_HINTS_MAX_ROUNDS, "live", "ended"),
+    ).toBe(CONTROL_HINTS_MAX_ROUNDS);
+    expect(
+      bumpRoundsPlayedOnPhase(CONTROL_HINTS_MAX_ROUNDS, "live", "match_over"),
+    ).toBe(CONTROL_HINTS_MAX_ROUNDS);
   });
 });
 

@@ -148,4 +148,25 @@ describe("visibleLiveChatMessages", () => {
       visibleLiveChatMessages(msgs, 12000, { count: 2, fadeMs: 6000 }),
     ).toEqual([]);
   });
+
+  it("expires network-shaped rows when at is receipt-time performance.now", () => {
+    // appendNetworkChat stamps performance.now at receipt (not server Date.now).
+    // Fade filter uses the same monotic clock — aged messages must leave the dock.
+    const receiptPerf = 12_000;
+    const msgs = [
+      { id: "net-old", at: receiptPerf - 7000 }, // age 7s > 6s fade
+      { id: "net-fresh", at: receiptPerf - 500 }, // age 0.5s — visible
+    ];
+    expect(
+      visibleLiveChatMessages(msgs, receiptPerf, { count: 2, fadeMs: 6000 }).map(
+        (m) => m.id,
+      ),
+    ).toEqual(["net-fresh"]);
+    expect(
+      visibleLiveChatMessages(msgs, receiptPerf + 6000, {
+        count: 2,
+        fadeMs: 6000,
+      }),
+    ).toEqual([]);
+  });
 });

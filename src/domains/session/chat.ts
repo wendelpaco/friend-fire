@@ -95,7 +95,8 @@ export function parseLiveChatOutbound(
 
 /**
  * Messages visible in the collapsed live dock (last N, still within fade window).
- * `now` should use the same clock as ChatEntry.at (performance.now in client).
+ * `now` must use the same clock as ChatEntry.at (performance.now on the client;
+ * network rows are re-stamped at receipt in appendNetworkChat).
  */
 export function visibleLiveChatMessages<T extends { at: number }>(
   messages: readonly T[],

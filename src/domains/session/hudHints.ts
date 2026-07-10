@@ -17,8 +17,9 @@ export function shouldShowControlHints(opts: {
 }
 
 /**
- * Bump onboarding counter when a live round completes (live → ended).
- * Does not cap — caller compares against CONTROL_HINTS_MAX_ROUNDS.
+ * Bump onboarding counter when a live round completes.
+ * Counts live → ended (mid-match) and live → match_over (deciding round).
+ * Caps at CONTROL_HINTS_MAX_ROUNDS so storage stays small.
  */
 export function bumpRoundsPlayedOnPhase(
   roundsPlayed: number,
@@ -26,8 +27,11 @@ export function bumpRoundsPlayedOnPhase(
   nextPhase: string,
 ): number {
   const n = Number.isFinite(roundsPlayed) ? Math.max(0, Math.floor(roundsPlayed)) : 0;
-  if (prevPhase === "live" && nextPhase === "ended") {
-    return n + 1;
+  if (
+    prevPhase === "live" &&
+    (nextPhase === "ended" || nextPhase === "match_over")
+  ) {
+    return Math.min(n + 1, CONTROL_HINTS_MAX_ROUNDS);
   }
   return n;
 }

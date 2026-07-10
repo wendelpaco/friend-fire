@@ -994,6 +994,7 @@ export class GameClient {
     channel: ChatChannel;
     fromName: string;
     text: string;
+    /** Ignored — always stamp with performance.now for fade clock parity. */
     at?: number;
   }) {
     const kind: ChatEntry["kind"] =
@@ -1002,13 +1003,15 @@ export class GameClient {
         : entry.channel === "squad"
           ? "squad"
           : "all";
+    // Use receipt-time performance.now(), never server/Date.now wall clock.
+    // visibleLiveChatMessages ages with the same monotic clock (GameHud chatNow).
     this.state.chat.push({
       id: entry.id || uid("chat"),
       from: entry.fromName,
       text: entry.text.slice(0, 120),
       kind,
       channel: entry.channel,
-      at: entry.at ?? performance.now(),
+      at: performance.now(),
     });
     this.state.chat = this.state.chat.slice(-16);
   }

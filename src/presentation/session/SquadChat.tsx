@@ -92,11 +92,9 @@ export function SquadChat({
   const submit = useCallback(() => {
     const parsed = parseLiveChatOutbound(draft, channel);
     if (!parsed) return;
+    // Channel tabs are sticky; slash commands (/todos etc.) are one-shot only
+    // and never change the selected tab (parse uses tab as defaultChannel).
     onSend(parsed.channel, parsed.text);
-    // Sticky channel only when user explicitly picked tab; /todos is one-shot.
-    if (parsed.channel !== channel && !draft.trim().startsWith("/")) {
-      setChannel(parsed.channel);
-    }
     setDraft("");
     inputRef.current?.focus();
   }, [channel, draft, onSend]);

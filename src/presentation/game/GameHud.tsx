@@ -172,7 +172,10 @@ function GameHudImpl({
   onChatFocusChange,
 }: GameHudProps) {
   const [showSettings, setShowSettings] = useState(false);
-  const [roundsPlayed, setRoundsPlayed] = useState(0);
+  // Lazy-init from localStorage to avoid first-paint flash of control hints.
+  const [roundsPlayed, setRoundsPlayed] = useState(() =>
+    readRoundsPlayed(typeof window !== "undefined" ? localStorage : null),
+  );
   const prevPhaseRef = useRef<string | null>(null);
   const [liveChatOpen, setLiveChatOpen] = useState(false);
   const [liveChatDraft, setLiveChatDraft] = useState("");
@@ -182,11 +185,6 @@ function GameHudImpl({
   useEffect(() => {
     if (!hud.paused) setShowSettings(false);
   }, [hud.paused]);
-
-  // Onboarding: count completed live rounds (persisted).
-  useEffect(() => {
-    setRoundsPlayed(readRoundsPlayed(typeof window !== "undefined" ? localStorage : null));
-  }, []);
 
   useEffect(() => {
     const prev = prevPhaseRef.current;
@@ -255,6 +253,18 @@ function GameHudImpl({
       visibleLiveChatMessages(hud.chat, chatNow || performance.now()),
     [hud.chat, chatNow],
   );
+
+  /** Badge reflects one-shot slash override while composing (default TIME). */
+  const liveChatChannelBadge = useMemo(() => {
+    const m = liveChatDraft
+      .trim()
+      .match(/^\/(todos|all|time|team|squad)(?:\s|$)/i);
+    if (!m) return "TIME";
+    const cmd = m[1]!.toLowerCase();
+    if (cmd === "todos" || cmd === "all") return "TODOS";
+    if (cmd === "squad") return "SQUAD";
+    return "TIME";
+  }, [liveChatDraft]);
 
   // Only equipped weapons (empty slots never mount).
   const equippedWeapons = useMemo(
@@ -487,8 +497,16 @@ function GameHudImpl({
                 submitLiveChat();
               }}
             >
-              <span className="shrink-0 rounded bg-orange-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-orange-200">
-                TIME
+              <span
+                className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                  liveChatChannelBadge === "TODOS"
+                    ? "bg-sky-500/20 text-sky-200"
+                    : liveChatChannelBadge === "SQUAD"
+                      ? "bg-violet-500/20 text-violet-200"
+                      : "bg-orange-500/20 text-orange-200"
+                }`}
+              >
+                {liveChatChannelBadge}
               </span>
               <input
                 ref={liveChatInputRef}
