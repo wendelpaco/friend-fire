@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AdBanner } from "@/presentation/ads/AdBanner";
 import { GAME_NAME, GAME_TAGLINE } from "@/game/constants";
 import {
@@ -10,22 +10,36 @@ import {
   getMissionsWithProgress,
   getXp,
   progressInTier,
+  setRegion as persistIdentityRegion,
   xpToTier,
   type DailyMission,
 } from "@/domains/identity";
 import { operatorSelectHref } from "@/domains/operator";
+import {
+  getGraphicsQuality,
+  setGraphicsQuality,
+  type GraphicsQuality,
+} from "@/domains/prefs";
+import {
+  extractRoomCodeFromText,
+  isValidRoomCode,
+  normalizeRoomCode,
+  parseSalaQuery,
+} from "@/domains/session";
 import {
   getLastMapId,
   listMaps,
   setLastMapId,
   type MapId,
 } from "@/domains/world";
+import { measurePing } from "@/infrastructure/realtime/ping";
 import {
   clearLastRoom,
   getLastRoom,
   getRoomClient,
   type LastRoom,
 } from "@/infrastructure/realtime/roomClient";
+import { CopyInviteLink } from "@/presentation/lobby/CopyInviteLink";
 import { LeaderboardPanel } from "@/presentation/lobby/LeaderboardPanel";
 import {
   RoomPanel,
@@ -51,6 +65,16 @@ function readStorage<T>(key: string, fallback: T, parse?: (v: string) => T): T {
 const DEFAULT_NICKNAME = "Operador";
 const DEFAULT_REGION: "BR" | "US" = "BR";
 const DEFAULT_VOLUME = 70;
+const PING_INTERVAL_MS = 8000;
+const PRESENCE_INTERVAL_MS = 15000;
+/** Client-side join debounce (G3) — avoid spam on double-click. */
+const JOIN_DEBOUNCE_MS = 700;
+
+const QUALITY_OPTIONS: { id: GraphicsQuality; label: string }[] = [
+  { id: "low", label: "Baixa" },
+  { id: "medium", label: "Média" },
+  { id: "high", label: "Alta" },
+];
 
 export function MainMenu() {
   const router = useRouter();
@@ -61,6 +85,7 @@ export function MainMenu() {
   const [editingName, setEditingName] = useState(false);
   const [roomPanel, setRoomPanel] = useState<RoomPanelMode | null>(null);
   const [serverBrowserOpen, setServerBrowserOpen] = useState(false);
+  const [regionModalOpen, setRegionModalOpen] = useState(false);
   const [missions, setMissions] = useState<DailyMission[]>([]);
   const [xpTotal, setXpTotal] = useState(0);
   const [lastMap, setLastMap] = useState("dust");
@@ -71,6 +96,21 @@ export function MainMenu() {
   const [lastRoom, setLastRoomState] = useState<LastRoom | null>(null);
   const [rejoinBusy, setRejoinBusy] = useState(false);
   const [rejoinError, setRejoinError] = useState<string | null>(null);
+
+  // —— Room code hero ——
+  const [codeInput, setCodeInput] = useState("");
+  const [codeHighlight, setCodeHighlight] = useState(false);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const codeInputRef = useRef<HTMLInputElement>(null);
+  const lastJoinAt = useRef(0);
+  const deepLinkApplied = useRef(false);
+
+  // —— Region ping / presence / quality ——
+  const [pingMs, setPingMs] = useState<number | null>(null);
+  const [playersOnline, setPlayersOnline] = useState<number | null>(null);
+  const [presenceOk, setPresenceOk] = useState(false);
+  const [quality, setQuality] = useState<GraphicsQuality>("medium");
 
   // Hydrate prefs from localStorage after mount (client-only).
   useEffect(() => {
@@ -90,6 +130,86 @@ export function MainMenu() {
     setXpTotal(getXp());
     setLastMap(getLastMapId("dust"));
     setLastRoomState(getLastRoom());
+    setQuality(getGraphicsQuality());
+  }, []);
+
+  // Deep link ?sala=CODE (or ?code=) + optional clipboard auto-paste of valid code.
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    deepLinkApplied.current = true;
+
+    const fromQuery = parseSalaQuery(window.location.search);
+    if (fromQuery) {
+      setCodeInput(fromQuery);
+      setCodeHighlight(true);
+      window.setTimeout(() => setCodeHighlight(false), 1200);
+      // Focus after paint so the hero input is ready.
+      window.requestAnimationFrame(() => codeInputRef.current?.focus());
+      return;
+    }
+
+    // Soft clipboard paste — only when field empty and content is a valid code.
+    const tryClip = async () => {
+      try {
+        if (!navigator.clipboard?.readText) return;
+        const text = await navigator.clipboard.readText();
+        const code = extractRoomCodeFromText(text);
+        if (!code) return;
+        setCodeInput((prev) => (prev.trim() ? prev : code));
+      } catch {
+        /* permission denied or unavailable — ignore */
+      }
+    };
+    void tryClip();
+    window.requestAnimationFrame(() => codeInputRef.current?.focus());
+  }, []);
+
+  // Live ping (periodic).
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      const ms = await measurePing();
+      if (!alive) return;
+      setPingMs(ms);
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), PING_INTERVAL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  // Real presence via room listing — never invent a static number.
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const list = await getRoomClient().listRooms({ visibility: "public" });
+        if (!alive) return;
+        if (!Array.isArray(list)) {
+          setPresenceOk(false);
+          setPlayersOnline(null);
+          return;
+        }
+        const total = list.reduce(
+          (sum, r) => sum + (Number.isFinite(r.clients) ? r.clients : 0),
+          0,
+        );
+        setPlayersOnline(total);
+        setPresenceOk(true);
+      } catch {
+        if (!alive) return;
+        setPresenceOk(false);
+        setPlayersOnline(null);
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), PRESENCE_INTERVAL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
   }, []);
 
   /** Path B: always visit operator select before /play (re-pick allowed). */
@@ -98,6 +218,8 @@ export function MainMenu() {
   const rank = xpToTier(xpTotal);
   const rankProgress = progressInTier(xpTotal);
   const lobbyMaps = listMaps();
+  const codeNormalized = normalizeRoomCode(codeInput);
+  const codeValid = isValidRoomCode(codeNormalized);
 
   const selectLobbyMap = (id: string) => {
     const mapId = (id === "favela" || id === "yard" || id === "dust"
@@ -105,6 +227,47 @@ export function MainMenu() {
       : "dust") as MapId;
     setLastMapId(mapId);
     setLastMap(mapId);
+  };
+
+  const goToRoom = useCallback(
+    (code: string, host = false, roomMapId?: string) => {
+      const qs = new URLSearchParams({
+        mode: "room",
+        code,
+      });
+      if (host) qs.set("host", "1");
+      const map =
+        roomMapId || getLastMapId("dust") || lastMap || "dust";
+      qs.set("map", map);
+      setLastMapId(map);
+      setLastMap(map);
+      router.push(operatorSelectHref(`/play?${qs.toString()}`));
+    },
+    [lastMap, router],
+  );
+
+  const handleJoinByCode = async () => {
+    setJoinError(null);
+    const code = normalizeRoomCode(codeInput);
+    if (!isValidRoomCode(code)) {
+      setJoinError("Código inválido. Use 6 caracteres (A–Z, 2–9, sem O/0/I/1).");
+      return;
+    }
+    const now = Date.now();
+    if (now - lastJoinAt.current < JOIN_DEBOUNCE_MS || joinBusy) return;
+    lastJoinAt.current = now;
+    setJoinBusy(true);
+    try {
+      const client = getRoomClient();
+      await client.join(code);
+      const snap = client.snapshot();
+      goToRoom(code, false, snap.mapId || undefined);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Falha ao entrar na sala";
+      setJoinError(msg.includes("Sala não existe") ? "Sala não existe" : msg);
+    } finally {
+      setJoinBusy(false);
+    }
   };
 
   const cancelQuickMatch = () => {
@@ -160,7 +323,6 @@ export function MainMenu() {
       ]);
       const { code, host } = result;
       if (gen !== quickMatchGen.current) {
-        // Drop seat only if we still own this room (not a newer search).
         if (client.getCode() === code) await client.leave();
         return;
       }
@@ -206,12 +368,21 @@ export function MainMenu() {
 
   const setRegionPersist = (r: "BR" | "US") => {
     setRegion(r);
+    persistIdentityRegion(r);
     try {
       localStorage.setItem("ff_region", r);
     } catch {
       /* ignore */
     }
   };
+
+  const setQualityPersist = (q: GraphicsQuality) => {
+    setQuality(q);
+    setGraphicsQuality(q);
+  };
+
+  const pingLabel =
+    pingMs != null ? `${pingMs}ms` : "—";
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#07090e] text-white scanlines">
@@ -226,7 +397,6 @@ export function MainMenu() {
           }}
         />
         <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-orange-950/40 to-transparent" />
-        {/* Floating particles (CSS-only, sparse) */}
         <div className="absolute inset-0 overflow-hidden motion-safe:opacity-100" aria-hidden>
           <div className="absolute left-[15%] top-[20%] h-1 w-1 rounded-full bg-amber-400/30 motion-safe:animate-[float_8s_ease-in-out_infinite]" />
           <div className="absolute left-[35%] top-[45%] h-1.5 w-1.5 rounded-full bg-orange-400/20 motion-safe:animate-[float_10s_ease-in-out_infinite_2s]" />
@@ -234,33 +404,21 @@ export function MainMenu() {
           <div className="absolute left-[78%] top-[55%] h-0.5 w-0.5 rounded-full bg-yellow-400/30 motion-safe:animate-[float_7s_ease-in-out_infinite_1s]" />
           <div className="absolute left-[22%] top-[65%] h-1 w-1 rounded-full bg-amber-400/20 motion-safe:animate-[float_11s_ease-in-out_infinite_3s]" />
         </div>
-        {/* Soldier silhouette (CSS shapes — enhanced tactical operator) */}
         <div className="absolute bottom-0 right-[3%] hidden h-[82%] w-[min(44vw,440px)] opacity-[0.18] lg:block motion-safe:animate-ff-fade-in">
-          {/* Torso / tactical vest */}
           <div className="absolute bottom-[15%] left-1/2 h-[40%] w-[34%] -translate-x-1/2 rounded-t-[35%] bg-gradient-to-b from-amber-700/70 via-amber-800/50 to-stone-900" />
-          {/* Vest straps */}
           <div className="absolute bottom-[30%] left-1/2 h-[2%] w-[36%] -translate-x-1/2 bg-amber-600/50" />
           <div className="absolute bottom-[38%] left-1/2 h-[2%] w-[32%] -translate-x-1/2 bg-amber-600/40" />
-          {/* Helmet / head */}
           <div className="absolute bottom-[48%] left-1/2 h-[13%] w-[20%] -translate-x-1/2 rounded-t-[45%] bg-gradient-to-b from-amber-700/90 to-amber-800/70" />
-          {/* Visor / face area */}
           <div className="absolute bottom-[51%] left-1/2 h-[5%] w-[10%] -translate-x-1/2 rounded-sm bg-stone-950/80" />
-          {/* Right arm + weapon */}
           <div className="absolute bottom-[42%] left-[64%] h-[8%] w-[52%] origin-left -rotate-[6deg] rounded-sm bg-gradient-to-r from-stone-700 to-stone-500" />
-          {/* Weapon barrel */}
           <div className="absolute bottom-[44%] left-[85%] h-[3%] w-[18%] origin-left -rotate-[6deg] rounded-r-sm bg-stone-400/80" />
-          {/* Left arm */}
           <div className="absolute bottom-[38%] left-[10%] h-[8%] w-[20%] origin-right rotate-[15deg] rounded-sm bg-stone-700/70" />
-          {/* Left leg / boot */}
           <div className="absolute bottom-0 left-[28%] h-[20%] w-[13%] rounded-t-md bg-gradient-to-b from-stone-800 to-stone-950" />
           <div className="absolute bottom-0 left-[26%] h-[5%] w-[16%] rounded-sm bg-stone-950" />
-          {/* Right leg / boot */}
           <div className="absolute bottom-0 right-[28%] h-[20%] w-[13%] rounded-t-md bg-gradient-to-b from-stone-800 to-stone-950" />
           <div className="absolute bottom-0 right-[26%] h-[5%] w-[16%] rounded-sm bg-stone-950" />
-          {/* Backpack */}
           <div className="absolute bottom-[28%] left-[22%] h-[12%] w-[16%] rounded-md bg-stone-800/60" />
         </div>
-        {/* Muzzle flash hint */}
         <div className="absolute right-[14%] top-[36%] hidden h-28 w-28 rounded-full bg-orange-400/15 blur-2xl lg:block motion-safe:animate-ff-pulse-glow" />
       </div>
 
@@ -281,10 +439,10 @@ export function MainMenu() {
         </div>
       </div>
 
-      <div className="relative z-10 mx-auto grid min-h-[calc(100vh-3.5rem)] max-w-6xl gap-10 px-5 py-8 motion-safe:animate-ff-fade-in lg:grid-cols-[1fr_340px] lg:items-center lg:px-10">
-        {/* Left: logo + nav */}
+      <div className="relative z-10 mx-auto grid min-h-[calc(100vh-3.5rem)] max-w-6xl gap-10 px-5 py-8 motion-safe:animate-ff-fade-in lg:grid-cols-[1fr_340px] lg:items-start lg:px-10 lg:pt-12">
+        {/* Left: logo + room hero + nav */}
         <div className="max-w-md">
-          <div className="mb-8">
+          <div className="mb-6">
             <p className="mb-2 text-[10px] font-semibold tracking-[0.35em] text-amber-500/80">
               ONLINE · BROWSER
             </p>
@@ -297,6 +455,132 @@ export function MainMenu() {
             <p className="mt-3 text-xs font-medium tracking-[0.28em] text-white/40">
               {GAME_TAGLINE}
             </p>
+          </div>
+
+          {/* Region chip + honest presence */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setRegionModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/50 px-3 py-1.5 text-xs font-semibold tabular-nums text-white/85 backdrop-blur-sm transition hover:border-amber-400/40 hover:bg-black/70"
+              title="Escolher região"
+            >
+              <span className="text-amber-200/90">{region}</span>
+              <span className="text-white/25">·</span>
+              <span
+                className={
+                  pingMs != null && pingMs < 80
+                    ? "text-emerald-300/90"
+                    : pingMs != null && pingMs < 160
+                      ? "text-amber-300/90"
+                      : "text-white/50"
+                }
+              >
+                {pingLabel}
+              </span>
+            </button>
+            {presenceOk && playersOnline != null ? (
+              <span className="rounded-full border border-white/10 bg-black/40 px-3 py-1.5 text-[11px] tabular-nums text-white/50">
+                {playersOnline === 0
+                  ? "Sala privada · bots preenchem"
+                  : `${playersOnline} jogando agora`}
+              </span>
+            ) : (
+              <span className="rounded-full border border-white/10 bg-black/40 px-3 py-1.5 text-[11px] text-white/40">
+                Sala privada · bots preenchem
+              </span>
+            )}
+          </div>
+
+          {/* —— HERO: room code —— */}
+          <div className="mb-4 rounded-2xl border border-amber-400/25 bg-black/50 p-4 shadow-[0_0_40px_rgba(245,158,11,0.08)] backdrop-blur-md">
+            <label
+              htmlFor="lobby-room-code"
+              className="text-[10px] font-semibold uppercase tracking-[0.28em] text-amber-500/80"
+            >
+              Código da sala
+            </label>
+            <input
+              ref={codeInputRef}
+              id="lobby-room-code"
+              autoFocus
+              value={codeInput}
+              maxLength={8}
+              spellCheck={false}
+              autoComplete="off"
+              placeholder="ABC234"
+              aria-label="Código da sala"
+              onChange={(e) => {
+                setCodeInput(
+                  e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""),
+                );
+                setJoinError(null);
+              }}
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text");
+                const extracted = extractRoomCodeFromText(text);
+                if (extracted) {
+                  e.preventDefault();
+                  setCodeInput(extracted);
+                  setJoinError(null);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleJoinByCode();
+              }}
+              className={`mt-2 w-full rounded-xl border bg-black/60 px-4 py-4 text-center font-mono text-3xl font-black tracking-[0.35em] text-amber-100 outline-none placeholder:text-white/20 focus:border-amber-400/70 ${
+                codeHighlight
+                  ? "border-amber-400/80 motion-safe:animate-ff-flash-amber ring-2 ring-amber-400/40"
+                  : "border-white/15"
+              }`}
+            />
+            <p className="mt-2 text-center text-[11px] text-white/35">
+              6 caracteres · sem O, 0, I ou 1 · cola automática se o clipboard for código
+            </p>
+
+            {joinError && (
+              <p
+                role="alert"
+                className="mt-3 rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-sm text-red-300"
+              >
+                {joinError}
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setRoomPanel("create")}
+                className="motion-safe:animate-ff-pulse-glow rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-600 to-amber-500 px-5 py-3.5 text-center text-sm font-black tracking-[0.2em] text-black shadow-lg shadow-amber-900/35 transition hover:from-amber-500 hover:to-amber-400 active:scale-[0.98]"
+              >
+                CRIAR SALA
+              </button>
+              <button
+                type="button"
+                disabled={joinBusy || codeInput.length === 0}
+                onClick={() => void handleJoinByCode()}
+                className="rounded-xl border border-white/15 bg-black/45 px-5 py-3.5 text-center text-sm font-semibold tracking-[0.18em] text-white/85 transition hover:border-amber-400/35 hover:bg-black/60 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {joinBusy ? "Entrando…" : "ENTRAR"}
+              </button>
+              {codeValid ? (
+                <CopyInviteLink
+                  code={codeNormalized}
+                  host={false}
+                  mapId={lastMap || "dust"}
+                  label="COPIAR CONVITE"
+                />
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  title="Informe um código válido para copiar o convite"
+                  className="rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-semibold tracking-wide text-white/35 disabled:cursor-not-allowed"
+                >
+                  COPIAR CONVITE
+                </button>
+              )}
+            </div>
           </div>
 
           {/* profile card */}
@@ -365,7 +649,7 @@ export function MainMenu() {
             </div>
           </div>
 
-          {/* map cards — quick play / online match map */}
+          {/* map cards */}
           <div className="mb-4">
             <p className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/35">
               Mapa
@@ -420,41 +704,26 @@ export function MainMenu() {
             </div>
           </div>
 
+          {/* Secondary actions — not the hero */}
           <nav className="flex flex-col gap-2">
             <Link
               href={quickPlayHref}
-              className="motion-safe:animate-ff-pulse-glow rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-600 to-amber-500 px-5 py-3.5 text-center text-sm font-black tracking-[0.2em] text-black shadow-lg shadow-amber-900/35 motion-safe:transition-all motion-safe:duration-150 hover:from-amber-500 hover:to-amber-400 hover:shadow-amber-700/40 active:scale-[0.98]"
+              className="rounded-xl border border-white/15 bg-black/45 px-5 py-3 text-center text-xs font-semibold tracking-[0.18em] text-white/80 transition hover:border-amber-400/35 hover:bg-black/60 hover:text-amber-100"
             >
-              JOGO RÁPIDO
+              JOGO RÁPIDO · LOCAL
             </Link>
             <Link
               href={operatorSelectHref("/")}
-              className="rounded-xl border border-white/15 bg-black/45 px-5 py-3 text-center text-xs font-semibold tracking-[0.18em] text-white/80 transition hover:border-amber-400/35 hover:bg-black/60 hover:text-amber-100"
+              className="rounded-xl border border-white/10 bg-black/35 px-5 py-2.5 text-center text-xs font-semibold tracking-[0.18em] text-white/70 transition hover:border-white/20 hover:text-white"
             >
               OPERADOR
             </Link>
-            <button
-              type="button"
-              disabled={quickMatchBusy}
-              onClick={() => void handleQuickMatchOnline()}
-              className="rounded-xl border border-sky-400/40 bg-gradient-to-r from-sky-700 to-sky-600 px-5 py-3.5 text-center text-sm font-black tracking-[0.14em] text-white shadow-lg shadow-sky-950/40 transition hover:from-sky-600 hover:to-sky-500 disabled:cursor-not-allowed disabled:opacity-55"
-            >
-              JOGO RÁPIDO ONLINE
-            </button>
-            {quickMatchError && (
-              <p
-                role="alert"
-                className="motion-safe:animate-ff-shake rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
-              >
-                {quickMatchError}
-              </p>
-            )}
             {lastRoom?.code ? (
               <button
                 type="button"
-                disabled={rejoinBusy || quickMatchBusy}
+                disabled={rejoinBusy || quickMatchBusy || joinBusy}
                 onClick={() => void handleRejoinLastRoom()}
-                className="rounded-xl border border-emerald-400/35 bg-gradient-to-r from-emerald-900/80 to-emerald-800/70 px-5 py-3.5 text-center text-sm font-semibold tracking-wide text-emerald-100 shadow-lg shadow-emerald-950/30 transition hover:from-emerald-800 hover:to-emerald-700 disabled:cursor-not-allowed disabled:opacity-55"
+                className="rounded-xl border border-emerald-400/35 bg-gradient-to-r from-emerald-900/80 to-emerald-800/70 px-5 py-3 text-center text-sm font-semibold tracking-wide text-emerald-100 shadow-lg shadow-emerald-950/30 transition hover:from-emerald-800 hover:to-emerald-700 disabled:cursor-not-allowed disabled:opacity-55"
               >
                 {rejoinBusy
                   ? "Reentrando…"
@@ -475,15 +744,31 @@ export function MainMenu() {
                 {rejoinError}
               </p>
             )}
-            <MenuButton onClick={() => setRoomPanel("create")}>
-              CRIAR SALA
-            </MenuButton>
-            <MenuButton onClick={() => setRoomPanel("join")}>
-              ENTRAR POR CÓDIGO
-            </MenuButton>
-            <MenuButton onClick={() => setServerBrowserOpen(true)}>
-              PROCURAR SALAS
-            </MenuButton>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={quickMatchBusy}
+                onClick={() => void handleQuickMatchOnline()}
+                className="rounded-xl border border-white/10 bg-black/35 px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-white/55 transition hover:border-white/20 hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                Match rápido
+              </button>
+              <button
+                type="button"
+                onClick={() => setServerBrowserOpen(true)}
+                className="rounded-xl border border-white/10 bg-black/35 px-3 py-2.5 text-center text-[11px] font-semibold tracking-wide text-white/55 transition hover:border-white/20 hover:text-white/80"
+              >
+                Procurar salas
+              </button>
+            </div>
+            {quickMatchError && (
+              <p
+                role="alert"
+                className="motion-safe:animate-ff-shake rounded-lg border border-red-500/30 bg-red-950/40 px-3 py-2 text-xs text-red-300"
+              >
+                {quickMatchError}
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <MenuButton disabled title="Em breve">
                 COSMÉTICOS
@@ -497,44 +782,55 @@ export function MainMenu() {
             </div>
           </nav>
 
-          <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-3 backdrop-blur-sm">
-            <div className="flex items-center gap-1 rounded-lg bg-black/40 p-0.5">
-              {(["BR", "US"] as const).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRegionPersist(r)}
-                  className={`rounded-md px-3 py-1.5 text-xs font-bold tracking-wide transition ${
-                    region === r
-                      ? "bg-white/15 text-white"
-                      : "text-white/40 hover:text-white/70"
-                  }`}
-                >
-                  {r === "BR" ? "🇧🇷 BR" : "🇺🇸 US"}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-white/40" aria-hidden>
-                ♪
+          {/* Footer: quality + volume */}
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-3 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                Qualidade
               </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={volume}
-                aria-label="Volume"
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setVolume(v);
-                  try {
-                    localStorage.setItem("ff_volume", String(v));
-                  } catch {
-                    /* ignore */
-                  }
-                }}
-                className="h-1 w-24 cursor-pointer accent-amber-500"
-              />
+              <div className="flex items-center gap-1 rounded-lg bg-black/40 p-0.5">
+                {QUALITY_OPTIONS.map((q) => (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => setQualityPersist(q.id)}
+                    className={`rounded-md px-2.5 py-1 text-[11px] font-bold tracking-wide transition ${
+                      quality === q.id
+                        ? "bg-white/15 text-white"
+                        : "text-white/40 hover:text-white/70"
+                    }`}
+                  >
+                    {q.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                Volume
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-white/40" aria-hidden>
+                  ♪
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={volume}
+                  aria-label="Volume"
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setVolume(v);
+                    try {
+                      localStorage.setItem("ff_volume", String(v));
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  className="h-1 w-28 cursor-pointer accent-amber-500"
+                />
+              </div>
             </div>
           </div>
 
@@ -588,19 +884,19 @@ export function MainMenu() {
         </div>
 
         {/* Right column */}
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 lg:sticky lg:top-8">
           <div className="rounded-2xl border border-white/10 bg-black/40 p-6 backdrop-blur-md">
             <h2 className="text-sm font-bold tracking-wide text-white/90">
               Shooter tático top-down
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-white/55">
-              Rounds TR vs CT, economia, killfeed e bots no rádio. Jogue no
-              navegador — sem download.
+              Crie uma sala, copie o convite e junte os amigos. Rounds TR vs CT,
+              economia e bots no rádio — no navegador, sem download.
             </p>
             <ul className="mt-4 space-y-2 text-xs text-white/45">
               <li className="flex gap-2">
                 <span className="text-amber-500">▸</span>
-                Mapa Dust FF com outdoors patrocinados
+                Código da sala como porta de entrada
               </li>
               <li className="flex gap-2">
                 <span className="text-amber-500">▸</span>
@@ -608,7 +904,7 @@ export function MainMenu() {
               </li>
               <li className="flex gap-2">
                 <span className="text-amber-500">▸</span>
-                Multiplayer online com matchmaking rápido
+                Multiplayer privado com deep link
               </li>
             </ul>
             <Link
@@ -653,6 +949,17 @@ export function MainMenu() {
       {serverBrowserOpen && (
         <ServerBrowser onClose={() => setServerBrowserOpen(false)} />
       )}
+      {regionModalOpen && (
+        <RegionModal
+          region={region}
+          pingMs={pingMs}
+          onSelect={(r) => {
+            setRegionPersist(r);
+            setRegionModalOpen(false);
+          }}
+          onClose={() => setRegionModalOpen(false)}
+        />
+      )}
       {quickMatchBusy && (
         <div
           className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
@@ -685,6 +992,83 @@ export function MainMenu() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function RegionModal({
+  region,
+  pingMs,
+  onSelect,
+  onClose,
+}: {
+  region: "BR" | "US";
+  pingMs: number | null;
+  onSelect: (r: "BR" | "US") => void;
+  onClose: () => void;
+}) {
+  const pingLabel = pingMs != null ? `${pingMs}ms` : "medindo…";
+  return (
+    <div
+      className="pointer-events-auto fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="region-modal-title"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border border-white/15 bg-[#0e1118] p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-1 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold tracking-[0.28em] text-amber-500/80">
+              REDE
+            </p>
+            <h2
+              id="region-modal-title"
+              className="mt-1 text-xl font-black tracking-wide text-white"
+            >
+              Região
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-white/10 px-2.5 py-1 text-sm text-white/50 transition hover:bg-white/5 hover:text-white"
+            aria-label="Fechar"
+          >
+            ✕
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-white/40">
+          Preferência de matchmaking. Ping ao servidor atual atualiza ao vivo.
+        </p>
+        <div className="mt-5 flex flex-col gap-2">
+          {(["BR", "US"] as const).map((r) => {
+            const selected = region === r;
+            return (
+              <button
+                key={r}
+                type="button"
+                onClick={() => onSelect(r)}
+                className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
+                  selected
+                    ? "border-amber-400/50 bg-amber-500/10"
+                    : "border-white/10 bg-black/40 hover:border-white/25"
+                }`}
+              >
+                <span className="text-sm font-bold tracking-wide text-white">
+                  {r === "BR" ? "🇧🇷 Brasil" : "🇺🇸 Estados Unidos"}
+                </span>
+                <span className="font-mono text-xs tabular-nums text-white/55">
+                  {selected ? pingLabel : "—"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

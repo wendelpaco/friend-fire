@@ -24,7 +24,7 @@ export function CopyInviteLink({
   mapId,
   variant = "default",
   className = "",
-  label = "Copiar link do convite",
+  label = "COPIAR CONVITE",
 }: CopyInviteLinkProps) {
   const [copied, setCopied] = useState(false);
 
@@ -40,10 +40,10 @@ export function CopyInviteLink({
       <button
         type="button"
         onClick={() => void onCopy()}
-        title="Copiar link do convite"
+        title="Copiar link do convite (deep link)"
         className={`pointer-events-auto rounded-md border border-amber-400/40 bg-black/70 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-amber-100/95 shadow backdrop-blur-md transition hover:bg-amber-500/20 ${className}`}
       >
-        {copied ? "Link copiado!" : "Copiar link"}
+        {copied ? "Copiado!" : "COPIAR CONVITE"}
       </button>
     );
   }
@@ -52,9 +52,10 @@ export function CopyInviteLink({
     <button
       type="button"
       onClick={() => void onCopy()}
-      className={`rounded-xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/10 ${className}`}
+      title="Copia deep link completo da sala"
+      className={`rounded-xl border border-amber-400/25 bg-amber-500/10 py-3 text-sm font-semibold tracking-wide text-amber-100/90 transition hover:border-amber-400/40 hover:bg-amber-500/15 ${className}`}
     >
-      {copied ? "Link copiado!" : label}
+      {copied ? "Convite copiado!" : label}
     </button>
   );
 }
