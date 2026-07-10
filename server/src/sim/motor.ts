@@ -46,7 +46,7 @@ export type MotorInput = {
   wishZ: number;
   /** Edge: jump this frame. */
   jump: boolean;
-  /** Hold crouch (CTRL). */
+  /** Desired crouch state this frame (caller applies toggle; not key hold). */
   crouch: boolean;
   dt: number;
   /** Stand speed m/s. */

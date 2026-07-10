@@ -141,6 +141,8 @@ type RuntimeExtra = {
   heHeld: boolean;
   /** Edge-detect jump (Space). */
   jumpHeld: boolean;
+  /** Edge-detect crouch hold bit (Control) → toggle posture. */
+  crouchHeld: boolean;
 };
 
 /**
@@ -288,6 +290,7 @@ export class GameRoom extends Room<MatchState> {
       ammo,
       heHeld: false,
       jumpHeld: false,
+      crouchHeld: false,
     });
     this.syncBots();
 
@@ -403,9 +406,12 @@ export class GameRoom extends Room<MatchState> {
       const ex = this.ensureExtra(key, p);
       if (!input) return;
 
-      // Jump edge + crouch hold + XZ walls (same motor as client)
+      // Jump edge + crouch toggle (edge on hold bit) + XZ walls (same motor as client)
       const jumpEdge = Boolean(input.jump) && !ex.jumpHeld;
       ex.jumpHeld = Boolean(input.jump);
+      const crouchEdge = Boolean(input.crouch) && !ex.crouchHeld;
+      ex.crouchHeld = Boolean(input.crouch);
+      if (crouchEdge) p.crouching = !p.crouching;
       const next = tickMotor(
         {
           x: p.x,
@@ -419,7 +425,7 @@ export class GameRoom extends Room<MatchState> {
           wishX: input.dx,
           wishZ: input.dz,
           jump: jumpEdge,
-          crouch: Boolean(input.crouch),
+          crouch: p.crouching,
           dt,
           standSpeed: PLAYER_SPEED,
           walls: this.walls,
@@ -1008,6 +1014,7 @@ export class GameRoom extends Room<MatchState> {
     ex.fireCd = 0.25; // brief spawn protection vs accidental fire
     ex.heHeld = false;
     ex.jumpHeld = false;
+    ex.crouchHeld = false;
     // Top off active mag so empty-gun death doesn't soft-lock shooting
     const w = activeWeaponStats(p.primaryId, p.secondaryId, p.activeSlot);
     if (w && !w.isMelee) {
@@ -1101,6 +1108,7 @@ export class GameRoom extends Room<MatchState> {
         ammo,
         heHeld: false,
         jumpHeld: false,
+        crouchHeld: false,
       };
       this.extras.set(id, ex);
     }
@@ -1157,6 +1165,7 @@ export class GameRoom extends Room<MatchState> {
         ammo,
         heHeld: false,
         jumpHeld: false,
+        crouchHeld: false,
       });
       bots += 1;
     }
