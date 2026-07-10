@@ -1,27 +1,26 @@
-# All metas dispatch (2026-07-09)
+# All metas dispatch (2026-07-09) — COMPLETE
 
 ## Session Meta Flow (D)
 
-| ID | Name | Status |
-|----|------|--------|
-| **M1** | Splash + Operator + Skins | ✅ Done |
-| **M2** | Shop Showcase + FF Tactical DS | 🔄 Agent |
-| **M3** | Death social + Squad chat | ✅ Done |
+| ID | Name | Status | Commit |
+|----|------|--------|--------|
+| **M1** | Splash + Operator + Skins | ✅ | `38b698d` / `a1fac5a` |
+| **M2** | Shop Showcase + FF Tactical DS | ✅ | `732271b` |
+| **M3** | Death social + Squad chat | ✅ | `a3959b2` |
 
 ## CS Mechanics
 
-| ID | Name | Status |
-|----|------|--------|
-| **C0** | Bomb-aware timer + carrier | ✅ Done |
-| **C1** | Gunfight accuracy + reload | ✅ Done |
-| **C2a** | Loss bonus table CS + freezetime lock | 🔄 Agent |
-| **C2b** | Ground weapon drops + pickup | 🔄 Agent |
+| ID | Name | Status | Commit |
+|----|------|--------|--------|
+| **C0** | Bomb-aware timer + carrier | ✅ | `3377f88` |
+| **C1** | Gunfight accuracy + reload | ✅ | `2f30ed1` |
+| **C2a** | Loss bonus CS + freezetime | ✅ | `4a1fb36` |
+| **C2b** | Ground weapon drops + pickup | ✅ | `6b41532` |
 
-## Ownership (reduce merge conflicts)
+## Merge order used
 
-| Agent | Primary paths |
-|-------|----------------|
-| M2 | `presentation/ui/*`, `presentation/session/ShopShowcase.tsx`, `BuyMenu.tsx`, kit helper |
-| M3 | `GameHud` death/chat, `ChatEntry`, `server` chat/partyId, `roomClient` |
-| C2a | `domains/match/economy*`, buy-phase movement freeze client+server |
-| C2b | `domains/combat` drops, GameClient death drop + pickup interact |
+C2a → C2b → M2 → M3 (conflicts resolved in GameClient/GameHud/GameCanvas)
+
+## Worktrees
+
+Removed after merge into main.
