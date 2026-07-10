@@ -174,8 +174,10 @@ export function GameHud({
           {hud.minimap
             .filter((p) => p.alive)
             .map((p) => {
-              const px = ((p.x + 24) / 48) * 100;
-              const pz = ((p.z + 24) / 48) * 100;
+              const halfW = (hud.mapWidth || 72) / 2;
+              const halfD = (hud.mapDepth || 72) / 2;
+              const px = ((p.x + halfW) / (halfW * 2)) * 100;
+              const pz = ((p.z + halfD) / (halfD * 2)) * 100;
               return (
                 <span
                   key={p.id}

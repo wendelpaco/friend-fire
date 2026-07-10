@@ -58,19 +58,19 @@ export const BOMB = {
   defuseRadius: DEFUSE_RADIUS,
 } as const;
 
-/** Default bomb sites per map id (mirror client map data). */
+/** Default bomb sites per map id (mirror client 72×72 layouts). */
 export const BOMB_SITES: Record<string, BombSite[]> = {
   dust: [
-    { id: "A", x: 16, z: -14, radius: 3.5 },
-    { id: "B", x: -14, z: 14, radius: 3.5 },
+    { id: "A", x: 24, z: -20, radius: 4.2 },
+    { id: "B", x: -20, z: 18, radius: 4.2 },
   ],
   favela: [
-    { id: "A", x: 16, z: -14, radius: 3.5 },
-    { id: "B", x: -14, z: 14, radius: 3.5 },
+    { id: "A", x: 22, z: -18, radius: 4.0 },
+    { id: "B", x: -20, z: 16, radius: 4.0 },
   ],
   yard: [
-    { id: "A", x: 16, z: -12, radius: 3.5 },
-    { id: "B", x: -14, z: 14, radius: 3.5 },
+    { id: "A", x: 24, z: -18, radius: 4.0 },
+    { id: "B", x: -22, z: 18, radius: 4.0 },
   ],
 };
 

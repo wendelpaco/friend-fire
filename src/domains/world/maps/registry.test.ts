@@ -40,6 +40,9 @@ describe("getMapById", () => {
       expect(map.bombSites.length).toBeGreaterThanOrEqual(2);
       expect(map.walls.length).toBeGreaterThan(0);
       expect(map.billboards.length).toBeGreaterThan(0);
+      // CS-scale playable area
+      expect(map.size.width).toBeGreaterThanOrEqual(64);
+      expect(map.size.depth).toBeGreaterThanOrEqual(64);
     }
   });
 

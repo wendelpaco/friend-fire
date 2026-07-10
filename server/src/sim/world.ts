@@ -1,33 +1,12 @@
-/** Minimal collision walls for Dust FF (keep rough sync with client map). */
+/** Server collision + spawns — keep parity with client map layouts (72×72 CS style). */
 
 export interface WallRect {
   x: number;
   z: number;
   w: number;
   d: number;
-  /** Optional height for impact Y placement. */
   h?: number;
 }
-
-export const WALLS: WallRect[] = [
-  { x: 0, z: -24, w: 48, d: 1.4 },
-  { x: 0, z: 24, w: 48, d: 1.4 },
-  { x: -24, z: 0, w: 1.4, d: 48 },
-  { x: 24, z: 0, w: 1.4, d: 48 },
-  { x: -8, z: -6, w: 12, d: 1.5 },
-  { x: 6, z: -6, w: 10, d: 1.5 },
-  { x: -4, z: 2, w: 1.5, d: 14 },
-  { x: 8, z: 4, w: 1.5, d: 12 },
-  { x: -12, z: 10, w: 14, d: 1.5 },
-  { x: 12, z: 10, w: 10, d: 1.5 },
-  { x: -14, z: -12, w: 1.5, d: 10 },
-  { x: 14, z: -12, w: 1.5, d: 10 },
-  { x: 0, z: 16, w: 18, d: 1.5 },
-  { x: -16, z: 0, w: 6, d: 1.5 },
-  { x: 16, z: 0, w: 6, d: 1.5 },
-  { x: 0, z: -12, w: 3.5, d: 1.4 },
-  { x: 2, z: 8, w: 2.5, d: 2.5 },
-];
 
 export const PLAYER_RADIUS = 0.45;
 export const PLAYER_SPEED = 6.5;
@@ -36,6 +15,157 @@ export const FIRE_COOLDOWN = 0.14;
 export const BULLET_DAMAGE = 32;
 export const HIT_RANGE = 28;
 export const HIT_RADIUS = 0.55;
+
+/** Shared outer bounds for 72 maps. */
+function bounds72(): WallRect[] {
+  const H = 36;
+  const S = 72;
+  return [
+    { x: 0, z: -H, w: S, d: 1.6 },
+    { x: 0, z: H, w: S, d: 1.6 },
+    { x: -H, z: 0, w: 1.6, d: S },
+    { x: H, z: 0, w: 1.6, d: S },
+  ];
+}
+
+/** Dust FF — long A / mid / B tunnels (match client dust.ts). */
+const DUST_WALLS: WallRect[] = [
+  ...bounds72(),
+  { x: -22, z: -28, w: 14, d: 1.5 },
+  { x: -28, z: -20, w: 1.5, d: 12 },
+  { x: 22, z: 28, w: 14, d: 1.5 },
+  { x: 28, z: 20, w: 1.5, d: 12 },
+  { x: 18, z: -8, w: 1.5, d: 28 },
+  { x: 26, z: -12, w: 1.5, d: 20 },
+  { x: 22, z: -26, w: 16, d: 1.5 },
+  { x: 30, z: -18, w: 1.5, d: 10 },
+  { x: 10, z: -14, w: 12, d: 1.5 },
+  { x: 8, z: -8, w: 1.5, d: 10 },
+  { x: 12, z: -4, w: 8, d: 1.4 },
+  { x: -2, z: -4, w: 1.5, d: 18 },
+  { x: 4, z: 2, w: 1.5, d: 16 },
+  { x: 0, z: 12, w: 14, d: 1.5 },
+  { x: 1, z: -16, w: 10, d: 1.5 },
+  { x: -6, z: 4, w: 6, d: 1.4 },
+  { x: -18, z: 4, w: 1.5, d: 22 },
+  { x: -26, z: 8, w: 1.5, d: 18 },
+  { x: -22, z: 20, w: 14, d: 1.5 },
+  { x: -14, z: 14, w: 1.5, d: 10 },
+  { x: -20, z: -6, w: 12, d: 1.5 },
+  { x: -12, z: -10, w: 1.5, d: 12 },
+  { x: 14, z: 14, w: 12, d: 1.5 },
+  { x: 16, z: 8, w: 1.5, d: 10 },
+  { x: -8, z: -2, w: 3.0, d: 1.4 },
+  { x: 6, z: 6, w: 2.5, d: 2.5 },
+  { x: 20, z: -10, w: 2.2, d: 1.4 },
+  { x: -22, z: 12, w: 2.4, d: 1.4 },
+  { x: 0, z: 22, w: 4, d: 1.4 },
+  { x: -4, z: -22, w: 3.5, d: 1.4 },
+];
+
+const FAVELA_WALLS: WallRect[] = [
+  ...bounds72(),
+  { x: -24, z: -28, w: 16, d: 1.4 },
+  { x: -30, z: -20, w: 1.4, d: 14 },
+  { x: 24, z: 28, w: 16, d: 1.4 },
+  { x: 30, z: 20, w: 1.4, d: 14 },
+  { x: -16, z: -10, w: 14, d: 1.4 },
+  { x: -20, z: 0, w: 1.4, d: 16 },
+  { x: -12, z: 8, w: 12, d: 1.4 },
+  { x: -24, z: 12, w: 1.4, d: 12 },
+  { x: -18, z: 20, w: 14, d: 1.4 },
+  { x: 14, z: -12, w: 14, d: 1.4 },
+  { x: 20, z: -2, w: 1.4, d: 16 },
+  { x: 12, z: 6, w: 12, d: 1.4 },
+  { x: 24, z: 10, w: 1.4, d: 12 },
+  { x: 16, z: -22, w: 16, d: 1.4 },
+  { x: -4, z: -6, w: 1.3, d: 14 },
+  { x: 4, z: 2, w: 1.3, d: 14 },
+  { x: 0, z: 12, w: 10, d: 1.3 },
+  { x: 0, z: -16, w: 12, d: 1.3 },
+  { x: -6, z: 22, w: 1.2, d: 10 },
+  { x: 6, z: 22, w: 1.2, d: 10 },
+  { x: 0, z: 28, w: 10, d: 1.0 },
+  { x: -8, z: 2, w: 3, d: 1.3 },
+  { x: 10, z: -4, w: 2.5, d: 1.3 },
+  { x: 0, z: 6, w: 2.8, d: 2.8 },
+  { x: -22, z: -4, w: 2.4, d: 1.3 },
+  { x: 22, z: 4, w: 2.4, d: 1.3 },
+];
+
+const YARD_WALLS: WallRect[] = [
+  ...bounds72(),
+  { x: -24, z: -28, w: 16, d: 1.3 },
+  { x: -30, z: -20, w: 1.3, d: 14 },
+  { x: 24, z: 28, w: 16, d: 1.3 },
+  { x: 30, z: 20, w: 1.3, d: 14 },
+  { x: -8, z: 0, w: 1.5, d: 18 },
+  { x: 8, z: 0, w: 1.5, d: 18 },
+  { x: 0, z: -10, w: 14, d: 1.5 },
+  { x: 0, z: 10, w: 14, d: 1.5 },
+  { x: -4, z: -10, w: 4, d: 1.2 },
+  { x: 4, z: 10, w: 4, d: 1.2 },
+  { x: 20, z: -18, w: 1.5, d: 20 },
+  { x: 28, z: -12, w: 1.5, d: 16 },
+  { x: 22, z: -26, w: 14, d: 1.5 },
+  { x: 12, z: -16, w: 10, d: 1.4 },
+  { x: -20, z: 12, w: 1.5, d: 18 },
+  { x: -28, z: 16, w: 1.5, d: 14 },
+  { x: -22, z: 24, w: 16, d: 1.5 },
+  { x: -12, z: 14, w: 1.4, d: 12 },
+  { x: 14, z: 8, w: 12, d: 1.4 },
+  { x: -14, z: -6, w: 12, d: 1.4 },
+  { x: 6, z: 18, w: 1.4, d: 10 },
+  { x: -6, z: -18, w: 1.4, d: 10 },
+  { x: 0, z: 0, w: 3, d: 3 },
+  { x: 18, z: -8, w: 2.5, d: 1.3 },
+  { x: -18, z: 8, w: 2.5, d: 1.3 },
+  { x: 10, z: 4, w: 2.2, d: 2.2 },
+  { x: -10, z: -4, w: 2.2, d: 2.2 },
+];
+
+/** Legacy alias — dust layout. */
+export const WALLS: WallRect[] = DUST_WALLS;
+
+export const SPAWNS = {
+  TR: [
+    { x: -28, z: -28 },
+    { x: -24, z: -30 },
+    { x: -30, z: -24 },
+    { x: -22, z: -26 },
+  ],
+  CT: [
+    { x: 28, z: 28 },
+    { x: 24, z: 30 },
+    { x: 30, z: 24 },
+    { x: 22, z: 26 },
+  ],
+} as const;
+
+export type MapId = "dust" | "favela" | "yard";
+
+const MAP_WALLS: Record<MapId, WallRect[]> = {
+  dust: DUST_WALLS,
+  favela: FAVELA_WALLS,
+  yard: YARD_WALLS,
+};
+
+export function resolveMapId(raw?: string): MapId {
+  if (raw === "favela" || raw === "yard" || raw === "dust") return raw;
+  return "dust";
+}
+
+export function wallsForMap(mapId: string): WallRect[] {
+  return MAP_WALLS[resolveMapId(mapId)] ?? DUST_WALLS;
+}
+
+export function spawnsForTeam(
+  mapId: string,
+  team: "TR" | "CT",
+): ReadonlyArray<{ x: number; z: number }> {
+  void mapId;
+  return SPAWNS[team];
+}
 
 export function resolveCircleWalls(
   x: number,
@@ -78,69 +208,6 @@ export function applyDamage(
   return { hp: hp - dmg, armor: a };
 }
 
-export const SPAWNS = {
-  TR: [
-    { x: -18, z: -18 },
-    { x: -15, z: -18 },
-    { x: -18, z: -15 },
-    { x: -12, z: -18 },
-  ],
-  CT: [
-    { x: 18, z: 18 },
-    { x: 15, z: 18 },
-    { x: 18, z: 15 },
-    { x: 12, z: 18 },
-  ],
-} as const;
-
-export type MapId = "dust" | "favela" | "yard";
-
-/** Per-map walls (keep rough parity with client maps). */
-const MAP_WALLS: Record<MapId, WallRect[]> = {
-  dust: WALLS,
-  favela: [
-    { x: 0, z: -24, w: 48, d: 1.4 },
-    { x: 0, z: 24, w: 48, d: 1.4 },
-    { x: -24, z: 0, w: 1.4, d: 48 },
-    { x: 24, z: 0, w: 1.4, d: 48 },
-    { x: -10, z: -8, w: 10, d: 1.4 },
-    { x: 8, z: -8, w: 12, d: 1.4 },
-    { x: -6, z: 0, w: 1.4, d: 12 },
-    { x: 6, z: 2, w: 1.4, d: 10 },
-    { x: -14, z: 8, w: 12, d: 1.4 },
-    { x: 12, z: 8, w: 10, d: 1.4 },
-    { x: -16, z: -4, w: 1.4, d: 10 },
-    { x: 16, z: -4, w: 1.4, d: 10 },
-    { x: -4, z: 14, w: 1.2, d: 8 },
-    { x: 4, z: 14, w: 1.2, d: 8 },
-    { x: 0, z: 18.5, w: 6, d: 1.0 },
-    { x: 0, z: -14, w: 4, d: 1.2 },
-  ],
-  yard: WALLS,
-};
-
-export function resolveMapId(raw?: string): MapId {
-  if (raw === "favela" || raw === "yard" || raw === "dust") return raw;
-  return "dust";
-}
-
-export function wallsForMap(mapId: string): WallRect[] {
-  return MAP_WALLS[resolveMapId(mapId)] ?? WALLS;
-}
-
-export function spawnsForTeam(
-  mapId: string,
-  team: "TR" | "CT",
-): ReadonlyArray<{ x: number; z: number }> {
-  // Shared spawn corners across maps for now (maps share 48×48 bounds).
-  void mapId;
-  return SPAWNS[team];
-}
-
-/**
- * True if segment from (x0,z0)→(x1,z1) intersects a wall rect (2D AABB).
- * Used so hitscan cannot shoot through cover (fixes “die through walls”).
- */
 export function segmentBlockedByWalls(
   x0: number,
   z0: number,
@@ -148,10 +215,18 @@ export function segmentBlockedByWalls(
   z1: number,
   walls: WallRect[] = WALLS,
 ): boolean {
-  return firstWallImpactAlongRay(x0, z0, x1 - x0, z1 - z0, Math.hypot(x1 - x0, z1 - z0), walls) != null;
+  return (
+    firstWallImpactAlongRay(
+      x0,
+      z0,
+      x1 - x0,
+      z1 - z0,
+      Math.hypot(x1 - x0, z1 - z0),
+      walls,
+    ) != null
+  );
 }
 
-/** Cosmetic wall impact for multiplayer FX broadcast. */
 export type WallImpactFx = {
   x: number;
   y: number;
@@ -162,10 +237,6 @@ export type WallImpactFx = {
   surface: "wall";
 };
 
-/**
- * Walk ray along dir until first wall face — for impact particles.
- * dir need not be unit; uses maxDist.
- */
 export function firstWallImpactAlongRay(
   ox: number,
   oz: number,
@@ -193,23 +264,25 @@ export function firstWallImpactAlongRay(
       const wasInside =
         Math.abs(px - w.x) <= halfW && Math.abs(pz - w.z) <= halfD;
       if (inside && !wasInside) {
-        // Face normal from entry side
         const toCx = nx - w.x;
         const toCz = nz - w.z;
         const oxAbs = halfW - Math.abs(toCx);
         const ozAbs = halfD - Math.abs(toCz);
-        let nnx = 0;
-        let nnz = 0;
-        if (oxAbs < ozAbs) nnx = toCx >= 0 ? 1 : -1;
-        else nnz = toCz >= 0 ? 1 : -1;
-        const h = Math.max(0.5, w.h ?? 2.2);
+        let nxn = 0;
+        let nzn = 0;
+        if (oxAbs < ozAbs) {
+          nxn = toCx > 0 ? 1 : -1;
+        } else {
+          nzn = toCz > 0 ? 1 : -1;
+        }
+        const h = w.h ?? 2.5;
         return {
           x: nx - dx * 0.05,
-          y: Math.min(1.2, h * 0.45),
+          y: h * 0.45,
           z: nz - dz * 0.05,
-          nx: nnx,
+          nx: nxn,
           ny: 0,
-          nz: nnz,
+          nz: nzn,
           surface: "wall",
         };
       }

@@ -2466,6 +2466,8 @@ export class GameClient {
       hitMarker: now < this.state.hitMarkerUntil,
       damageFlash: Math.max(0, (this.state.damageFlashUntil - now) / 220),
       mapName: this.map.displayName,
+      mapWidth: this.map.size.width,
+      mapDepth: this.map.size.depth,
       buyMessage: this.buyMessage,
       bombState: this.state.bombState,
       bombTimer: bombDown ? this.state.bombTimer : 0,

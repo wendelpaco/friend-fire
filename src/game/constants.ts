@@ -16,8 +16,9 @@ export const PLAYER_RADIUS = 0.45;
 export const PLAYER_SPEED = 6.5;
 export const BOT_SPEED = 4.2;
 export const BULLET_RADIUS = 0.08;
-export const CAMERA_HEIGHT = 22;
-export const CAMERA_OFFSET = 16;
+/** Slightly higher camera for larger 72×72 maps. */
+export const CAMERA_HEIGHT = 28;
+export const CAMERA_OFFSET = 20;
 export const ROUND_TIME = DEFAULT_MATCH.round;
 export const WARMUP_TIME = DEFAULT_MATCH.warmup;
 export const START_MONEY = 800;

@@ -181,6 +181,9 @@ export interface HudSnapshot {
   hitMarker: boolean;
   damageFlash: number;
   mapName: string;
+  /** Playable map extent for minimap projection. */
+  mapWidth: number;
+  mapDepth: number;
   buyMessage: string | null;
   /** C4 state for HUD (§2.1). */
   bombState: BombState;

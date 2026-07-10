@@ -218,7 +218,10 @@ export class ThreeRenderer {
     this.bulletGeo = new THREE.SphereGeometry(0.08, 6, 6);
     this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xffee77 });
 
-    this.scene.fog = new THREE.FogExp2(map.fogColor, 0.018);
+    // Larger maps need thinner fog so long angles stay readable (CS sightlines).
+    const mapHalf = Math.max(map.size.width, map.size.depth) / 2;
+    const fogDensity = Math.max(0.01, 0.018 * (24 / mapHalf));
+    this.scene.fog = new THREE.FogExp2(map.fogColor, fogDensity);
     this.scene.background = this.makeSkyTexture(map.skyColor);
 
     this.sandTex = this.makeGroundTexture();
@@ -761,19 +764,22 @@ export class ThreeRenderer {
     ground.receiveShadow = true;
     this.scene.add(ground);
 
-    // asphalt path strips (mid corridors feel)
-    this.addRoad(-2, 0, 5, 40, 0);
-    this.addRoad(0, -8, 28, 4.5, 0);
-    this.addRoad(10, 4, 4, 22, 0);
-    this.addRoad(-12, 6, 18, 4, 0);
+    // Scale environment to map size (72 maps → half ≈ 36)
+    const half = Math.max(this.map.size.width, this.map.size.depth) / 2;
 
-    // Favela: open pitch (soccer field) — big RUSH-B visual anchor
+    // asphalt path strips (mid corridors)
+    this.addRoad(0, 0, 5.5, half * 1.6, 0);
+    this.addRoad(0, -half * 0.35, half * 1.1, 4.5, 0);
+    this.addRoad(half * 0.35, half * 0.1, 4.2, half * 0.75, 0);
+    this.addRoad(-half * 0.4, half * 0.2, half * 0.65, 4.2, 0);
+
+    // Favela: open pitch near B/north
     if (this.map.id === "favela") {
-      this.addSoccerPitch(0, 14.5, 9, 7.5);
+      this.addSoccerPitch(0, half * 0.55, 11, 9);
     }
 
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(24.2, 40, 64),
+      new THREE.RingGeometry(half + 0.4, half + 14, 64),
       new THREE.MeshStandardMaterial({
         color: 0x5a8a4a,
         roughness: 1,
@@ -783,9 +789,8 @@ export class ThreeRenderer {
     ring.position.y = -0.03;
     this.scene.add(ring);
 
-    // outer sand beach strip toward ocean
     const beach = new THREE.Mesh(
-      new THREE.RingGeometry(40, 55, 64),
+      new THREE.RingGeometry(half + 14, half + 28, 64),
       new THREE.MeshStandardMaterial({ color: 0xd4b896, roughness: 1 }),
     );
     beach.rotation.x = -Math.PI / 2;
@@ -793,7 +798,7 @@ export class ThreeRenderer {
     this.scene.add(beach);
 
     const ocean = new THREE.Mesh(
-      new THREE.RingGeometry(55, 90, 64),
+      new THREE.RingGeometry(half + 28, half + 55, 64),
       new THREE.MeshStandardMaterial({
         color: 0x2a7a9a,
         roughness: 0.35,
@@ -1117,6 +1122,9 @@ export class ThreeRenderer {
     this.sceneryGroup.add(this.sceneryMidGroup);
     this.sceneryGroup.add(this.sceneryHighGroup);
 
+    // Keep backdrop outside playable bounds for any map size (72 → half ≈ 36).
+    const half = Math.max(this.map.size.width, this.map.size.depth) / 2;
+
     const buildingColors = [
       0xd4a574, 0xc97b63, 0x7a9eb5, 0xe8d5b0, 0xa8b89a, 0xe07060, 0x6a9a70,
     ];
@@ -1124,7 +1132,7 @@ export class ThreeRenderer {
     const buildingCount = 20;
     for (let i = 0; i < buildingCount; i++) {
       const ang = (i / buildingCount) * Math.PI * 2 + 0.15;
-      const dist = 31 + (i % 4) * 2.5;
+      const dist = half + 7 + (i % 4) * 2.5;
       const bx = Math.cos(ang) * dist;
       const bz = Math.sin(ang) * dist;
       const bh = 3.5 + (i % 5) * 1.2;
@@ -1173,10 +1181,10 @@ export class ThreeRenderer {
       }
     }
 
-    // palms: 10 always, rest on mid
+    // palms: 10 always, rest on mid — ring just outside walls
     for (let i = 0; i < 22; i++) {
       const ang = (i / 22) * Math.PI * 2;
-      const dist = 27.5 + (i % 5) * 0.8;
+      const dist = half + 3.5 + (i % 5) * 0.8;
       const palm = this.makePalm(
         Math.cos(ang) * dist,
         Math.sin(ang) * dist,
@@ -1188,7 +1196,7 @@ export class ThreeRenderer {
     // flowering bushes — high detail only
     for (let i = 0; i < 14; i++) {
       const ang = (i / 14) * Math.PI * 2 + 0.4;
-      const dist = 26 + (i % 3) * 0.4;
+      const dist = half + 2 + (i % 3) * 0.4;
       const bush = new THREE.Mesh(
         new THREE.SphereGeometry(0.85 + (i % 3) * 0.25, 8, 6),
         new THREE.MeshStandardMaterial({
