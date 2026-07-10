@@ -287,6 +287,31 @@ export class GameClient {
   private networkSessionId: string | null = null;
   /** When set (room mode), purchases go to the server instead of local tryBuy. */
   private buySender: ((itemId: string) => void) | null = null;
+
+  /** Reused each frame to avoid allocating player snapshot arrays. */
+  private renderPlayers: Array<{
+    id: string;
+    name: string;
+    team: PlayerState["team"];
+    isBot: boolean;
+    x: number;
+    z: number;
+    y: number;
+    crouching: boolean;
+    onGround: boolean;
+    reloading: boolean;
+    rot: number;
+    alive: boolean;
+    color: number;
+    weaponSlot: number;
+    weaponId: string | undefined;
+  }> = [];
+  private showFps = false;
+  private fpsFrames = 0;
+  private fpsLastT = 0;
+  private fpsDisplay = 0;
+  private lastDrawCalls = 0;
+  private lastTriangles = 0;
   /** Active HE projectiles (local solo). */
   private heProjectiles: Array<{
     slot: number;
@@ -556,6 +581,7 @@ export class GameClient {
     this.sessionId = getOrCreateSessionId();
     this.state = this.createInitialState();
     this.applyFogPref(readFogEnabled());
+    this.applyGraphicsPrefs();
     this.initBotTimers();
     this.input.bind();
     if (typeof window !== "undefined") {
@@ -584,12 +610,19 @@ export class GameClient {
   }
 
   private onPrefsEvent = (ev: Event) => {
-    const detail = (ev as CustomEvent<{ fogEnabled?: boolean }>).detail;
+    const detail = (
+      ev as CustomEvent<{
+        fogEnabled?: boolean;
+        graphicsQuality?: string;
+        showFps?: boolean;
+      }>
+    ).detail;
     if (detail && typeof detail.fogEnabled === "boolean") {
       this.applyFogPref(detail.fogEnabled);
     } else {
       this.applyFogPref(readFogEnabled());
     }
+    this.applyGraphicsPrefs(detail);
   };
 
   private applyFogPref(enabled: boolean) {
@@ -598,6 +631,24 @@ export class GameClient {
     };
     if (typeof three.setFogEnabled === "function") {
       three.setFogEnabled(enabled);
+    }
+  }
+
+  private applyGraphicsPrefs(detail?: {
+    graphicsQuality?: string;
+    showFps?: boolean;
+  }) {
+    // Quality is always re-read from storage (SettingsPanel persists first).
+    this.three.applyQuality();
+    if (detail && typeof detail.showFps === "boolean") {
+      this.showFps = detail.showFps;
+    } else if (typeof window !== "undefined") {
+      try {
+        const v = localStorage.getItem("ff_show_fps");
+        this.showFps = v === "1" || v === "true";
+      } catch {
+        this.showFps = false;
+      }
     }
   }
 
@@ -924,12 +975,28 @@ export class GameClient {
     if (this.running) return;
     this.running = true;
     this.clock.start();
+    this.fpsLastT = performance.now();
+    this.fpsFrames = 0;
     const loop = () => {
       if (!this.running) return;
       this.raf = requestAnimationFrame(loop);
       const dt = Math.min(this.clock.getDelta(), 0.05);
       this.update(dt);
       this.three.render();
+      if (this.showFps) {
+        this.fpsFrames += 1;
+        const now = performance.now();
+        if (now - this.fpsLastT >= 500) {
+          this.fpsDisplay = Math.round(
+            (this.fpsFrames * 1000) / (now - this.fpsLastT),
+          );
+          this.fpsFrames = 0;
+          this.fpsLastT = now;
+          const info = this.three.getRenderInfo();
+          this.lastDrawCalls = info.calls;
+          this.lastTriangles = info.triangles;
+        }
+      }
     };
     loop();
   }
@@ -1309,25 +1376,51 @@ export class GameClient {
     );
     const spectating =
       !!local && !local.alive && this.state.phase === "live";
+    const now = performance.now();
+    const n = this.state.players.length;
+    // Grow buffer once; mutate slots in place (no per-frame map alloc).
+    while (this.renderPlayers.length < n) {
+      this.renderPlayers.push({
+        id: "",
+        name: "",
+        team: "CT",
+        isBot: false,
+        x: 0,
+        z: 0,
+        y: 0,
+        crouching: false,
+        onGround: true,
+        reloading: false,
+        rot: 0,
+        alive: true,
+        color: 0,
+        weaponSlot: 0,
+        weaponId: undefined,
+      });
+    }
+    this.renderPlayers.length = n;
+    for (let i = 0; i < n; i++) {
+      const p = this.state.players[i]!;
+      const slot = this.renderPlayers[i]!;
+      slot.id = p.id;
+      slot.name = p.name;
+      slot.team = p.team;
+      slot.isBot = p.isBot;
+      slot.x = p.x;
+      slot.z = p.z;
+      slot.y = p.y ?? 0;
+      slot.crouching = p.crouching ?? false;
+      slot.onGround = p.onGround ?? true;
+      slot.reloading = p.reloadingUntil > now;
+      slot.rot = p.rot;
+      slot.alive = p.alive;
+      slot.color = p.color;
+      slot.weaponSlot = p.weaponSlot;
+      slot.weaponId = p.weapons[p.weaponSlot];
+    }
     // Spectator always drives free-cam look target (follow or pan).
     this.three.sync({
-      players: this.state.players.map((p) => ({
-        id: p.id,
-        name: p.name,
-        team: p.team,
-        isBot: p.isBot,
-        x: p.x,
-        z: p.z,
-        y: p.y ?? 0,
-        crouching: p.crouching ?? false,
-        onGround: p.onGround ?? true,
-        reloading: p.reloadingUntil > performance.now(),
-        rot: p.rot,
-        alive: p.alive,
-        color: p.color,
-        weaponSlot: p.weaponSlot,
-        weaponId: p.weapons[p.weaponSlot],
-      })),
+      players: this.renderPlayers,
       bullets: this.state.bullets,
       localPlayerId: this.state.localPlayerId,
       cameraMode: spectating ? "free" : this.state.cameraMode,
@@ -2224,6 +2317,13 @@ export class GameClient {
       bombPrompt: this.computeBombPrompt(p),
       roundBanner,
       spectating,
+      perf: this.showFps
+        ? {
+            fps: this.fpsDisplay,
+            drawCalls: this.lastDrawCalls,
+            triangles: this.lastTriangles,
+          }
+        : null,
       minimap: this.state.players.map((pl) => ({
         id: pl.id,
         x: pl.x,

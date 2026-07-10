@@ -2,10 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CAMERA_DEFAULT_KEY,
   FOG_ENABLED_KEY,
+  GRAPHICS_QUALITY_KEY,
+  SHOW_FPS_KEY,
   getCameraDefault,
   getFogEnabled,
+  getGraphicsQuality,
+  getShowFps,
+  resolveQualityConfig,
   setCameraDefault,
   setFogEnabled,
+  setGraphicsQuality,
+  setShowFps,
 } from "./index";
 
 /** Minimal localStorage for node test env. */
@@ -45,6 +52,8 @@ afterEach(() => {
   try {
     localStorage.removeItem(FOG_ENABLED_KEY);
     localStorage.removeItem(CAMERA_DEFAULT_KEY);
+    localStorage.removeItem(GRAPHICS_QUALITY_KEY);
+    localStorage.removeItem(SHOW_FPS_KEY);
   } catch {
     /* ignore */
   }
@@ -90,5 +99,39 @@ describe("getCameraDefault / setCameraDefault", () => {
   it("falls back to locked on invalid values", () => {
     localStorage.setItem(CAMERA_DEFAULT_KEY, "orbit");
     expect(getCameraDefault()).toBe("locked");
+  });
+});
+
+describe("graphics quality", () => {
+  it("defaults to medium with laptop-friendly knobs", () => {
+    expect(getGraphicsQuality()).toBe("medium");
+    const c = resolveQualityConfig();
+    expect(c.maxPixelRatio).toBe(1.25);
+    expect(c.shadowsEnabled).toBe(true);
+    expect(c.propCastShadow).toBe(false);
+    expect(c.dustCount).toBe(100);
+  });
+
+  it("round-trips tiers and resolves low = no shadows / no dust", () => {
+    setGraphicsQuality("low");
+    expect(getGraphicsQuality()).toBe("low");
+    const low = resolveQualityConfig("low");
+    expect(low.shadowsEnabled).toBe(false);
+    expect(low.dustCount).toBe(0);
+    expect(low.maxPixelRatio).toBe(1);
+
+    setGraphicsQuality("high");
+    const high = resolveQualityConfig("high");
+    expect(high.shadowMapSize).toBe(2048);
+    expect(high.propCastShadow).toBe(true);
+    expect(high.maxPixelRatio).toBe(2);
+  });
+
+  it("show FPS defaults off and round-trips", () => {
+    expect(getShowFps()).toBe(false);
+    setShowFps(true);
+    expect(getShowFps()).toBe(true);
+    setShowFps(false);
+    expect(getShowFps()).toBe(false);
   });
 });

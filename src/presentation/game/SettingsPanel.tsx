@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import type { GraphicsQuality } from "@/domains/prefs";
 
 export type CameraDefault = "locked" | "free";
 
@@ -11,6 +12,10 @@ export type GamePrefs = {
   fogEnabled: boolean;
   /** localStorage `ff_camera_default` */
   cameraDefault: CameraDefault;
+  /** localStorage `ff_graphics_quality` (default medium) */
+  graphicsQuality: GraphicsQuality;
+  /** localStorage `ff_show_fps` (default false) */
+  showFps: boolean;
 };
 
 export const PREFS_EVENT = "ff-prefs";
@@ -18,15 +23,28 @@ export const PREFS_EVENT = "ff-prefs";
 const VOLUME_KEY = "ff_volume";
 const FOG_KEY = "ff_fog_enabled";
 const CAMERA_KEY = "ff_camera_default";
+const QUALITY_KEY = "ff_graphics_quality";
+const FPS_KEY = "ff_show_fps";
 
 function clampVolume(n: number): number {
   if (!Number.isFinite(n)) return 70;
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+function parseQuality(raw: string | null): GraphicsQuality {
+  if (raw === "low" || raw === "high" || raw === "medium") return raw;
+  return "medium";
+}
+
 export function readGamePrefs(): GamePrefs {
   if (typeof window === "undefined") {
-    return { volume: 70, fogEnabled: true, cameraDefault: "locked" };
+    return {
+      volume: 70,
+      fogEnabled: true,
+      cameraDefault: "locked",
+      graphicsQuality: "medium",
+      showFps: false,
+    };
   }
   try {
     const volume = clampVolume(Number(localStorage.getItem(VOLUME_KEY) ?? "70"));
@@ -35,9 +53,18 @@ export function readGamePrefs(): GamePrefs {
     const camRaw = localStorage.getItem(CAMERA_KEY);
     const cameraDefault: CameraDefault =
       camRaw === "free" ? "free" : "locked";
-    return { volume, fogEnabled, cameraDefault };
+    const graphicsQuality = parseQuality(localStorage.getItem(QUALITY_KEY));
+    const fpsRaw = localStorage.getItem(FPS_KEY);
+    const showFps = fpsRaw === "1" || fpsRaw === "true";
+    return { volume, fogEnabled, cameraDefault, graphicsQuality, showFps };
   } catch {
-    return { volume: 70, fogEnabled: true, cameraDefault: "locked" };
+    return {
+      volume: 70,
+      fogEnabled: true,
+      cameraDefault: "locked",
+      graphicsQuality: "medium",
+      showFps: false,
+    };
   }
 }
 
@@ -47,6 +74,8 @@ export function persistGamePrefs(prefs: GamePrefs): void {
     localStorage.setItem(VOLUME_KEY, String(clampVolume(prefs.volume)));
     localStorage.setItem(FOG_KEY, prefs.fogEnabled ? "1" : "0");
     localStorage.setItem(CAMERA_KEY, prefs.cameraDefault);
+    localStorage.setItem(QUALITY_KEY, prefs.graphicsQuality);
+    localStorage.setItem(FPS_KEY, prefs.showFps ? "true" : "false");
   } catch {
     /* private mode / quota */
   }
@@ -70,6 +99,8 @@ export function writeGamePrefs(partial: Partial<GamePrefs>): GamePrefs {
   const next = { ...readGamePrefs(), ...partial };
   next.volume = clampVolume(next.volume);
   next.cameraDefault = next.cameraDefault === "free" ? "free" : "locked";
+  next.graphicsQuality = parseQuality(next.graphicsQuality);
+  next.showFps = Boolean(next.showFps);
   persistGamePrefs(next);
   dispatchPrefs(next);
   return next;
@@ -139,6 +170,43 @@ export function SettingsPanel({ onBack }: SettingsPanelProps) {
             <option value="locked">Travada (seguir jogador)</option>
             <option value="free">Livre (pan com WASD)</option>
           </select>
+        </label>
+
+        <label className="block">
+          <div className="mb-2 text-xs text-white/55">
+            Qualidade gráfica
+          </div>
+          <select
+            value={prefs.graphicsQuality}
+            aria-label="Qualidade gráfica"
+            onChange={(e) =>
+              apply({
+                graphicsQuality: parseQuality(e.target.value),
+              })
+            }
+            className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2.5 text-sm font-semibold text-white/90 outline-none focus:border-amber-500/50"
+          >
+            <option value="low">Baixa (mais FPS)</option>
+            <option value="medium">Média (recomendado)</option>
+            <option value="high">Alta (sombras soft + poeira)</option>
+          </select>
+          <p className="mt-1.5 text-[10px] leading-snug text-white/40">
+            Baixa desliga sombras e poeira. Média limita DPR e sombras em
+            props. Alta = visual máximo.
+          </p>
+        </label>
+
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-3">
+          <span className="text-sm font-semibold text-white/85">
+            Overlay de FPS
+          </span>
+          <input
+            type="checkbox"
+            checked={prefs.showFps}
+            aria-label="Overlay de FPS"
+            onChange={(e) => apply({ showFps: e.target.checked })}
+            className="h-4 w-4 accent-amber-500"
+          />
         </label>
       </div>
 

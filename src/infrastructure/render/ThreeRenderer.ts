@@ -4,7 +4,10 @@ import type { BulletState, PlayerState } from "@/game/types";
 import { buildBillboardMesh, buildWallPoster } from "@/game/world/billboards";
 import {
   FOG_ENABLED_KEY,
+  GRAPHICS_QUALITY_KEY,
   getFogEnabled as readFogEnabledPref,
+  resolveQualityConfig,
+  type GraphicsQualityConfig,
 } from "@/domains/prefs";
 import type { GameMap } from "@/domains/world";
 import { Sfx } from "@/infrastructure/audio/Sfx";
@@ -90,6 +93,10 @@ export class ThreeRenderer {
   private lastPos = new Map<string, { x: number; z: number; t: number }>();
   private shootFlags = new Set<string>();
   private bulletMeshes = new Map<string, THREE.Mesh>();
+  /** Inactive bullet meshes ready for reuse (shared geo/mat). */
+  private bulletPool: THREE.Mesh[] = [];
+  private bulletGeo!: THREE.SphereGeometry;
+  private bulletMat!: THREE.MeshBasicMaterial;
   private wallGroup = new THREE.Group();
   private propGroup = new THREE.Group();
   private adGroup = new THREE.Group();
@@ -105,7 +112,15 @@ export class ThreeRenderer {
   private heFx: HESystem;
   private damageNumberFx: DamageNumberSystem;
   private playerSpot!: THREE.SpotLight;
+  private sunLight!: THREE.DirectionalLight;
   private dustParticles!: THREE.Points;
+  private dustPositions!: Float32Array;
+  private dustMaxCount = 280;
+  private dustActiveCount = 0;
+  private dustUpdateHz = 20;
+  private dustAccum = 0;
+  private propCastShadow = false;
+  private quality: GraphicsQualityConfig = resolveQualityConfig();
   private vignette!: THREE.Mesh;
   private wallTex!: THREE.CanvasTexture;
   private sandTex!: THREE.CanvasTexture;
@@ -113,16 +128,21 @@ export class ThreeRenderer {
   private fogEnabled = true;
   private readonly onPrefsEvent = () => {
     this.fogEnabled = readFogEnabledPref();
+    this.applyQuality(resolveQualityConfig());
   };
   private readonly onStorageEvent = (e: StorageEvent) => {
     if (e.key === null || e.key === FOG_ENABLED_KEY) {
       this.fogEnabled = readFogEnabledPref();
+    }
+    if (e.key === null || e.key === GRAPHICS_QUALITY_KEY) {
+      this.applyQuality(resolveQualityConfig());
     }
   };
 
   constructor(canvas: HTMLCanvasElement, map: GameMap) {
     this.map = map;
     this.fogEnabled = readFogEnabledPref();
+    this.quality = resolveQualityConfig();
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
 
@@ -130,26 +150,28 @@ export class ThreeRenderer {
     this.camera.position.set(0, CAMERA_HEIGHT, CAMERA_OFFSET);
     this.camera.lookAt(0, 0, 0);
 
+    // Antialias is fixed at context creation — quality tier picks initial value.
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: this.quality.antialias,
       alpha: false,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(w, h, false);
     this.renderer.setClearColor(map.skyColor, 1);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.12;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    this.bulletGeo = new THREE.SphereGeometry(0.08, 6, 6);
+    this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xffee77 });
 
     this.scene.fog = new THREE.FogExp2(map.fogColor, 0.018);
     this.scene.background = this.makeSkyTexture(map.skyColor);
 
     this.sandTex = this.makeGroundTexture();
     this.wallTex = this.makeWallTexture();
+    this.propCastShadow = this.quality.propCastShadow;
     this.buildWorld();
     this.buildScenery();
     this.buildVignette();
@@ -161,10 +183,99 @@ export class ThreeRenderer {
     this.heFx = new HESystem(this.scene);
     this.damageNumberFx = new DamageNumberSystem(this.scene);
 
+    // Apply DPR / shadows / dust after lights & dust exist.
+    this.applyQuality(this.quality);
+
     if (typeof window !== "undefined") {
       window.addEventListener("ff-prefs", this.onPrefsEvent);
       window.addEventListener("storage", this.onStorageEvent);
     }
+  }
+
+  /**
+   * Apply graphics quality (runtime-safe knobs: DPR, shadows, dust).
+   * Antialias cannot toggle without recreating the WebGL context.
+   */
+  applyQuality(cfg: GraphicsQualityConfig = resolveQualityConfig()): void {
+    this.quality = cfg;
+    this.propCastShadow = cfg.propCastShadow;
+
+    const dpr =
+      typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    this.renderer.setPixelRatio(Math.min(dpr, cfg.maxPixelRatio));
+
+    this.renderer.shadowMap.enabled = cfg.shadowsEnabled;
+    if (cfg.shadowType === "basic") {
+      this.renderer.shadowMap.type = THREE.BasicShadowMap;
+    } else if (cfg.shadowType === "pcf") {
+      this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    } else {
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
+    this.renderer.shadowMap.needsUpdate = true;
+
+    if (this.sunLight) {
+      this.sunLight.castShadow = cfg.shadowsEnabled;
+      this.sunLight.shadow.mapSize.set(cfg.shadowMapSize, cfg.shadowMapSize);
+      // Force shadow map rebuild at new resolution
+      if (this.sunLight.shadow.map) {
+        this.sunLight.shadow.map.dispose();
+        this.sunLight.shadow.map = null as unknown as THREE.WebGLRenderTarget;
+      }
+    }
+
+    this.applyPropShadowFlag(cfg.propCastShadow);
+    this.configureDust(cfg.dustCount, cfg.dustUpdateHz);
+  }
+
+  getQuality(): GraphicsQualityConfig {
+    return this.quality;
+  }
+
+  /** WebGL draw stats for FPS overlay (call after render). */
+  getRenderInfo(): { calls: number; triangles: number } {
+    const info = this.renderer.info.render;
+    return { calls: info.calls, triangles: info.triangles };
+  }
+
+  private applyPropShadowFlag(cast: boolean): void {
+    this.propGroup.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        // Keep receive; only toggle cast on prop meshes
+        obj.castShadow = cast;
+      }
+    });
+  }
+
+  private configureDust(count: number, updateHz: number): void {
+    this.dustUpdateHz = updateHz;
+    this.dustAccum = 0;
+    if (!this.dustParticles || !this.dustPositions) return;
+
+    const max = this.dustMaxCount;
+    const n = Math.max(0, Math.min(max, Math.floor(count)));
+    this.dustActiveCount = n;
+    this.dustParticles.visible = n > 0;
+
+    const pos = this.dustParticles.geometry.attributes
+      .position as THREE.BufferAttribute;
+    // Hide inactive points far below the map
+    for (let i = 0; i < max; i++) {
+      if (i < n) {
+        if (pos.getY(i) < -10) {
+          pos.setXYZ(
+            i,
+            (Math.random() - 0.5) * 48,
+            0.3 + Math.random() * 5,
+            (Math.random() - 0.5) * 48,
+          );
+        }
+      } else {
+        pos.setXYZ(i, 0, -50, 0);
+      }
+    }
+    pos.needsUpdate = true;
+    this.dustParticles.geometry.setDrawRange(0, n);
   }
 
   /** Enable/disable enemy distance fog-of-war cull (in-memory). */
@@ -244,15 +355,24 @@ export class ThreeRenderer {
   }
 
   animateDust(dt: number) {
+    if (this.dustActiveCount <= 0 || this.dustUpdateHz <= 0) return;
+    this.dustAccum += dt;
+    const interval = 1 / this.dustUpdateHz;
+    if (this.dustAccum < interval) return;
+    // Use accumulated step so low Hz stays stable under varying frame times
+    const step = this.dustAccum;
+    this.dustAccum = 0;
+
     const pos = this.dustParticles.geometry.attributes
       .position as THREE.BufferAttribute;
     const t = performance.now() * 0.001;
-    for (let i = 0; i < pos.count; i++) {
-      let y = pos.getY(i) + dt * (0.12 + (i % 5) * 0.02);
+    const n = this.dustActiveCount;
+    for (let i = 0; i < n; i++) {
+      let y = pos.getY(i) + step * (0.12 + (i % 5) * 0.02);
       if (y > 5.5) y = 0.25;
       pos.setY(i, y);
-      pos.setX(i, pos.getX(i) + Math.sin(t + i) * dt * 0.25);
-      pos.setZ(i, pos.getZ(i) + Math.cos(t * 0.7 + i) * dt * 0.12);
+      pos.setX(i, pos.getX(i) + Math.sin(t + i) * step * 0.25);
+      pos.setZ(i, pos.getZ(i) + Math.cos(t * 0.7 + i) * step * 0.12);
     }
     pos.needsUpdate = true;
   }
@@ -330,18 +450,15 @@ export class ThreeRenderer {
       aliveBulletIds.add(b.id);
       let mesh = this.bulletMeshes.get(b.id);
       if (!mesh) {
-        mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.08, 6, 6),
-          new THREE.MeshBasicMaterial({ color: 0xffee77 }),
-        );
+        mesh = this.acquireBulletMesh();
         this.bulletMeshes.set(b.id, mesh);
-        this.scene.add(mesh);
       }
+      mesh.visible = true;
       mesh.position.set(b.x, 1.0, b.z);
     }
 
     for (const id of [...this.bulletMeshes.keys()]) {
-      if (!aliveBulletIds.has(id)) this.removeBulletMesh(id);
+      if (!aliveBulletIds.has(id)) this.releaseBulletMesh(id);
     }
 
     this.updateCamera(snapshot);
@@ -393,8 +510,11 @@ export class ThreeRenderer {
 
     const sun = new THREE.DirectionalLight(0xffe2b0, 1.55);
     sun.position.set(28, 36, 14);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.castShadow = this.quality.shadowsEnabled;
+    sun.shadow.mapSize.set(
+      this.quality.shadowMapSize,
+      this.quality.shadowMapSize,
+    );
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 100;
     sun.shadow.camera.left = -48;
@@ -403,6 +523,7 @@ export class ThreeRenderer {
     sun.shadow.camera.bottom = -48;
     sun.shadow.bias = -0.0003;
     sun.shadow.normalBias = 0.02;
+    this.sunLight = sun;
     this.scene.add(sun);
 
     // fill light (cool) opposite sun for contact contrast
@@ -547,13 +668,16 @@ export class ThreeRenderer {
     this.scene.add(this.playerSpot);
     this.scene.add(this.playerSpot.target);
 
+    // Max capacity 280; active count / update Hz come from quality tier.
     const count = 280;
+    this.dustMaxCount = count;
     const positions = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
       positions[i * 3] = (Math.random() - 0.5) * 48;
       positions[i * 3 + 1] = 0.3 + Math.random() * 5;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 48;
     }
+    this.dustPositions = positions;
     const pGeo = new THREE.BufferGeometry();
     pGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     this.dustParticles = new THREE.Points(
@@ -568,6 +692,7 @@ export class ThreeRenderer {
       }),
     );
     this.scene.add(this.dustParticles);
+    this.dustActiveCount = count;
   }
 
   private addRoad(x: number, z: number, w: number, d: number, y: number) {
@@ -796,6 +921,8 @@ export class ThreeRenderer {
     const group = new THREE.Group();
     group.position.set(p.x, 0, p.z);
     const kind = p.kind ?? "crate";
+    // Props are numerous — casting shadows is high-only (toggle via applyQuality).
+    const cast = this.propCastShadow;
 
     if (kind === "barrel") {
       const body = new THREE.Mesh(
@@ -807,7 +934,7 @@ export class ThreeRenderer {
         }),
       );
       body.position.y = p.h / 2;
-      body.castShadow = true;
+      body.castShadow = cast;
       body.receiveShadow = true;
       group.add(body);
     } else if (kind === "car") {
@@ -820,7 +947,7 @@ export class ThreeRenderer {
         }),
       );
       chassis.position.y = p.h * 0.35;
-      chassis.castShadow = true;
+      chassis.castShadow = cast;
       group.add(chassis);
       const cabin = new THREE.Mesh(
         new THREE.BoxGeometry(p.w * 0.55, p.h * 0.45, p.d * 0.9),
@@ -833,7 +960,7 @@ export class ThreeRenderer {
         }),
       );
       cabin.position.set(-p.w * 0.05, p.h * 0.72, 0);
-      cabin.castShadow = true;
+      cabin.castShadow = cast;
       group.add(cabin);
       for (const [ox, oz] of [
         [-p.w * 0.3, p.d * 0.55],
@@ -859,7 +986,7 @@ export class ThreeRenderer {
         }),
       );
       body.position.y = p.h / 2;
-      body.castShadow = true;
+      body.castShadow = cast;
       body.receiveShadow = true;
       group.add(body);
       const ridge = new THREE.Mesh(
@@ -875,7 +1002,7 @@ export class ThreeRenderer {
       );
       rock.position.y = p.h * 0.4;
       rock.rotation.set(Math.random(), Math.random(), Math.random());
-      rock.castShadow = true;
+      rock.castShadow = cast;
       group.add(rock);
     } else if (kind === "pole") {
       const pole = new THREE.Mesh(
@@ -887,7 +1014,7 @@ export class ThreeRenderer {
         }),
       );
       pole.position.y = p.h / 2;
-      pole.castShadow = true;
+      pole.castShadow = cast;
       group.add(pole);
       const wire = new THREE.Mesh(
         new THREE.BoxGeometry(2.4, 0.03, 0.03),
@@ -905,7 +1032,7 @@ export class ThreeRenderer {
         }),
       );
       body.position.y = p.h / 2;
-      body.castShadow = true;
+      body.castShadow = cast;
       group.add(body);
     } else {
       const mat = new THREE.MeshStandardMaterial({
@@ -914,7 +1041,7 @@ export class ThreeRenderer {
       });
       const box = new THREE.Mesh(new THREE.BoxGeometry(p.w, p.h, p.d), mat);
       box.position.y = p.h / 2;
-      box.castShadow = true;
+      box.castShadow = cast;
       box.receiveShadow = true;
       group.add(box);
       const edges = new THREE.LineSegments(
@@ -1010,12 +1137,23 @@ export class ThreeRenderer {
     this.lastPos.delete(id);
   }
 
-  private removeBulletMesh(id: string) {
+  private acquireBulletMesh(): THREE.Mesh {
+    const pooled = this.bulletPool.pop();
+    if (pooled) {
+      pooled.visible = true;
+      return pooled;
+    }
+    const mesh = new THREE.Mesh(this.bulletGeo, this.bulletMat);
+    this.scene.add(mesh);
+    return mesh;
+  }
+
+  /** Return mesh to pool (keep shared geo/mat). */
+  private releaseBulletMesh(id: string) {
     const mesh = this.bulletMeshes.get(id);
     if (!mesh) return;
-    this.scene.remove(mesh);
-    mesh.geometry.dispose();
-    (mesh.material as THREE.Material).dispose();
+    mesh.visible = false;
+    this.bulletPool.push(mesh);
     this.bulletMeshes.delete(id);
   }
 

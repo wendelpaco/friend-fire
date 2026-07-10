@@ -188,6 +188,10 @@ export interface HudSnapshot {
   roundBanner: string | null;
   /** Dead in live round — spectator cam active. */
   spectating: boolean;
+  /**
+   * FPS / draw stats when `ff_show_fps` is on; null when overlay disabled.
+   */
+  perf: { fps: number; drawCalls: number; triangles: number } | null;
   minimap: Array<{
     id: string;
     x: number;
