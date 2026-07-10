@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { operatorSelectHref } from "@/domains/operator";
 import {
@@ -50,6 +50,7 @@ export function RoomPanel({
 }: RoomPanelProps) {
   const router = useRouter();
   const [codeInput, setCodeInput] = useState("");
+  const [clipboardChecked, setClipboardChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [createdCode, setCreatedCode] = useState<string | null>(null);
@@ -72,6 +73,21 @@ export function RoomPanel({
     }
     onClose();
   };
+
+  // Auto-paste room code from clipboard (join panel only, once per mount).
+  useEffect(() => {
+    if (mode !== "join" || clipboardChecked) return;
+    setClipboardChecked(true);
+    if (typeof navigator?.clipboard?.readText !== "function") return;
+    navigator.clipboard.readText().then((text) => {
+      const cleaned = text.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+      if (cleaned.length >= 4 && isValidRoomCode(cleaned)) {
+        setCodeInput(cleaned);
+      }
+    }).catch(() => {
+      /* clipboard read denied — user types manually */
+    });
+  }, [mode, clipboardChecked]);
 
   const goToRoom = (code: string, host = false, roomMapId?: string) => {
     const qs = new URLSearchParams({

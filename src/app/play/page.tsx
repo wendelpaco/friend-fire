@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import {
@@ -29,17 +29,54 @@ const GameCanvas = dynamic(
   },
 );
 
+const LOADING_STAGES = [
+  "Conectando à sala…",
+  "Carregando mapa…",
+  "Sincronizando estado…",
+  "Preparando protocolo de combate…",
+];
+
+const TACTICAL_TIPS = [
+  "Parado, seu primeiro tiro é perfeito.",
+  "Shift-walk: ninguém te ouve.",
+  "Fumaça bloqueia visão, não bala.",
+  "Plante a C4 e mude de posição.",
+  "Compre colete — vale cada $.",
+  "Olhe o minimapa. Sempre.",
+];
+
 function PlayLoading() {
+  const [stage, setStage] = useState(0);
+  const [tip, setTip] = useState(0);
+
+  useEffect(() => {
+    const stageTimer = setInterval(() => setStage((s) => (s + 1) % LOADING_STAGES.length), 2200);
+    const tipTimer = setInterval(() => setTip((t) => (t + 1) % TACTICAL_TIPS.length), 5000);
+    return () => { clearInterval(stageTimer); clearInterval(tipTimer); };
+  }, []);
+
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-[#07090e] text-white">
-      <div className="motion-safe:animate-ff-fade-in text-[10px] font-bold tracking-[0.5em] text-amber-500/90">
-        FRIEND FIRE
+    <div className="flex h-full w-full flex-col items-center justify-center gap-5 bg-[#07090e] text-white">
+      <div className="text-center motion-safe:animate-ff-fade-in">
+        <div className="text-[10px] font-bold tracking-[0.5em] text-amber-500/90">
+          FRIEND FIRE
+        </div>
+        <div className="mt-2 text-xl font-black tracking-tight">
+          <span className="bg-gradient-to-r from-red-500 via-orange-400 to-amber-300 bg-clip-text text-transparent">
+            Friend
+          </span>
+          <span className="text-white"> Fire</span>
+        </div>
       </div>
-      <div className="h-1 w-40 overflow-hidden rounded-full bg-white/10">
+      <div className="h-1 w-48 overflow-hidden rounded-full bg-white/10">
         <div className="motion-safe:animate-pulse h-full w-1/3 rounded-full bg-gradient-to-r from-amber-600 to-amber-300" />
       </div>
-      <span className="text-xs tracking-wide text-white/45">
-        Entrando no setor…
+      <span className="text-xs tracking-wide text-white/45">{LOADING_STAGES[stage]}</span>
+      <span
+        key={tip}
+        className="max-w-xs text-center text-[11px] italic leading-relaxed text-white/30 motion-safe:animate-ff-slide-up"
+      >
+        &ldquo;{TACTICAL_TIPS[tip]}&rdquo;
       </span>
     </div>
   );
