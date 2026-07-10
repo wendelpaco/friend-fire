@@ -27,6 +27,14 @@ export type {
 export { WeaponAttach, buildWeaponMesh } from "./WeaponAttach";
 export type { WeaponCategory } from "./WeaponAttach";
 
+/**
+ * Animation budget vs distance from camera/local player.
+ * - full: orientation + procedural bones every frame
+ * - mid: orientation every frame; bones every other frame
+ * - far: orientation only (frozen last pose) — for distant/culled bots
+ */
+export type CharacterLod = "full" | "mid" | "far";
+
 export type CharacterHandle = {
   group: THREE.Group;
   animator: CharacterAnimator;
@@ -34,7 +42,7 @@ export type CharacterHandle = {
   setWeapon: (category: WeaponCategory) => void;
   /**
    * Full frame update: orientation (velocity vs aim) + procedural anim.
-   * Returns foot plant for SFX sync (null if none this frame).
+   * Returns foot plant for SFX sync (null if none this frame / LOD skip).
    */
   update: (
     dt: number,
@@ -50,6 +58,8 @@ export type CharacterHandle = {
       reloading?: boolean;
       shooting?: boolean;
       weaponCategory?: WeaponCategory;
+      /** Default full (local player). */
+      lod?: CharacterLod;
     },
   ) => FootPlant;
   /** Seed body yaw on spawn/respawn. */
@@ -71,6 +81,9 @@ export function createCharacter(teamColor: number): CharacterHandle {
   weapons.setWeapon("rifle");
 
   let lastCategory: WeaponCategory = "rifle";
+  /** Mid-LOD: accumulate dt and run animator every 2nd frame. */
+  let midAnimAccum = 0;
+  let midFrame = 0;
 
   return {
     group: rig.group,
@@ -90,6 +103,8 @@ export function createCharacter(teamColor: number): CharacterHandle {
         lastCategory = input.weaponCategory;
       }
 
+      const lod: CharacterLod = input.lod ?? "full";
+
       const ctrlIn: CharacterControllerInput = {
         moveX: input.moveX,
         moveZ: input.moveZ,
@@ -101,6 +116,18 @@ export function createCharacter(teamColor: number): CharacterHandle {
       // Apply body yaw — THIS is what fixes “de costas”
       rig.group.rotation.y = state.visualYaw;
 
+      // Root height from motor (jump). Orientation uses XZ only.
+      if (input.rootY != null && Number.isFinite(input.rootY)) {
+        rig.group.position.y = input.rootY;
+      }
+
+      // Far: freeze last procedural pose (still faces correctly).
+      if (lod === "far") {
+        midAnimAccum = 0;
+        midFrame = 0;
+        return null;
+      }
+
       const animIn: AnimatorInput = {
         speed: state.speed,
         weights: state.weights,
@@ -111,13 +138,21 @@ export function createCharacter(teamColor: number): CharacterHandle {
         shooting: input.shooting,
         weaponCategory,
       };
-      animator.update(dt, animIn);
 
-      // Root height from motor (jump). Orientation uses XZ only.
-      if (input.rootY != null && Number.isFinite(input.rootY)) {
-        rig.group.position.y = input.rootY;
+      if (lod === "mid") {
+        midAnimAccum += dt;
+        midFrame += 1;
+        if (midFrame % 2 !== 0) return null;
+        const step = midAnimAccum;
+        midAnimAccum = 0;
+        animator.update(step, animIn);
+        return animator.takeFootPlant();
       }
 
+      // full
+      midAnimAccum = 0;
+      midFrame = 0;
+      animator.update(dt, animIn);
       return animator.takeFootPlant();
     },
     dispose() {

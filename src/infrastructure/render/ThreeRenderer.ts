@@ -14,6 +14,7 @@ import { Sfx } from "@/infrastructure/audio/Sfx";
 import {
   createCharacter,
   type CharacterHandle,
+  type CharacterLod,
   type WeaponCategory,
 } from "./character";
 import {
@@ -28,6 +29,24 @@ import {
 
 /** Enemy players beyond this distance from the local player are culled. */
 export const FOG_VISION_RADIUS = 14;
+/** Full procedural anim within this range of the local player. */
+export const ANIM_LOD_FULL_DIST = 14;
+/** Mid anim (every 2nd frame) up to this range; beyond = far (pose frozen). */
+export const ANIM_LOD_MID_DIST = 24;
+
+/** Pure LOD pick — unit-tested, used by {@link ThreeRenderer.sync}. */
+export function pickCharacterLod(
+  isLocal: boolean,
+  visible: boolean,
+  dist: number,
+): CharacterLod {
+  if (isLocal) return "full";
+  if (!visible) return "far";
+  if (!(dist >= 0) || !Number.isFinite(dist)) return "full";
+  if (dist <= ANIM_LOD_FULL_DIST) return "full";
+  if (dist <= ANIM_LOD_MID_DIST) return "mid";
+  return "far";
+}
 
 /** Minimal fields required to keep meshes in sync with simulation. */
 export interface RenderSnapshot {
@@ -97,6 +116,16 @@ export class ThreeRenderer {
   private bulletPool: THREE.Mesh[] = [];
   private bulletGeo!: THREE.SphereGeometry;
   private bulletMat!: THREE.MeshBasicMaterial;
+  /** Shared unit geometries for map props (scaled per instance). */
+  private propGeo = {
+    box: null as THREE.BoxGeometry | null,
+    barrel: null as THREE.CylinderGeometry | null,
+    pole: null as THREE.CylinderGeometry | null,
+    debris: null as THREE.DodecahedronGeometry | null,
+    wheel: null as THREE.CylinderGeometry | null,
+  };
+  private propMatCache = new Map<string, THREE.MeshStandardMaterial>();
+  private crateEdgeMat: THREE.LineBasicMaterial | null = null;
   private wallGroup = new THREE.Group();
   private propGroup = new THREE.Group();
   private adGroup = new THREE.Group();
@@ -406,6 +435,30 @@ export class ThreeRenderer {
       const rootY = p.y ?? 0;
       const crouching = Boolean(p.crouching);
       const airborne = p.onGround === false;
+
+      // Fog of war: local + same team always visible (if alive); enemies only within radius when on.
+      let inVision = true;
+      let distToLocal = 0;
+      if (local) {
+        distToLocal = Math.hypot(p.x - local.x, p.z - local.z);
+      }
+      if (
+        this.fogEnabled &&
+        local &&
+        p.id !== local.id &&
+        p.team !== local.team
+      ) {
+        inVision = distToLocal <= FOG_VISION_RADIUS;
+      }
+      handle.group.visible = p.alive && inVision;
+
+      // Anim LOD: local always full; distant / culled bots cheaper.
+      const lod = this.characterLod(
+        p.id === snapshot.localPlayerId,
+        p.alive && inVision,
+        distToLocal,
+      );
+
       // CharacterController: body faces velocity when moving, aim when idle.
       // Yaw uses horizontal move only (moveX/moveZ) — jump Y never enters facing.
       const foot = handle.update(dt, {
@@ -418,6 +471,7 @@ export class ThreeRenderer {
         reloading: Boolean(p.reloading),
         shooting,
         weaponCategory: cat,
+        lod,
       });
 
       // Foot SFX synced to walk-cycle plant (local player only — avoid spam).
@@ -425,18 +479,6 @@ export class ThreeRenderer {
         Sfx.play("foot");
       }
 
-      // Fog of war: local + same team always visible (if alive); enemies only within radius when on.
-      let inVision = true;
-      if (
-        this.fogEnabled &&
-        local &&
-        p.id !== local.id &&
-        p.team !== local.team
-      ) {
-        const dist = Math.hypot(p.x - local.x, p.z - local.z);
-        inVision = dist <= FOG_VISION_RADIUS;
-      }
-      handle.group.visible = p.alive && inVision;
       handle.group.position.set(p.x, rootY, p.z);
       // visual yaw applied inside handle.update via CharacterController
     }
@@ -468,6 +510,15 @@ export class ThreeRenderer {
     this.renderer.render(this.scene, this.camera);
   }
 
+  /** Pick anim budget from distance / visibility (local always full). */
+  private characterLod(
+    isLocal: boolean,
+    visible: boolean,
+    dist: number,
+  ): CharacterLod {
+    return pickCharacterLod(isLocal, visible, dist);
+  }
+
   resize(width: number, height: number) {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
@@ -489,8 +540,29 @@ export class ThreeRenderer {
     this.renderer.dispose();
     this.sandTex.dispose();
     this.wallTex.dispose();
+    this.bulletGeo.dispose();
+    this.bulletMat.dispose();
+    this.bulletPool.length = 0;
+    this.bulletMeshes.clear();
+    // Shared prop resources — dispose once (meshes only reference them).
+    this.propGeo.box?.dispose();
+    this.propGeo.barrel?.dispose();
+    this.propGeo.pole?.dispose();
+    this.propGeo.debris?.dispose();
+    this.propGeo.wheel?.dispose();
+    this.propGeo.box = null;
+    this.propGeo.barrel = null;
+    this.propGeo.pole = null;
+    this.propGeo.debris = null;
+    this.propGeo.wheel = null;
+    this.crateEdgeMat?.dispose();
+    this.crateEdgeMat = null;
+    for (const m of this.propMatCache.values()) m.dispose();
+    this.propMatCache.clear();
     this.scene.traverse((obj) => {
       if (obj instanceof THREE.Mesh || obj instanceof THREE.Points) {
+        // Skip shared prop / bullet assets (disposed above).
+        if (obj.userData?.sharedResource) return;
         obj.geometry.dispose();
         const mat = obj.material;
         if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
@@ -917,143 +989,244 @@ export class ThreeRenderer {
     return tex;
   }
 
+  /** Unit box shared by crates / containers / dumpsters / car parts (scaled). */
+  private unitBoxGeo(): THREE.BoxGeometry {
+    if (!this.propGeo.box) this.propGeo.box = new THREE.BoxGeometry(1, 1, 1);
+    return this.propGeo.box;
+  }
+
+  private unitBarrelGeo(): THREE.CylinderGeometry {
+    // Radius ~0.45–0.48 unit, height 1 — scale by w/h at mesh.
+    if (!this.propGeo.barrel) {
+      this.propGeo.barrel = new THREE.CylinderGeometry(0.48, 0.45, 1, 12);
+    }
+    return this.propGeo.barrel;
+  }
+
+  private unitPoleGeo(): THREE.CylinderGeometry {
+    if (!this.propGeo.pole) {
+      this.propGeo.pole = new THREE.CylinderGeometry(0.1, 0.08, 1, 6);
+    }
+    return this.propGeo.pole;
+  }
+
+  private unitDebrisGeo(): THREE.DodecahedronGeometry {
+    if (!this.propGeo.debris) {
+      this.propGeo.debris = new THREE.DodecahedronGeometry(0.45, 0);
+    }
+    return this.propGeo.debris;
+  }
+
+  private sharedPropMat(
+    key: string,
+    params: ConstructorParameters<typeof THREE.MeshStandardMaterial>[0],
+  ): THREE.MeshStandardMaterial {
+    let m = this.propMatCache.get(key);
+    if (!m) {
+      m = new THREE.MeshStandardMaterial(params);
+      this.propMatCache.set(key, m);
+    }
+    return m;
+  }
+
+  private markShared(mesh: THREE.Mesh): THREE.Mesh {
+    mesh.userData.sharedResource = true;
+    return mesh;
+  }
+
   private createProp(p: GameMap["props"][number]): THREE.Object3D {
     const group = new THREE.Group();
     group.position.set(p.x, 0, p.z);
     const kind = p.kind ?? "crate";
     // Props are numerous — casting shadows is high-only (toggle via applyQuality).
     const cast = this.propCastShadow;
+    const boxGeo = this.unitBoxGeo();
+    const colorKey = (p.color >>> 0).toString(16);
 
     if (kind === "barrel") {
-      const body = new THREE.Mesh(
-        new THREE.CylinderGeometry(p.w * 0.45, p.w * 0.48, p.h, 14),
-        new THREE.MeshStandardMaterial({
-          color: p.color,
-          roughness: 0.5,
-          metalness: 0.4,
-        }),
+      const body = this.markShared(
+        new THREE.Mesh(
+          this.unitBarrelGeo(),
+          this.sharedPropMat(`barrel:${colorKey}`, {
+            color: p.color,
+            roughness: 0.5,
+            metalness: 0.4,
+          }),
+        ),
       );
+      // Unit barrel r≈0.48 h=1 → scale to prop footprint / height
+      body.scale.set(p.w, p.h, p.d);
       body.position.y = p.h / 2;
       body.castShadow = cast;
       body.receiveShadow = true;
       group.add(body);
     } else if (kind === "car") {
-      const chassis = new THREE.Mesh(
-        new THREE.BoxGeometry(p.w, p.h * 0.55, p.d),
-        new THREE.MeshStandardMaterial({
-          color: p.color,
-          roughness: 0.4,
-          metalness: 0.45,
-        }),
+      const chassis = this.markShared(
+        new THREE.Mesh(
+          boxGeo,
+          this.sharedPropMat(`car:${colorKey}`, {
+            color: p.color,
+            roughness: 0.4,
+            metalness: 0.45,
+          }),
+        ),
       );
+      chassis.scale.set(p.w, p.h * 0.55, p.d);
       chassis.position.y = p.h * 0.35;
       chassis.castShadow = cast;
       group.add(chassis);
-      const cabin = new THREE.Mesh(
-        new THREE.BoxGeometry(p.w * 0.55, p.h * 0.45, p.d * 0.9),
-        new THREE.MeshStandardMaterial({
-          color: 0x1a202c,
-          roughness: 0.25,
-          metalness: 0.2,
-          transparent: true,
-          opacity: 0.85,
-        }),
+      const cabin = this.markShared(
+        new THREE.Mesh(
+          boxGeo,
+          this.sharedPropMat("car:cabin", {
+            color: 0x1a202c,
+            roughness: 0.25,
+            metalness: 0.2,
+            transparent: true,
+            opacity: 0.85,
+          }),
+        ),
       );
+      cabin.scale.set(p.w * 0.55, p.h * 0.45, p.d * 0.9);
       cabin.position.set(-p.w * 0.05, p.h * 0.72, 0);
       cabin.castShadow = cast;
       group.add(cabin);
+      const wheelMat = this.sharedPropMat("car:wheel", {
+        color: 0x111111,
+        roughness: 0.9,
+      });
+      if (!this.propGeo.wheel) {
+        this.propGeo.wheel = new THREE.CylinderGeometry(0.28, 0.28, 0.22, 10);
+      }
+      const wheelGeo = this.propGeo.wheel;
       for (const [ox, oz] of [
         [-p.w * 0.3, p.d * 0.55],
         [p.w * 0.3, p.d * 0.55],
         [-p.w * 0.3, -p.d * 0.55],
         [p.w * 0.3, -p.d * 0.55],
       ] as const) {
-        const wheel = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.28, 0.28, 0.22, 10),
-          new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }),
-        );
+        const wheel = this.markShared(new THREE.Mesh(wheelGeo, wheelMat));
         wheel.rotation.z = Math.PI / 2;
         wheel.position.set(ox, 0.28, oz);
         group.add(wheel);
       }
     } else if (kind === "container") {
-      const body = new THREE.Mesh(
-        new THREE.BoxGeometry(p.w, p.h, p.d),
-        new THREE.MeshStandardMaterial({
-          color: p.color,
-          roughness: 0.55,
-          metalness: 0.35,
-        }),
+      const body = this.markShared(
+        new THREE.Mesh(
+          boxGeo,
+          this.sharedPropMat(`container:${colorKey}`, {
+            color: p.color,
+            roughness: 0.55,
+            metalness: 0.35,
+          }),
+        ),
       );
+      body.scale.set(p.w, p.h, p.d);
       body.position.y = p.h / 2;
       body.castShadow = cast;
       body.receiveShadow = true;
       group.add(body);
-      const ridge = new THREE.Mesh(
-        new THREE.BoxGeometry(p.w * 0.98, 0.08, p.d * 0.98),
-        new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.5 }),
+      const ridge = this.markShared(
+        new THREE.Mesh(
+          boxGeo,
+          this.sharedPropMat("container:ridge", {
+            color: 0x111111,
+            metalness: 0.5,
+          }),
+        ),
       );
+      ridge.scale.set(p.w * 0.98, 0.08, p.d * 0.98);
       ridge.position.y = p.h + 0.02;
       group.add(ridge);
     } else if (kind === "debris") {
-      const rock = new THREE.Mesh(
-        new THREE.DodecahedronGeometry(Math.max(p.w, p.d) * 0.45, 0),
-        new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.95 }),
+      const s = Math.max(p.w, p.d);
+      const rock = this.markShared(
+        new THREE.Mesh(
+          this.unitDebrisGeo(),
+          this.sharedPropMat(`debris:${colorKey}`, {
+            color: p.color,
+            roughness: 0.95,
+          }),
+        ),
       );
+      rock.scale.setScalar(s);
       rock.position.y = p.h * 0.4;
       rock.rotation.set(Math.random(), Math.random(), Math.random());
       rock.castShadow = cast;
       group.add(rock);
     } else if (kind === "pole") {
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.1, p.h, 6),
-        new THREE.MeshStandardMaterial({
-          color: p.color,
-          metalness: 0.5,
-          roughness: 0.5,
-        }),
+      const pole = this.markShared(
+        new THREE.Mesh(
+          this.unitPoleGeo(),
+          this.sharedPropMat(`pole:${colorKey}`, {
+            color: p.color,
+            metalness: 0.5,
+            roughness: 0.5,
+          }),
+        ),
       );
+      pole.scale.set(1, p.h, 1);
       pole.position.y = p.h / 2;
       pole.castShadow = cast;
       group.add(pole);
-      const wire = new THREE.Mesh(
-        new THREE.BoxGeometry(2.4, 0.03, 0.03),
-        new THREE.MeshStandardMaterial({ color: 0x222222 }),
+      const wire = this.markShared(
+        new THREE.Mesh(
+          boxGeo,
+          this.sharedPropMat("pole:wire", { color: 0x222222 }),
+        ),
       );
+      wire.scale.set(2.4, 0.03, 0.03);
       wire.position.set(1.0, p.h * 0.92, 0);
       group.add(wire);
     } else if (kind === "dumpster") {
-      const body = new THREE.Mesh(
-        new THREE.BoxGeometry(p.w, p.h, p.d),
-        new THREE.MeshStandardMaterial({
-          color: p.color,
-          roughness: 0.7,
-          metalness: 0.25,
-        }),
+      const body = this.markShared(
+        new THREE.Mesh(
+          boxGeo,
+          this.sharedPropMat(`dumpster:${colorKey}`, {
+            color: p.color,
+            roughness: 0.7,
+            metalness: 0.25,
+          }),
+        ),
       );
+      body.scale.set(p.w, p.h, p.d);
       body.position.y = p.h / 2;
       body.castShadow = cast;
       group.add(body);
     } else {
-      const mat = new THREE.MeshStandardMaterial({
-        color: p.color,
-        roughness: 0.8,
-      });
-      const box = new THREE.Mesh(new THREE.BoxGeometry(p.w, p.h, p.d), mat);
+      // crate (default) — unit box scaled; edge lines only on high quality
+      const box = this.markShared(
+        new THREE.Mesh(
+          boxGeo,
+          this.sharedPropMat(`crate:${colorKey}`, {
+            color: p.color,
+            roughness: 0.8,
+          }),
+        ),
+      );
+      box.scale.set(p.w, p.h, p.d);
       box.position.y = p.h / 2;
       box.castShadow = cast;
       box.receiveShadow = true;
       group.add(box);
-      const edges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(p.w, p.h, p.d)),
-        new THREE.LineBasicMaterial({
-          color: 0x000000,
-          transparent: true,
-          opacity: 0.22,
-        }),
-      );
-      edges.position.y = p.h / 2;
-      group.add(edges);
+      // Edge outlines are expensive (extra geo per crate) — high tier only.
+      if (this.quality.quality === "high") {
+        if (!this.crateEdgeMat) {
+          this.crateEdgeMat = new THREE.LineBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.22,
+          });
+        }
+        const edges = new THREE.LineSegments(
+          new THREE.EdgesGeometry(boxGeo),
+          this.crateEdgeMat,
+        );
+        edges.userData.sharedResource = true;
+        edges.scale.set(p.w, p.h, p.d);
+        edges.position.y = p.h / 2;
+        group.add(edges);
+      }
     }
 
     return group;
@@ -1144,6 +1317,7 @@ export class ThreeRenderer {
       return pooled;
     }
     const mesh = new THREE.Mesh(this.bulletGeo, this.bulletMat);
+    mesh.userData.sharedResource = true;
     this.scene.add(mesh);
     return mesh;
   }
