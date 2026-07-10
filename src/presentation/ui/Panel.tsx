@@ -6,14 +6,14 @@ type PanelProps = {
   elevated?: boolean;
 };
 
-/** FF Tactical surface — dark panel with amber-border hierarchy. */
+/** FF Tactical surface — dark glass panel with amber-border hierarchy. */
 export function Panel({ children, className = "", elevated = false }: PanelProps) {
   return (
     <div
-      className={`rounded-2xl border border-[color:var(--ff-border)] backdrop-blur-md ${
+      className={`border-2 border-[rgba(255,179,0,0.16)] backdrop-blur-md ${
         elevated
-          ? "bg-[color:var(--ff-panel-2)]/95"
-          : "bg-[color:var(--ff-panel)]/90"
+          ? "bg-[#12151A]/95"
+          : "bg-[#12151A]/80"
       } ${className}`}
     >
       {children}
@@ -35,14 +35,14 @@ type ButtonProps = {
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary:
-    "border-amber-400/50 bg-gradient-to-r from-amber-600 to-amber-500 text-black font-black shadow-lg shadow-amber-900/35 motion-safe:transition-all motion-safe:duration-150 hover:from-amber-500 hover:to-amber-400 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100",
+    "border-2 border-[#B87900] bg-[#FFB300] text-[#0B0D10] font-black shadow-[3px_3px_0_0_rgba(0,0,0,0.5)] hover:brightness-110 active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-50 disabled:hover:brightness-100 disabled:active:translate-x-0 disabled:active:translate-y-0 disabled:active:shadow-[3px_3px_0_0_rgba(0,0,0,0.5)]",
   ghost:
-    "border-white/10 bg-black/45 text-white/80 font-semibold motion-safe:transition-all motion-safe:duration-150 hover:border-white/20 hover:bg-black/60 hover:text-white active:scale-[0.98] disabled:opacity-40 disabled:hover:scale-100",
+    "border-2 border-[rgba(255,179,0,0.16)] bg-white/[0.04] text-[#B9B29F] font-semibold shadow-[2px_2px_0_0_rgba(0,0,0,0.3)] hover:border-[rgba(255,179,0,0.35)] hover:bg-white/[0.08] hover:text-[#F4EFE3] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-40 disabled:hover:bg-white/[0.04] disabled:hover:text-[#B9B29F] disabled:active:translate-x-0 disabled:active:translate-y-0",
   danger:
-    "border-red-500/40 bg-red-950/50 text-red-200 font-semibold motion-safe:transition-all motion-safe:duration-150 hover:bg-red-900/50 active:scale-[0.98] disabled:opacity-40 disabled:hover:scale-100",
+    "border-2 border-[#FF3B30]/40 bg-[#FF3B30]/10 text-red-200 font-semibold shadow-[2px_2px_0_0_rgba(0,0,0,0.3)] hover:bg-[#FF3B30]/20 active:shadow-none active:translate-x-[2px] active:translate-y-[2px] disabled:opacity-40",
 };
 
-/** FF Tactical button — primary / ghost / danger. */
+/** FF Tactical button — primary / ghost / danger with hard shadow press. */
 export function Button({
   children,
   variant = "primary",
@@ -58,7 +58,7 @@ export function Button({
       disabled={disabled}
       title={title}
       onClick={onClick}
-      className={`rounded-xl border px-5 py-3 text-center text-sm tracking-wide transition disabled:cursor-not-allowed ${VARIANT[variant]} ${className}`}
+      className={`px-5 py-3 text-center text-sm tracking-wide transition-all duration-120 disabled:cursor-not-allowed ${VARIANT[variant]} ${className}`}
     >
       {children}
     </button>

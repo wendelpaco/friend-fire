@@ -4,22 +4,14 @@ type ModalProps = {
   open: boolean;
   onClose?: () => void;
   children: ReactNode;
-  /** Prevents closing on backdrop click / Esc. */
   persistent?: boolean;
-  /** Extra classes on the overlay. */
   overlayClassName?: string;
-  /** Extra classes on the card. */
   className?: string;
   ariaLabelledby?: string;
   ariaLabel?: string;
 };
 
-/**
- * FF Tactical modal — standardised backdrop + card.
- *
- * Replaces scattered inline fixed-position divs (pause menu, server browser,
- * quick-match overlay, etc.). Those callers should migrate in follow-up PRs.
- */
+/** FF Tactical modal — thick border, hard shadow, glass backdrop. */
 export function Modal({
   open,
   onClose,
@@ -32,33 +24,20 @@ export function Modal({
 }: ModalProps) {
   if (!open) return null;
 
-  const handleBackdrop = () => {
-    if (!persistent && onClose) onClose();
-  };
-
+  const handleBackdrop = () => { if (!persistent && onClose) onClose(); };
   const handleKey = (e: React.KeyboardEvent) => {
-    if (!persistent && e.key === "Escape" && onClose) {
-      e.stopPropagation();
-      onClose();
-    }
+    if (!persistent && e.key === "Escape" && onClose) { e.stopPropagation(); onClose(); }
   };
 
   return (
     <div
-      className={`motion-safe:animate-ff-fade-in pointer-events-auto fixed inset-0 flex items-center justify-center bg-[var(--ff-bg-overlay)] p-4 backdrop-blur-sm ${overlayClassName}`}
-      style={{ zIndex: "var(--ff-z-modal)" }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={ariaLabelledby}
-      aria-label={ariaLabel}
-      onClick={handleBackdrop}
-      onKeyDown={handleKey}
+      className={`motion-safe:animate-ff-fade-in pointer-events-auto fixed inset-0 z-40 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm ${overlayClassName}`}
+      role="dialog" aria-modal="true" aria-labelledby={ariaLabelledby} aria-label={ariaLabel}
+      onClick={handleBackdrop} onKeyDown={handleKey}
     >
-      {/* Card — stop propagation so clicks inside don't close */}
       <div
-        className={`motion-safe:animate-ff-scale-in w-full rounded-[var(--ff-radius-2xl)] border border-[var(--ff-border)] bg-[var(--ff-panel)] shadow-[var(--ff-shadow-xl)] ${className}`}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
+        className={`motion-safe:animate-ff-scale-in w-full border-2 border-[rgba(255,179,0,0.20)] bg-[#12151A] shadow-[0_16px_40px_rgba(0,0,0,0.7)] ${className}`}
+        onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
       >
         {children}
       </div>
